@@ -1,7 +1,14 @@
 [package]
 name = "hallucinate-cli"
+description = "LLM harness that's a lot like pi"
 version = "0.1.0"
 edition = "2024"
+publish = ["smalls-personal"]
+
+license-file = "LICENSE"
+
+homepage = "https://git.smalls.online/smalls/hallucinate-cli"
+repository = "https://git.smalls.online/smalls/hallucinate-cli"
 
 [dependencies]
 anyhow = "1.0.104"
