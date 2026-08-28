@@ -259,6 +259,9 @@ async fn chat(
         super::resolve_shell(cli, settings),
     )
     .with_cwd(session.cwd.clone());
+    if let Some(system_prompt) = &cli.system_prompt {
+        agent = agent.with_system_prompt(system_prompt.clone());
+    }
     if let Err(error) = agent.load_history(history) {
         return RpcResponse::error(-32603, "Invalid session history", id, error.to_string());
     }

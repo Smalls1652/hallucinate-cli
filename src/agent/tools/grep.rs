@@ -74,11 +74,12 @@ impl Tool for GrepTool {
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: pattern"))?;
 
+            let project_dir = cwd.unwrap_or(".");
             let search_path = arguments
                 .get("path")
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| cwd.unwrap_or(".").to_string());
+                .unwrap_or(".");
+            let search_path = resolve_path(search_path, project_dir);
 
             let file_pattern = arguments
                 .get("file_pattern")
@@ -119,7 +120,7 @@ impl Tool for GrepTool {
                     if regex.is_match(line) {
                         results.push(format!(
                             "{}:{}: {}",
-                            file_path.display(),
+                            crate::config::paths::display_path(file_path, project_dir),
                             line_num + 1,
                             line.trim()
                         ));
@@ -146,11 +147,24 @@ impl Tool for GrepTool {
     }
 }
 
+fn resolve_path(
+    path_str: &str,
+    cwd: &str,
+) -> std::path::PathBuf {
+    let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
+    let path = Path::new(expanded.as_ref());
+    if path.is_relative() {
+        Path::new(cwd).join(path)
+    } else {
+        path.to_path_buf()
+    }
+}
+
 fn collect_files(
-    search_path: &str,
+    search_path: &Path,
     file_pattern: Option<&str>,
 ) -> Result<Vec<std::path::PathBuf>, anyhow::Error> {
-    let path = Path::new(search_path);
+    let path = search_path;
 
     if path.is_file() {
         return Ok(vec![path.to_path_buf()]);
@@ -158,9 +172,9 @@ fn collect_files(
 
     if path.is_dir() {
         let pattern = if let Some(fp) = file_pattern {
-            format!("{search_path}/**/{fp}")
+            search_path.join("**").join(fp).to_string_lossy().into_owned()
         } else {
-            format!("{search_path}/**/*")
+            search_path.join("**").join("*").to_string_lossy().into_owned()
         };
 
         let mut files = Vec::new();

@@ -1,6 +1,6 @@
 //! Find tool: glob-based file search.
 
-use std::{future::Future, pin::Pin};
+use std::{future::Future, path::{Path, PathBuf}, pin::Pin};
 
 use serde_json::json;
 
@@ -70,30 +70,27 @@ impl Tool for FindTool {
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: pattern"))?;
 
+            let project_dir = cwd.unwrap_or(".");
             let search_path = arguments
                 .get("path")
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| cwd.unwrap_or(".").to_string());
+                .unwrap_or(".");
+            let search_path = resolve_path(search_path, project_dir);
 
             let max_results = arguments
                 .get("max_results")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(self.max_results as u64) as usize;
 
-            let full_pattern = if search_path == "." || search_path.is_empty() {
-                pattern.to_string()
-            } else {
-                format!("{}/{}", search_path, pattern)
-            };
-
-            let expanded_pattern = shellexpand::full(&full_pattern)
-                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&full_pattern));
+            let full_pattern = search_path.join(pattern);
+            let full_pattern_string = full_pattern.to_string_lossy().into_owned();
+            let expanded_pattern = shellexpand::full(&full_pattern_string)
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&full_pattern_string));
 
             let matches: Vec<_> = glob::glob(expanded_pattern.as_ref())?
                 .filter_map(|entry| entry.ok())
                 .filter(|entry| entry.is_file())
-                .map(|entry| entry.display().to_string())
+                .map(|entry| crate::config::paths::display_path(entry, project_dir))
                 .take(max_results)
                 .collect();
 
@@ -113,6 +110,19 @@ impl Tool for FindTool {
                 Ok(super::types::ToolResult::success("find", "find", result))
             }
         })
+    }
+}
+
+fn resolve_path(
+    path_str: &str,
+    cwd: &str,
+) -> PathBuf {
+    let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
+    let path = Path::new(expanded.as_ref());
+    if path.is_relative() {
+        Path::new(cwd).join(path)
+    } else {
+        path.to_path_buf()
     }
 }
 

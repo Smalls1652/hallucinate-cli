@@ -31,11 +31,12 @@ pub fn run(
                     )
                 })?;
             settings.save_api_key(provider, &key)?;
+            let project_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             println!(
                 "Saved credentials for provider '{}' in {}.",
                 provider,
                 paths::settings_file()
-                    .map(|path| path.display().to_string())
+                    .map(|path| paths::display_path(path, &project_dir))
                     .unwrap_or_else(|| "the settings file".to_string())
             );
         },

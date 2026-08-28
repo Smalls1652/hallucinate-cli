@@ -26,7 +26,11 @@ async fn main() -> Result<(), anyhow::Error> {
     if cli.debug
         && let Some(path) = logging::init_debug_logging()?
     {
-        eprintln!("Debug logging enabled: {}", path.display());
+        let project_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        eprintln!(
+            "Debug logging enabled: {}",
+            config::paths::display_path(path, &project_dir)
+        );
     }
     tracing::debug!(
         print_mode = cli.print.is_some(),

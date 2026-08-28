@@ -102,6 +102,7 @@ impl Tool for WriteTool {
             }
 
             let path = resolve_path(path_str, cwd);
+            let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
 
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -121,7 +122,7 @@ impl Tool for WriteTool {
                 format!(
                     "Successfully wrote {} bytes to {}",
                     content.len(),
-                    path.display()
+                    display_path
                 ),
             ))
         })

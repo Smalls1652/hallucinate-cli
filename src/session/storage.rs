@@ -284,7 +284,7 @@ impl SessionStorage {
             let line = line.map_err(|error| {
                 anyhow::anyhow!(
                     "failed reading session {} at line {}: {}",
-                    self.path.display(),
+                    crate::config::paths::display_path(&self.path, "."),
                     line_number,
                     error
                 )
@@ -296,7 +296,7 @@ impl SessionStorage {
             let entry = SessionEntry::from_json(&line).map_err(|error| {
                 anyhow::anyhow!(
                     "invalid session entry in {} at line {}: {}",
-                    self.path.display(),
+                    crate::config::paths::display_path(&self.path, "."),
                     line_number,
                     error
                 )

@@ -111,6 +111,8 @@ hallucinate auth list
 
 Settings are loaded from the application's config directory. You can override individual settings via CLI flags.
 
+The built-in system prompt can be replaced with a `SYSTEM.md` file in the application's global config directory. A project-level `AGENTS.md` in the working directory is appended to the system prompt. Interactive sessions show any discovered prompt files under the `Context` section when they start.
+
 ## Modes
 
 ### Interactive Mode

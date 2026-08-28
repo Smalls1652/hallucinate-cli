@@ -98,12 +98,13 @@ impl Tool for LsTool {
                 .unwrap_or(self.max_entries as u64) as usize;
 
             let path = resolve_path(&path_str, cwd);
+            let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
 
             if !path.exists() {
                 return Ok(super::types::ToolResult::error(
                     "ls",
                     "ls",
-                    format!("Path not found: {}", path.display()),
+                    format!("Path not found: {display_path}"),
                 ));
             }
 
@@ -144,7 +145,10 @@ impl Tool for LsTool {
                                 "{:<6} {:>10} {}",
                                 entry_type,
                                 format_size(size),
-                                entry_path.display()
+                                crate::config::paths::display_path(
+                                    &entry_path,
+                                    cwd.unwrap_or("."),
+                                )
                             ));
 
                             if is_dir {
@@ -189,10 +193,10 @@ impl Tool for LsTool {
                 Ok(super::types::ToolResult::success(
                     "ls",
                     "ls",
-                    format!("Directory is empty: {}", path.display()),
+                    format!("Directory is empty: {display_path}"),
                 ))
             } else {
-                let result = format!("Directory: {}\n\n{}", path.display(), entries.join("\n"));
+                let result = format!("Directory: {display_path}\n\n{}", entries.join("\n"));
                 Ok(super::types::ToolResult::success("ls", "ls", result))
             }
         })

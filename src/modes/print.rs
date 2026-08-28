@@ -27,12 +27,15 @@ pub async fn run(
         .iter()
         .map(|path| crate::ai::images::load_image_file(path, settings.auto_resize_images))
         .collect::<Result<Vec<_>, _>>()?;
+    let cwd = std::env::current_dir()?;
     let mut context = Context::new(vec![Message::User(UserMessage::with_images(
         prompt, images,
     ))]);
-    if let Some(system_prompt) = &cli.system_prompt {
-        context = context.with_system_prompt(system_prompt);
-    }
+    let system_prompt = crate::agent::system_prompt::build_system_prompt_for_cwd(
+        cli.system_prompt.as_deref(),
+        Some(&cwd),
+    );
+    context = context.with_system_prompt(system_prompt);
 
     // Build stream options
     let mut options = StreamOptions::new();

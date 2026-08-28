@@ -94,19 +94,17 @@ impl Tool for EditTool {
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: new_text"))?;
 
             let path = resolve_path(path_str, cwd);
+            let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
 
             let content = std::fs::read_to_string(&path)
-                .map_err(|e| anyhow::anyhow!("Failed to read file {}: {}", path.display(), e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to read file {display_path}: {e}"))?;
 
             if !content.contains(old_text) {
                 return Ok(super::types::ToolResult::error(
                     "edit",
                     "edit",
                     format!(
-                        "Text not found in file.\n\nFile: {}\n\nSearched for:\n{}\n\nFile content:\n{}",
-                        path.display(),
-                        old_text,
-                        content
+                        "Text not found in file.\n\nFile: {display_path}\n\nSearched for:\n{old_text}\n\nFile content:\n{content}"
                     ),
                 ));
             }
@@ -132,7 +130,7 @@ impl Tool for EditTool {
                 format!(
                     "Successfully replaced {} occurrence(s) in {}",
                     count,
-                    path.display()
+                    display_path
                 ),
             ))
         })

@@ -19,13 +19,23 @@ pub fn init_debug_logging() -> Result<Option<PathBuf>, anyhow::Error> {
         .parent()
         .context("debug log file must have a parent directory")?;
     std::fs::create_dir_all(parent)
-        .with_context(|| format!("failed to create debug log directory {}", parent.display()))?;
+        .with_context(|| {
+            format!(
+                "failed to create debug log directory {}",
+                crate::config::paths::display_path(parent, ".")
+            )
+        })?;
 
     let file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
-        .with_context(|| format!("failed to open debug log file {}", path.display()))?;
+        .with_context(|| {
+            format!(
+                "failed to open debug log file {}",
+                crate::config::paths::display_path(&path, ".")
+            )
+        })?;
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("hallucinate_cli=debug"));
     fmt()

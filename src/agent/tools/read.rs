@@ -102,12 +102,13 @@ impl Tool for ReadTool {
                 .unwrap_or(self.max_size as u64) as usize;
 
             let path = resolve_path(path_str, cwd);
+            let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
 
             if !path.exists() {
                 return Ok(super::types::ToolResult::error(
                     "read",
                     "read",
-                    format!("File not found: {}", path.display()),
+                    format!("File not found: {display_path}"),
                 ));
             }
 
@@ -115,7 +116,7 @@ impl Tool for ReadTool {
                 return Ok(super::types::ToolResult::error(
                     "read",
                     "read",
-                    format!("Path is a directory, not a file: {}", path.display()),
+                    format!("Path is a directory, not a file: {display_path}"),
                 ));
             }
 
@@ -141,7 +142,7 @@ impl Tool for ReadTool {
                 return Ok(super::types::ToolResult::success(
                     "read",
                     "read",
-                    format!("Read image file [{}]: {}", image.mime_type, path.display()),
+                    format!("Read image file [{}]: {display_path}", image.mime_type),
                 )
                 .with_images(vec![image]));
             }
@@ -164,7 +165,7 @@ impl Tool for ReadTool {
             Ok(super::types::ToolResult::success(
                 "read",
                 "read",
-                format!("File: {}\n\n{}", path.display(), truncated),
+                format!("File: {display_path}\n\n{truncated}"),
             ))
         })
     }

@@ -1,5 +1,7 @@
 //! Transcript data used by the purpose-built interactive UI.
 
+use std::path::Path;
+
 /// A renderer-independent transcript model. The interactive mode owns the
 /// terminal event loop and uses this type for message storage and viewport
 /// state.
@@ -48,7 +50,18 @@ impl ToolCall {
     ///
     /// Instead of showing raw JSON arguments, this formats the call based on
     /// the tool name so users can quickly understand what action was taken.
+    #[allow(dead_code)]
     pub fn human_readable(&self) -> String {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+        self.human_readable_with_cwd(&cwd)
+    }
+
+    /// Return a human-readable representation using `cwd` as the project
+    /// directory for path shortening.
+    pub fn human_readable_with_cwd(
+        &self,
+        cwd: &Path,
+    ) -> String {
         let args = serde_json::from_str::<serde_json::Value>(&self.arguments).ok();
         let Some(args) = args.as_ref() else {
             return self.arguments.clone();
@@ -66,7 +79,11 @@ impl ToolCall {
             "read" | "write" | "edit" => {
                 // Show tool name + path
                 if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                    format!("{} {}", self.name, path)
+                    format!(
+                        "{} {}",
+                        self.name,
+                        display_tool_path(path, cwd)
+                    )
                 } else {
                     self.arguments.clone()
                 }
@@ -75,7 +92,7 @@ impl ToolCall {
                 // Show tool name + pattern (and optional path)
                 if let Some(pattern) = args.get("pattern").and_then(|v| v.as_str()) {
                     if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                        format!("find {} {}", pattern, path)
+                        format!("find {} {}", pattern, display_tool_path(path, cwd))
                     } else {
                         format!("find {}", pattern)
                     }
@@ -87,7 +104,7 @@ impl ToolCall {
                 // Show grep pattern + optional path
                 if let Some(pattern) = args.get("pattern").and_then(|v| v.as_str()) {
                     if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                        format!("grep {} {}", pattern, path)
+                        format!("grep {} {}", pattern, display_tool_path(path, cwd))
                     } else {
                         format!("grep {}", pattern)
                     }
@@ -98,13 +115,29 @@ impl ToolCall {
             "ls" => {
                 // Show ls + optional path
                 if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                    format!("ls {}", path)
+                    format!("ls {}", display_tool_path(path, cwd))
                 } else {
                     "ls .".to_string()
                 }
             },
             _ => self.arguments.clone(),
         }
+    }
+}
+
+fn display_tool_path(
+    path: &str,
+    cwd: &Path,
+) -> String {
+    let displayed = crate::config::paths::display_path(path, cwd);
+    if (path.ends_with('/') || path.ends_with('\\'))
+        && displayed != "."
+        && !displayed.ends_with('/')
+        && !displayed.ends_with('\\')
+    {
+        format!("{displayed}{}", &path[path.len() - 1..])
+    } else {
+        displayed
     }
 }
 

@@ -3,7 +3,7 @@
 //! Message types, tool definitions, model metadata, usage tracking, and event
 //! streams.
 
-use std::fmt;
+use std::{fmt, path::Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -122,6 +122,16 @@ impl ToolCall {
     /// Instead of showing raw JSON arguments, this formats the call based on
     /// the tool name so users can quickly understand what action was taken.
     pub fn human_readable(&self) -> String {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+        self.human_readable_with_cwd(&cwd)
+    }
+
+    /// Return a human-readable representation using `cwd` as the project
+    /// directory for path shortening.
+    pub fn human_readable_with_cwd(
+        &self,
+        cwd: &Path,
+    ) -> String {
         let args = &self.arguments;
 
         match self.name.as_str() {
@@ -134,7 +144,11 @@ impl ToolCall {
             },
             "read" | "write" | "edit" => {
                 if let Some(path) = args.get("path").and_then(|value| value.as_str()) {
-                    format!("{} {}", self.name, path)
+                    format!(
+                        "{} {}",
+                        self.name,
+                        display_tool_path(path, cwd)
+                    )
                 } else {
                     format!("{}", self.arguments)
                 }
@@ -142,7 +156,7 @@ impl ToolCall {
             "find" => {
                 if let Some(pattern) = args.get("pattern").and_then(|value| value.as_str()) {
                     if let Some(path) = args.get("path").and_then(|value| value.as_str()) {
-                        format!("find {} {}", pattern, path)
+                        format!("find {} {}", pattern, display_tool_path(path, cwd))
                     } else {
                         format!("find {}", pattern)
                     }
@@ -153,7 +167,7 @@ impl ToolCall {
             "grep" => {
                 if let Some(pattern) = args.get("pattern").and_then(|value| value.as_str()) {
                     if let Some(path) = args.get("path").and_then(|value| value.as_str()) {
-                        format!("grep {} {}", pattern, path)
+                        format!("grep {} {}", pattern, display_tool_path(path, cwd))
                     } else {
                         format!("grep {}", pattern)
                     }
@@ -163,13 +177,29 @@ impl ToolCall {
             },
             "ls" => {
                 if let Some(path) = args.get("path").and_then(|value| value.as_str()) {
-                    format!("ls {}", path)
+                    format!("ls {}", display_tool_path(path, cwd))
                 } else {
                     "ls .".to_string()
                 }
             },
             _ => format!("{}", self.arguments),
         }
+    }
+}
+
+fn display_tool_path(
+    path: &str,
+    cwd: &Path,
+) -> String {
+    let displayed = crate::config::paths::display_path(path, cwd);
+    if (path.ends_with('/') || path.ends_with('\\'))
+        && displayed != "."
+        && !displayed.ends_with('/')
+        && !displayed.ends_with('\\')
+    {
+        format!("{displayed}{}", &path[path.len() - 1..])
+    } else {
+        displayed
     }
 }
 
@@ -590,6 +620,20 @@ mod tests {
             serde_json::json!({"path": "/path/to/file.rs", "content": "hello"}),
         );
         assert_eq!(call.human_readable(), "write /path/to/file.rs");
+    }
+
+    #[test]
+    fn tool_paths_are_relative_to_the_project_directory() {
+        let project = std::path::PathBuf::from("/tmp/hallucinate-project");
+        let call = ToolCall::new(
+            "call-1",
+            "read",
+            serde_json::json!({"path": project.join("src/main.rs")}),
+        );
+        assert_eq!(
+            call.human_readable_with_cwd(&project),
+            "read src/main.rs"
+        );
     }
 
     #[test]

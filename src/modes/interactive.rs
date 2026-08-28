@@ -6,6 +6,7 @@
 
 use std::{
     io::{self, Write},
+    path::PathBuf,
     time::{Duration, Instant},
 };
 
@@ -78,7 +79,7 @@ pub async fn run(
     for diagnostic in &skills.diagnostics {
         eprintln!(
             "Warning: could not load skill {}: {}",
-            diagnostic.path.display(),
+            crate::config::paths::display_path(&diagnostic.path, &cwd),
             diagnostic.message
         );
     }
@@ -93,7 +94,7 @@ pub async fn run(
     for diagnostic in &prompt_templates.diagnostics {
         eprintln!(
             "Warning: could not load prompt template {}: {}",
-            diagnostic.path.display(),
+            crate::config::paths::display_path(&diagnostic.path, &cwd),
             diagnostic.message
         );
     }
@@ -230,6 +231,8 @@ struct InteractiveTui {
     streaming_message_index: Option<usize>,
     /// Whether reasoning blocks are visible in the transcript.
     show_thinking: bool,
+    /// Project directory used to shorten paths in the transcript.
+    project_cwd: PathBuf,
     /// The latest short-lived UI notice. Notices are deliberately not part of
     /// the transcript or session history.
     notice: Option<EphemeralNotice>,
@@ -344,6 +347,11 @@ impl InteractiveTui {
             return Err(error).context("Failed to enable mouse capture");
         }
 
+        let project_cwd = agent
+            .cwd()
+            .map(PathBuf::from)
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
         let agent_state = agent.state().clone();
         let token_count = agent.estimate_tokens();
         let show_thinking = super::resolve_show_thinking(&cli, &settings);
@@ -372,6 +380,7 @@ impl InteractiveTui {
             agent_completion_rx,
             streaming_message_index: None,
             show_thinking,
+            project_cwd,
             notice: None,
             agent_cancellation: None,
             session_manager,
@@ -553,6 +562,31 @@ impl InteractiveTui {
 
     fn add_new_session_message(&mut self) {
         let mut message = String::new();
+
+        let cwd = self
+            .agent
+            .as_ref()
+            .and_then(|agent| agent.cwd())
+            .map(PathBuf::from)
+            .or_else(|| std::env::current_dir().ok());
+        if let Some(cwd) = cwd {
+            let files = crate::agent::system_prompt::prompt_file_paths(&cwd);
+            let context_paths = [
+                files
+                    .system_prompt
+                    .map(|path| crate::config::paths::display_path(path, &cwd)),
+                files
+                    .agents
+                    .map(|path| crate::config::paths::display_path(path, &cwd)),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("\n");
+            if !context_paths.is_empty() {
+                push_loaded_system_items_string(&mut message, "Context", &context_paths);
+            }
+        }
 
         if !self.skills.is_empty() {
             let skill_names = self.skills.iter()
@@ -765,6 +799,7 @@ impl InteractiveTui {
             .load_messages()?;
         let agent = self.agent.as_mut().expect("agent checked above");
         agent.load_history(messages.clone())?;
+        self.project_cwd = PathBuf::from(&session.cwd);
         agent.set_cwd(session.cwd);
         self.transcript = transcript_from_messages(&messages);
         self.transcript.set_show_thinking(self.show_thinking);
@@ -923,7 +958,7 @@ impl InteractiveTui {
                             short_session_id(&session.id),
                             title,
                             session.modified_str(),
-                            session.path.display()
+                            crate::config::paths::display_path(&session.path, &self.project_cwd)
                         ));
                     }
                     self.add_system_messages(lines);
@@ -997,7 +1032,7 @@ impl InteractiveTui {
                         session.title.as_deref().unwrap_or("untitled"),
                         session.message_count,
                         self.token_count,
-                        session.cwd,
+                        crate::config::paths::display_path(&session.cwd, &self.project_cwd),
                         session.parent_session_id.as_deref().unwrap_or("none")
                     ));
                 }
@@ -1059,7 +1094,10 @@ impl InteractiveTui {
                     .map(|diagnostic| {
                         format!(
                             "Warning: could not load prompt template {}: {}",
-                            diagnostic.path.display(),
+                            crate::config::paths::display_path(
+                                &diagnostic.path,
+                                &self.project_cwd,
+                            ),
                             diagnostic.message
                         )
                     })
@@ -1258,19 +1296,21 @@ impl InteractiveTui {
         &mut self,
         title: Option<String>,
     ) -> Result<(), anyhow::Error> {
-        let cwd = std::env::current_dir()?.to_string_lossy().into_owned();
+        let cwd = std::env::current_dir()?;
+        let cwd_string = cwd.to_string_lossy().into_owned();
         self.session_manager
             .create(crate::session::manager::SessionCreateOptions {
                 title,
                 parent_session_id: None,
-                cwd: Some(cwd.clone()),
+                cwd: Some(cwd_string.clone()),
             })?;
+        self.project_cwd = cwd.clone();
         let agent = self
             .agent
             .as_mut()
             .expect("session changes require an idle agent");
         agent.load_history(Vec::new())?;
-        agent.set_cwd(cwd);
+        agent.set_cwd(cwd_string);
         self.transcript = TranscriptRenderer::new();
         self.transcript.set_show_thinking(self.show_thinking);
         self.streaming_message_index = None;
@@ -1850,7 +1890,7 @@ impl InteractiveTui {
 
                     for tool_call in &msg.tool_calls {
                         let previous_len = lines.len();
-                        let readable = tool_call.human_readable();
+                        let readable = tool_call.human_readable_with_cwd(&self.project_cwd);
                         append_prefixed_lines(
                             &mut lines,
                             &format!("├─ {}", &readable),

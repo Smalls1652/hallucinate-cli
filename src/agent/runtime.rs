@@ -149,6 +149,11 @@ impl Agent {
         self.cwd = Some(cwd);
     }
 
+    /// Return the working directory used for project-local context files.
+    pub fn cwd(&self) -> Option<&str> {
+        self.cwd.as_deref()
+    }
+
     /// Return a cancellation handle that remains usable while this agent is
     /// owned by a background task.
     pub fn cancellation(&self) -> AgentCancellation {
@@ -261,9 +266,12 @@ impl Agent {
     fn build_context(&self) -> Context {
         let mut context = Context::new(self.messages.clone());
 
-        let mut system_prompt =
-            crate::agent::system_prompt::build_system_prompt(self.system_prompt.as_deref());
-            
+        let cwd = self.cwd.as_deref().map(std::path::Path::new);
+        let mut system_prompt = crate::agent::system_prompt::build_system_prompt_for_cwd(
+            self.system_prompt.as_deref(),
+            cwd,
+        );
+
         if self.config.enable_tools && self.tool_registry.get_tool("read").is_some() {
             system_prompt.push_str(&crate::agent::skills::format_skills_for_prompt(
                 &self.skills,
