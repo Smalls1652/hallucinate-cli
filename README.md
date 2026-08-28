@@ -1,0 +1,185 @@
+# hallucinate-cli
+
+An LLM-powered AI coding agent and terminal harness — a lot like [pi](https://github.com/earendil-works/pi), built in Rust.
+
+## Features
+
+- **Interactive TUI** — Full terminal UI with editor, markdown rendering, and undo support
+- **Print mode** — Send a prompt and get the response printed to stdout, then exit
+- **RPC mode** — JSON-RPC over stdin/stdout for programmatic integration
+- **Multi-provider support** — OpenAI-compatible providers, OpenRouter, and more
+- **Session persistence** — Resume conversations across invocations
+- **Tool use** — Built-in tools for `bash`, `grep`, `find`, `ls`, `read`, `write`, and `edit`
+- **Image support** — Attach images to prompts for multimodal models
+- **Skills & prompt templates** — Load custom Markdown-based skills and prompt templates
+- **Thinking/reasoning visibility** — Toggle display of model chain-of-thought
+- **Cross-platform** — macOS, Linux, and Windows support
+
+## Installation
+
+### From source
+
+```bash
+cargo install --path .
+```
+
+### Build manually
+
+```bash
+make build-release-artifacts
+# Binary is placed in artifacts/<os>_<arch>/hallucinate
+```
+
+### Requirements
+
+- Rust 1.85+ (uses edition 2024)
+- A supported LLM provider API key
+
+## Quick Start
+
+### 1. Authenticate with a provider
+
+```bash
+# Save an API key (prefer passing via environment variable)
+hallucinate auth set openai --api-key "$HALLUCINATE_OPENAI_API_KEY"
+
+# List saved providers
+hallucinate auth list
+
+# Remove a saved key
+hallucinate auth remove openai
+```
+
+### 2. Interactive mode (default)
+
+```bash
+hallucinate
+```
+
+### 3. Print mode — one-shot prompt
+
+```bash
+hallucinate -p "Explain why metalcore music is sometimes referred to as unga-bunga music"
+```
+
+### 4. RPC mode — JSON-RPC over stdin/stdout
+
+```bash
+hallucinate --rpc
+```
+
+## Usage
+
+```text
+hallucinate [OPTIONS]
+
+Options:
+  -m, --model <MODEL>          Model to use (e.g., "gpt-4o", "openai/gpt-4o")
+  -p, --print <PROMPT>         Print mode: send prompt and exit
+      --rpc                    Run in RPC mode (JSON-RPC)
+      --interactive            Run in interactive mode (default)
+      --session <SESSION>      Resume a persisted session
+      --api-key <KEY>          API key (overrides env vars and stored creds)
+      --base-url <URL>         Base URL for the API
+      --shell <SHELL>          Shell executable for the bash tool
+      --max-tokens <COUNT>     Maximum response tokens
+      --thinking               Show model thinking/reasoning
+      --no-thinking            Hide model thinking/reasoning
+      --temperature <TEMP>     Sampling temperature (0.0–2.0)
+      --system-prompt <PROMPT> Custom system prompt
+      --image <PATH>           Attach an image (repeatable)
+      --skill <PATH>           Load a skill Markdown file or directory (repeatable)
+      --no-skills              Disable skill auto-discovery
+      --prompt-template <PATH> Load a prompt template (repeatable)
+      --no-prompt-templates    Disable prompt template auto-discovery
+      --debug                  Write diagnostic logs
+  -h, --help                   Print help
+  -V, --version                Print version
+```
+
+## Authentication
+
+Providers are managed via the `auth` subcommand. Keys are stored securely and resolved through environment variables (e.g., `HALLUCINATE_OPENAI_API_KEY`).
+
+```bash
+hallucinate auth set <provider> [--api-key <KEY>]
+hallucinate auth remove <provider>
+hallucinate auth list
+```
+
+## Configuration
+
+Settings are loaded from the application's config directory. You can override individual settings via CLI flags.
+
+## Modes
+
+### Interactive Mode
+
+Full terminal UI with:
+
+- Syntax-highlighted markdown rendering
+- Built-in text editor for prompt composition
+- Undo/redo support
+- Session management
+
+### Print Mode
+
+Send a prompt and receive the full response on stdout. Ideal for scripting and CI pipelines.
+
+```bash
+hallucinate -p "What files are in the current directory?"
+```
+
+### RPC Mode
+
+Exposes a JSON-RPC interface over stdin/stdout for integration with editors, CI systems, or other tools.
+
+## Skills & Prompt Templates
+
+### Skills
+
+Load custom skill definitions from Markdown files or directories:
+
+```bash
+hallucinate --skill ./skills/git/SKILL.md --skill ./skills/release/
+```
+
+### Prompt Templates
+
+Load reusable prompt templates:
+
+```bash
+hallucinate --prompt-template ./prompts/review.md
+```
+
+Both skills and prompt templates are auto-discovered from user and project directories unless disabled with `--no-skills` and `--no-prompt-templates`.
+
+## Build
+
+| Target | Command |
+| --- | --- |
+| Debug build | `make build` |
+| Release build | `make build-release` |
+| Release + artifacts | `make build-release-artifacts` |
+| Format code | `make format` |
+| Check for errors | `make check` |
+| Clean | `make clean` |
+
+## Project Structure
+
+```text
+src/
+├── agent/          # Agent core, tools, skills, prompt handling
+├── ai/             # AI providers, auth, model catalog, streaming
+├── cli/            # CLI argument parsing
+├── config/         # Settings, paths, configuration
+├── modes/          # Interactive, print, RPC, auth modes
+├── session/        # Session management and storage
+└── tui/            # Terminal UI components
+```
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+Copyright (c) 2026 Smalls.Online (Timothy Small)
