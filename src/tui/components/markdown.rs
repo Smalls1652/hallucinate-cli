@@ -111,11 +111,18 @@ impl Renderer {
                 let style = Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD);
+
                 for line in inline_lines(node, style) {
-                    self.lines.push(with_prefix(line, " ".repeat(indent)));
+                    self.lines.push(
+                        with_prefix(line, format!(
+                            "{indent} {heading_level} ", 
+                            indent=" ".repeat(indent),
+                            heading_level="#".repeat(heading.level.into())
+                        ))
+                    );
                 }
+                
                 self.separator();
-                let _ = heading;
             },
             NodeValue::CodeBlock(code) => {
                 let code_style = Style::default().fg(Color::Green);

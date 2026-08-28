@@ -2510,12 +2510,14 @@ fn truncate_width(
 }
 
 fn push_loaded_system_items_string(message: &mut String, section_name: &str, section_items: &str) {
-    let section_name = format!("**{}**", section_name);
+    let section_name = format!("## {}", section_name);
 
     message.push_str(&section_name);
-    message.push_str("\n\n```\n");
+    message.push_str("\n\n");
+    message.push_str("```\n");
     message.push_str(section_items);
-    message.push_str("\n```\n\n");
+    message.push_str("\n```\n");
+    message.push_str("\n\n");
 }
 
 #[cfg(test)]
