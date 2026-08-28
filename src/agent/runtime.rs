@@ -14,12 +14,7 @@ use crate::{
         skills::Skill,
         tools::ToolRegistry,
         types::{
-            AgentCancellation,
-            AgentConfig,
-            AgentEvent,
-            AgentState,
-            PendingToolCall,
-            TurnContext,
+            AgentCancellation, AgentConfig, AgentEvent, AgentState, PendingToolCall, TurnContext,
         },
     },
     ai::{
@@ -266,16 +261,9 @@ impl Agent {
     fn build_context(&self) -> Context {
         let mut context = Context::new(self.messages.clone());
 
-        let empty_registry = ToolRegistry::new();
-        let prompt_tools = if self.config.enable_tools {
-            &self.tool_registry
-        } else {
-            &empty_registry
-        };
-        let mut system_prompt = crate::agent::system_prompt::build_system_prompt(
-            prompt_tools,
-            self.system_prompt.as_deref(),
-        );
+        let mut system_prompt =
+            crate::agent::system_prompt::build_system_prompt(self.system_prompt.as_deref());
+            
         if self.config.enable_tools && self.tool_registry.get_tool("read").is_some() {
             system_prompt.push_str(&crate::agent::skills::format_skills_for_prompt(
                 &self.skills,
