@@ -133,6 +133,20 @@ build-verbose:
 build-release:
 	@cargo build --target=$(RUST_TARGET) --release
 
+# Build a release build and copy it to the artifacts directory.
+build-release-artifacts:
+	$(MAKE) build-release
+
+	@if [ -d $(ARTIFACTS_DIR) ]; then \
+		echo "Removing existing artifacts directory -> $(ARTIFACTS_DIR)"; \
+		rm -rf $(ARTIFACTS_DIR); \
+	fi
+	
+	@mkdir -p $(ARTIFACTS_DIR)/$(PLATFORM_OS)_$(PLATFORM_ARCH)
+	
+	@echo "target/$(RUST_TARGET)/release/$(PACKAGE_BINARY) -> artifacts/$(PLATFORM_OS)_$(PLATFORM_ARCH)/"
+	@cp $(RUST_TARGET_DIR)/$(RUST_TARGET)/release/$(PACKAGE_BINARY) $(ARTIFACTS_DIR)/$(PLATFORM_OS)_$(PLATFORM_ARCH)/
+
 # Clean the Rust target directory.
 clean:
 	@echo "Cleaning target directory -> $(RUST_TARGET_DIR)/"
