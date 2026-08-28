@@ -50,6 +50,11 @@ pub fn settings_file() -> Option<PathBuf> {
     config_dir().map(|dir| dir.join("settings.toml"))
 }
 
+/// Get the project-local TOML settings override for a working directory.
+pub fn project_settings_file(cwd: impl AsRef<std::path::Path>) -> PathBuf {
+    cwd.as_ref().join(".hallucinate").join("settings.toml")
+}
+
 /// Get the path to the user-level system prompt override.
 pub fn system_prompt_file() -> Option<PathBuf> {
     config_dir().map(|dir| dir.join("SYSTEM.md"))
@@ -225,6 +230,10 @@ mod tests {
         assert!(prompts_dir().is_some());
         assert!(debug_log_file().is_some());
         assert!(settings_file().is_some());
+        assert_eq!(
+            project_settings_file("/tmp/project"),
+            PathBuf::from("/tmp/project/.hallucinate/settings.toml")
+        );
         assert!(system_prompt_file().is_some());
     }
 

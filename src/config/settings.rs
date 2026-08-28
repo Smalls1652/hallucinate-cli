@@ -131,6 +131,11 @@ pub struct Settings {
     /// Default max tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    /// Whether these settings include a project-local override. This is kept
+    /// out of serialization so credential commands can update the global
+    /// file without copying project settings into it.
+    #[serde(skip)]
+    project_override_loaded: bool,
 }
 
 fn temporary_suffix() -> String {
@@ -197,6 +202,57 @@ fn default_enable_compaction() -> bool {
     true
 }
 
+/// Merge a settings file into an already parsed TOML table.
+fn merge_settings_file(
+    merged: &mut toml::Table,
+    path: &Path,
+) -> Result<(), anyhow::Error> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(path)?;
+    let value: toml::Value = toml::from_str(&content).map_err(|error| {
+        anyhow::anyhow!(
+            "failed to parse settings file '{}': {error}",
+            path.display()
+        )
+    })?;
+    let toml::Value::Table(table) = value else {
+        anyhow::bail!(
+            "settings file '{}' must contain a TOML table",
+            path.display()
+        );
+    };
+    merge_toml_tables(merged, table);
+    Ok(())
+}
+
+fn merge_toml_tables(
+    base: &mut toml::Table,
+    overlay: toml::Table,
+) {
+    for (key, value) in overlay {
+        if let Some(toml::Value::Table(base_table)) = base.get_mut(&key)
+            && let toml::Value::Table(overlay_table) = value
+        {
+            merge_toml_tables(base_table, overlay_table);
+        } else {
+            base.insert(key, value);
+        }
+    }
+}
+
+fn deserialize_settings(merged: toml::Table) -> Result<Settings, anyhow::Error> {
+    if merged.is_empty() {
+        return Ok(Settings::default());
+    }
+
+    toml::Value::Table(merged)
+        .try_into()
+        .map_err(|error| anyhow::anyhow!("failed to deserialize merged settings: {error}"))
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -216,6 +272,7 @@ impl Default for Settings {
             show_thinking: false,
             temperature: None,
             max_tokens: None,
+            project_override_loaded: false,
         }
     }
 }
@@ -235,16 +292,41 @@ impl Settings {
         Ok(())
     }
 
-    /// Load settings from the config file.
-    pub fn load() -> Result<Self, anyhow::Error> {
-        if let Some(path) = paths::settings_file()
-            && path.exists()
-        {
-            let content = fs::read_to_string(&path)?;
-            let settings: Settings = toml::from_str(&content)?;
-            return Ok(settings);
+    /// Load the global settings without applying a project override.
+    pub fn load_global() -> Result<Self, anyhow::Error> {
+        let mut merged = toml::Table::new();
+        if let Some(path) = paths::settings_file() {
+            merge_settings_file(&mut merged, &path)?;
         }
-        Ok(Self::default())
+        deserialize_settings(merged)
+    }
+
+    /// Load and merge the global settings with the project-local override.
+    ///
+    /// The global file is loaded first and the project file at
+    /// `<cwd>/.hallucinate/settings.toml` is applied on top of it. TOML
+    /// tables are merged recursively, so a project can override one provider
+    /// or model field without having to repeat the rest of the global
+    /// configuration. Scalar values and arrays in the project file replace
+    /// their global counterparts.
+    pub fn load() -> Result<Self, anyhow::Error> {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+        Self::load_from(cwd)
+    }
+
+    /// Load settings using an explicit project working directory.
+    pub fn load_from(cwd: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
+        let mut merged = toml::Table::new();
+
+        if let Some(path) = paths::settings_file() {
+            merge_settings_file(&mut merged, &path)?;
+        }
+        let project_path = paths::project_settings_file(cwd);
+        merge_settings_file(&mut merged, &project_path)?;
+
+        let mut settings = deserialize_settings(merged)?;
+        settings.project_override_loaded = project_path.exists();
+        Ok(settings)
     }
 
     /// Persist settings to the user's configuration file.
@@ -304,8 +386,16 @@ impl Settings {
             anyhow::bail!("API key cannot be empty");
         }
 
+        if self.project_override_loaded {
+            let mut global = Self::load_global()?;
+            global.credential_store.set(provider, api_key);
+            global.save()?;
+        }
         self.credential_store.set(provider, api_key);
-        self.save()
+        if !self.project_override_loaded {
+            self.save()?;
+        }
+        Ok(())
     }
 
     /// Remove a provider's stored API key and persist the updated settings.
@@ -313,8 +403,18 @@ impl Settings {
         &mut self,
         provider: &str,
     ) -> Result<bool, anyhow::Error> {
-        let removed = self.credential_store.remove(provider);
-        if removed {
+        let removed = if self.project_override_loaded {
+            let mut global = Self::load_global()?;
+            let removed = global.credential_store.remove(provider);
+            if removed {
+                global.save()?;
+            }
+            removed
+        } else {
+            self.credential_store.remove(provider)
+        };
+        self.credential_store.remove(provider);
+        if removed && !self.project_override_loaded {
             self.save()?;
         }
         Ok(removed)
@@ -560,6 +660,64 @@ mod tests {
             Some("sk-test")
         );
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn project_settings_merge_without_replacing_nested_global_settings() {
+        let directory = std::env::temp_dir().join(format!(
+            "hallucinate-settings-merge-{}-{}",
+            std::process::id(),
+            temporary_suffix()
+        ));
+        let project_directory = directory.join("project");
+        fs::create_dir_all(project_directory.join(".hallucinate")).unwrap();
+        let global_path = directory.join("global-settings.toml");
+        let project_path = project_directory.join(".hallucinate/settings.toml");
+        fs::write(
+            &global_path,
+            r#"
+            provider = "openai"
+            timeout_ms = 30_000
+
+            [providers.openai]
+            base_url = "https://example.test/v1"
+
+            [providers.openai.models.example]
+            context_window = 32_768
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            &project_path,
+            r#"
+            default_model = "openai/example"
+            timeout_ms = 5_000
+
+            [providers.openai]
+            headers = { x-project = "enabled" }
+            "#,
+        )
+        .unwrap();
+
+        let mut merged = toml::Table::new();
+        merge_settings_file(&mut merged, &global_path).unwrap();
+        merge_settings_file(&mut merged, &project_path).unwrap();
+        let settings: Settings = toml::Value::Table(merged).try_into().unwrap();
+
+        assert_eq!(settings.default_model.as_deref(), Some("openai/example"));
+        assert_eq!(settings.timeout_ms, 5_000);
+        let provider = settings.providers.get("openai").unwrap();
+        assert_eq!(
+            provider.base_url.as_deref(),
+            Some("https://example.test/v1")
+        );
+        assert_eq!(
+            provider.headers.get("x-project"),
+            Some(&"enabled".to_string())
+        );
+        assert!(provider.models.contains_key("example"));
+
+        let _ = fs::remove_dir_all(directory);
     }
 
     #[test]

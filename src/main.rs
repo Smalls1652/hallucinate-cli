@@ -39,11 +39,14 @@ async fn main() -> Result<(), anyhow::Error> {
         "parsed command-line options"
     );
 
-    // All modes share the same persisted settings and CLI overrides. Do not
-    // replace a malformed settings file with defaults while modifying auth;
-    // that could discard unrelated configuration.
+    // All run modes share the same persisted settings and CLI overrides. Do
+    // not replace a malformed settings file with defaults while modifying
+    // auth; that could discard unrelated configuration.
     let settings = if cli.command.is_some() {
-        Settings::load()?
+        // Authentication commands persist only the global settings. Project
+        // overrides are runtime configuration and must not be copied into
+        // the user's global settings file.
+        Settings::load_global()?
     } else {
         Settings::load().unwrap_or_default()
     };
