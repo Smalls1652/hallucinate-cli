@@ -1,0 +1,10 @@
+# Cargo files
+debug/
+target/
+artifacts/
+#Cargo.lock
+
+# macOS files
+.DS_Store
+
+run_dev.sh

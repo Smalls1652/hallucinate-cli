@@ -1,0 +1,8 @@
+[registry]
+default = "crates-io"
+
+[registries.smalls-personal]
+index = "sparse+https://git.smalls.online/api/packages/smalls/cargo/"
+
+[registries.smalls-online]
+index = "sparse+https://git.smalls.online/api/packages/smallsonline/cargo/"
