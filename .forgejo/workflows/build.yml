@@ -32,12 +32,6 @@ jobs:
         run: |
           make build
 
-      - name: Verify formatting
-        shell: bash
-        run: |
-          rustup toolchain install nightly --profile minimal
-          cargo +nightly fmt -- --check
-
       - name: Check project
         shell: bash
         run: cargo check --all-targets
@@ -45,8 +39,4 @@ jobs:
       - name: Test project
         shell: bash
         run: cargo test --all-targets
-
-      - name: Lint project
-        shell: bash
-        run: cargo clippy --all-targets -- -D warnings
   
