@@ -349,7 +349,7 @@ impl InteractiveTui {
         let show_thinking = super::resolve_show_thinking(&cli, &settings);
         let (agent_completion_tx, agent_completion_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        Ok(Self {
+        let mut tui = Self {
             terminal,
             keyboard_enhancement_enabled,
             transcript: {
@@ -388,7 +388,11 @@ impl InteractiveTui {
             model_picker: None,
             autocomplete_items: Vec::new(),
             autocomplete_index: 0
-        })
+        };
+
+        tui.add_new_session_message();
+
+        Ok(tui)
     }
 
     /// Set whether reasoning blocks are visible without changing conversation
@@ -544,6 +548,38 @@ impl InteractiveTui {
                 },
                 _ => {},
             }
+        }
+    }
+
+    fn add_new_session_message(&mut self) {
+        let mut message = String::new();
+
+        if !self.skills.is_empty() {
+            let skill_names = self.skills.iter()
+                .map(|item| item.name.clone())
+                .collect::<Vec<String>>()
+                .join(", ");
+
+            push_loaded_system_items_string(&mut message, "Skills", &skill_names);
+        }
+
+        if !self.prompt_templates.is_empty() {
+            let prompt_template_names = self.prompt_templates.iter()
+                .map(|item| format!("/{}", item.name))
+                .collect::<Vec<String>>()
+                .join(", ");
+
+            push_loaded_system_items_string(&mut message, "Prompts", &prompt_template_names);
+        }
+
+        if !message.is_empty() {
+            self.transcript.add_message(TuiMessage {
+                role: MessageRole::System,
+                content: message,
+                thinking: String::new(),
+                tool_calls: Vec::new(),
+                timestamp: chrono::Utc::now(),
+            });
         }
     }
 
@@ -1241,6 +1277,9 @@ impl InteractiveTui {
         self.message_history.clear();
         self.history_index = 0;
         self.token_count = agent.estimate_tokens();
+
+        self.add_new_session_message();
+
         Ok(())
     }
 
@@ -2468,6 +2507,15 @@ fn truncate_width(
 
     result.push('…');
     result
+}
+
+fn push_loaded_system_items_string(message: &mut String, section_name: &str, section_items: &str) {
+    let section_name = format!("**{}**", section_name);
+
+    message.push_str(&section_name);
+    message.push_str("\n\n```\n");
+    message.push_str(section_items);
+    message.push_str("\n```\n\n");
 }
 
 #[cfg(test)]
