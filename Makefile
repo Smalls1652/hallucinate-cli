@@ -131,7 +131,7 @@ build-verbose:
 
 # Perform a release build.
 build-release:
-	@cargo build --target=$(RUST_TARGET) --release
+	@cargo build --target=$(RUST_TARGET) --release --locked
 
 # Build a release build and copy it to the artifacts directory.
 build-release-artifacts:

@@ -25,7 +25,7 @@ serde_yaml = "0.9"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
 thiserror = "2.0.20"
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.1", default-features = false, features = ["rt-multi-thread", "rt", "macros", "fs", "process"] }
 
 # AI package
 futures = "0.3"
