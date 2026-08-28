@@ -95,7 +95,7 @@ pub fn resolve_builtin_command(name: &str) -> Option<&'static str> {
     resolved
 }
 
-/// Interactive commands provided by hallucinate-cli.
+/// Interactive commands provided by hallucinate.
 pub const BUILTIN_COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "help",

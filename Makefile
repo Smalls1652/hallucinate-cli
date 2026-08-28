@@ -1,6 +1,6 @@
 # Define package variables
 PACKAGE_NAME := hallucinate-cli
-PACKAGE_BINARY := hallucinate-cli
+PACKAGE_BINARY := hallucinate
 
 # Define project directory variables
 ARTIFACTS_DIR := artifacts

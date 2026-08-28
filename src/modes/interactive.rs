@@ -1661,7 +1661,7 @@ impl InteractiveTui {
 
             let status_text = Line::from(vec![
                 Span::styled(
-                    "hallucinate-cli ",
+                    "hallucinate ",
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(ratatui::style::Modifier::BOLD),

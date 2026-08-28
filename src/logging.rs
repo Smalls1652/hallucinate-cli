@@ -10,7 +10,7 @@ use crate::config::paths;
 /// Initialize structured logging to the debug log file.
 ///
 /// The `RUST_LOG` environment variable controls the filter. Without it,
-/// hallucinate-cli debug events are recorded while dependency logs are omitted.
+/// hallucinate debug events are recorded while dependency logs are omitted.
 pub fn init_debug_logging() -> Result<Option<PathBuf>, anyhow::Error> {
     let Some(path) = paths::debug_log_file() else {
         return Ok(None);

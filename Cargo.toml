@@ -10,6 +10,10 @@ license-file = "LICENSE"
 homepage = "https://git.smalls.online/smalls/hallucinate-cli"
 repository = "https://git.smalls.online/smalls/hallucinate-cli"
 
+[[bin]]
+name = "hallucinate"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.6", features = ["derive", "env", "string"] }

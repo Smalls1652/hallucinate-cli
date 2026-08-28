@@ -7,17 +7,17 @@ use std::path::PathBuf;
 
 use directories::{BaseDirs, ProjectDirs};
 
-/// Get the project directories for hallucinate-cli.
+/// Get the project directories for hallucinate.
 fn project_dirs() -> Option<ProjectDirs> {
-    ProjectDirs::from("com", "hallucinate", "hallucinate-cli")
+    ProjectDirs::from("online", "smalls", "hallucinate")
 }
 
 /// Get the configuration directory path.
 ///
 /// Returns:
-/// - macOS: `~/Library/Application Support/com.hallucinate.hallucinate-cli/`
-/// - Linux: `~/.config/hallucinate-cli/`
-/// - Windows: `C:\Users\<user>\AppData\Roaming\com\hallucinate\hallucinate-cli\
+/// - macOS: `~/Library/Application Support/com.hallucinate.hallucinate/`
+/// - Linux: `~/.config/hallucinate/`
+/// - Windows: `C:\Users\<user>\AppData\Roaming\com\hallucinate\hallucinate\
 ///   `
 pub fn config_dir() -> Option<PathBuf> {
     project_dirs().map(|dirs| dirs.config_dir().to_path_buf())
@@ -26,9 +26,9 @@ pub fn config_dir() -> Option<PathBuf> {
 /// Get the data directory path.
 ///
 /// Returns:
-/// - macOS: `~/Library/Application Support/com.hallucinate.hallucinate-cli/`
-/// - Linux: `~/.local/share/hallucinate-cli/`
-/// - Windows: `C:\Users\<user>\AppData\Roaming\com\hallucinate\hallucinate-cli\
+/// - macOS: `~/Library/Application Support/com.hallucinate.hallucinate/`
+/// - Linux: `~/.local/share/hallucinate/`
+/// - Windows: `C:\Users\<user>\AppData\Roaming\com\hallucinate\hallucinate\
 ///   `
 pub fn data_dir() -> Option<PathBuf> {
     project_dirs().map(|dirs| dirs.data_dir().to_path_buf())
@@ -37,9 +37,9 @@ pub fn data_dir() -> Option<PathBuf> {
 /// Get the cache directory path.
 ///
 /// Returns:
-/// - macOS: `~/Library/Caches/com.hallucinate.hallucinate-cli/`
-/// - Linux: `~/.cache/hallucinate-cli/`
-/// - Windows: `C:\Users\<user>\AppData\Local\com\hallucinate\hallucinate-cli\
+/// - macOS: `~/Library/Caches/com.hallucinate.hallucinate/`
+/// - Linux: `~/.cache/hallucinate/`
+/// - Windows: `C:\Users\<user>\AppData\Local\com\hallucinate\hallucinate\
 ///   Cache\`
 pub fn cache_dir() -> Option<PathBuf> {
     project_dirs().map(|dirs| dirs.cache_dir().to_path_buf())
