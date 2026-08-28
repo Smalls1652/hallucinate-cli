@@ -113,15 +113,16 @@ impl Renderer {
                     .add_modifier(Modifier::BOLD);
 
                 for line in inline_lines(node, style) {
-                    self.lines.push(
-                        with_prefix(line, format!(
-                            "{indent} {heading_level} ", 
-                            indent=" ".repeat(indent),
-                            heading_level="#".repeat(heading.level.into())
-                        ))
-                    );
+                    self.lines.push(with_prefix(
+                        line,
+                        format!(
+                            "{indent} {heading_level} ",
+                            indent = " ".repeat(indent),
+                            heading_level = "#".repeat(heading.level.into())
+                        ),
+                    ));
                 }
-                
+
                 self.separator();
             },
             NodeValue::CodeBlock(code) => {

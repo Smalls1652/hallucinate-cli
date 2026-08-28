@@ -79,11 +79,7 @@ impl ToolCall {
             "read" | "write" | "edit" => {
                 // Show tool name + path
                 if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                    format!(
-                        "{} {}",
-                        self.name,
-                        display_tool_path(path, cwd)
-                    )
+                    format!("{} {}", self.name, display_tool_path(path, cwd))
                 } else {
                     self.arguments.clone()
                 }

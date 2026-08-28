@@ -19,20 +19,18 @@ pub fn load_image_file(
     auto_resize: bool,
 ) -> Result<ImageContent, anyhow::Error> {
     let path = path.as_ref();
-    let bytes = std::fs::read(path)
-        .with_context(|| {
-            format!(
-                "failed to read image file {}",
-                crate::config::paths::display_path(path, ".")
-            )
-        })?;
-    process_image_bytes(&bytes, auto_resize)
-        .with_context(|| {
-            format!(
-                "failed to process image file {}",
-                crate::config::paths::display_path(path, ".")
-            )
-        })
+    let bytes = std::fs::read(path).with_context(|| {
+        format!(
+            "failed to read image file {}",
+            crate::config::paths::display_path(path, ".")
+        )
+    })?;
+    process_image_bytes(&bytes, auto_resize).with_context(|| {
+        format!(
+            "failed to process image file {}",
+            crate::config::paths::display_path(path, ".")
+        )
+    })
 }
 
 /// Return whether bytes are one of the supported image formats.

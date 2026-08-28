@@ -172,9 +172,17 @@ fn collect_files(
 
     if path.is_dir() {
         let pattern = if let Some(fp) = file_pattern {
-            search_path.join("**").join(fp).to_string_lossy().into_owned()
+            search_path
+                .join("**")
+                .join(fp)
+                .to_string_lossy()
+                .into_owned()
         } else {
-            search_path.join("**").join("*").to_string_lossy().into_owned()
+            search_path
+                .join("**")
+                .join("*")
+                .to_string_lossy()
+                .into_owned()
         };
 
         let mut files = Vec::new();

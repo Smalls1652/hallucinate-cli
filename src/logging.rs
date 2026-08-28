@@ -18,13 +18,12 @@ pub fn init_debug_logging() -> Result<Option<PathBuf>, anyhow::Error> {
     let parent = path
         .parent()
         .context("debug log file must have a parent directory")?;
-    std::fs::create_dir_all(parent)
-        .with_context(|| {
-            format!(
-                "failed to create debug log directory {}",
-                crate::config::paths::display_path(parent, ".")
-            )
-        })?;
+    std::fs::create_dir_all(parent).with_context(|| {
+        format!(
+            "failed to create debug log directory {}",
+            crate::config::paths::display_path(parent, ".")
+        )
+    })?;
 
     let file = OpenOptions::new()
         .create(true)

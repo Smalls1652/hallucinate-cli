@@ -1,6 +1,10 @@
 //! Find tool: glob-based file search.
 
-use std::{future::Future, path::{Path, PathBuf}, pin::Pin};
+use std::{
+    future::Future,
+    path::{Path, PathBuf},
+    pin::Pin,
+};
 
 use serde_json::json;
 

@@ -636,7 +636,9 @@ mod tests {
         assert!(error.to_string().contains("No providers configured"));
 
         let mut settings = Settings::default();
-        settings.providers.insert("local".to_string(), Default::default());
+        settings
+            .providers
+            .insert("local".to_string(), Default::default());
         assert!(settings.require_configured_providers().is_ok());
     }
 

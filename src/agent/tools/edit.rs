@@ -129,8 +129,7 @@ impl Tool for EditTool {
                 "edit",
                 format!(
                     "Successfully replaced {} occurrence(s) in {}",
-                    count,
-                    display_path
+                    count, display_path
                 ),
             ))
         })

@@ -144,11 +144,7 @@ impl ToolCall {
             },
             "read" | "write" | "edit" => {
                 if let Some(path) = args.get("path").and_then(|value| value.as_str()) {
-                    format!(
-                        "{} {}",
-                        self.name,
-                        display_tool_path(path, cwd)
-                    )
+                    format!("{} {}", self.name, display_tool_path(path, cwd))
                 } else {
                     format!("{}", self.arguments)
                 }
@@ -630,10 +626,7 @@ mod tests {
             "read",
             serde_json::json!({"path": project.join("src/main.rs")}),
         );
-        assert_eq!(
-            call.human_readable_with_cwd(&project),
-            "read src/main.rs"
-        );
+        assert_eq!(call.human_readable_with_cwd(&project), "read src/main.rs");
     }
 
     #[test]

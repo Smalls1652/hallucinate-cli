@@ -145,10 +145,7 @@ impl Tool for LsTool {
                                 "{:<6} {:>10} {}",
                                 entry_type,
                                 format_size(size),
-                                crate::config::paths::display_path(
-                                    &entry_path,
-                                    cwd.unwrap_or("."),
-                                )
+                                crate::config::paths::display_path(&entry_path, cwd.unwrap_or("."),)
                             ));
 
                             if is_dir {

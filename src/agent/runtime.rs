@@ -14,7 +14,12 @@ use crate::{
         skills::Skill,
         tools::ToolRegistry,
         types::{
-            AgentCancellation, AgentConfig, AgentEvent, AgentState, PendingToolCall, TurnContext,
+            AgentCancellation,
+            AgentConfig,
+            AgentEvent,
+            AgentState,
+            PendingToolCall,
+            TurnContext,
         },
     },
     ai::{

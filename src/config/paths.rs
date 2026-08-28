@@ -17,8 +17,7 @@ fn project_dirs() -> Option<ProjectDirs> {
 /// Returns:
 /// - macOS: `~/Library/Application Support/com.hallucinate.hallucinate/`
 /// - Linux: `~/.config/hallucinate/`
-/// - Windows: `C:\Users\<user>\AppData\Roaming\com\hallucinate\hallucinate\
-///   `
+/// - Windows: `C:\Users\<user>\AppData\Roaming\com\hallucinate\hallucinate\ `
 pub fn config_dir() -> Option<PathBuf> {
     project_dirs().map(|dirs| dirs.config_dir().to_path_buf())
 }
@@ -28,8 +27,7 @@ pub fn config_dir() -> Option<PathBuf> {
 /// Returns:
 /// - macOS: `~/Library/Application Support/com.hallucinate.hallucinate/`
 /// - Linux: `~/.local/share/hallucinate/`
-/// - Windows: `C:\Users\<user>\AppData\Roaming\com\hallucinate\hallucinate\
-///   `
+/// - Windows: `C:\Users\<user>\AppData\Roaming\com\hallucinate\hallucinate\ `
 pub fn data_dir() -> Option<PathBuf> {
     project_dirs().map(|dirs| dirs.data_dir().to_path_buf())
 }

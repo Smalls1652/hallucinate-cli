@@ -589,7 +589,9 @@ impl InteractiveTui {
         }
 
         if !self.skills.is_empty() {
-            let skill_names = self.skills.iter()
+            let skill_names = self
+                .skills
+                .iter()
                 .map(|item| item.name.clone())
                 .collect::<Vec<String>>()
                 .join(", ");
@@ -598,7 +600,9 @@ impl InteractiveTui {
         }
 
         if !self.prompt_templates.is_empty() {
-            let prompt_template_names = self.prompt_templates.iter()
+            let prompt_template_names = self
+                .prompt_templates
+                .iter()
                 .map(|item| format!("/{}", item.name))
                 .collect::<Vec<String>>()
                 .join(", ");
@@ -1088,20 +1092,21 @@ impl InteractiveTui {
                 let result = crate::agent::prompt_templates::load_prompt_templates(
                     &self.prompt_template_options,
                 );
-                let diagnostics = result
-                    .diagnostics
-                    .iter()
-                    .map(|diagnostic| {
-                        format!(
-                            "Warning: could not load prompt template {}: {}",
-                            crate::config::paths::display_path(
-                                &diagnostic.path,
-                                &self.project_cwd,
-                            ),
-                            diagnostic.message
-                        )
-                    })
-                    .collect::<Vec<_>>();
+                let diagnostics =
+                    result
+                        .diagnostics
+                        .iter()
+                        .map(|diagnostic| {
+                            format!(
+                                "Warning: could not load prompt template {}: {}",
+                                crate::config::paths::display_path(
+                                    &diagnostic.path,
+                                    &self.project_cwd,
+                                ),
+                                diagnostic.message
+                            )
+                        })
+                        .collect::<Vec<_>>();
                 self.add_system_messages(diagnostics);
                 self.prompt_templates = result.templates;
                 self.show_notice(format!(
@@ -2549,7 +2554,11 @@ fn truncate_width(
     result
 }
 
-fn push_loaded_system_items_string(message: &mut String, section_name: &str, section_items: &str) {
+fn push_loaded_system_items_string(
+    message: &mut String,
+    section_name: &str,
+    section_items: &str,
+) {
     let section_name = format!("## {}", section_name);
 
     message.push_str(&section_name);
