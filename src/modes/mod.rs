@@ -18,14 +18,10 @@ pub mod interactive;
 pub mod print;
 pub mod rpc;
 
-/// Return built-in and configured models, with a configured model replacing a
-/// built-in model with the same provider and ID.
+/// Return the models declared by configured providers in deterministic order.
 pub(crate) fn available_models(settings: &Settings) -> Vec<Model> {
     let mut models = model_catalog::all_models();
-    for configured in settings.configured_models() {
-        models.retain(|model| model.provider != configured.provider || model.id != configured.id);
-        models.push(configured);
-    }
+    models.extend(settings.configured_models());
     models.sort_by(|left, right| {
         left.provider
             .cmp(&right.provider)
@@ -34,8 +30,8 @@ pub(crate) fn available_models(settings: &Settings) -> Vec<Model> {
     models
 }
 
-/// Resolve a model selector using provider-grouped user configuration first,
-/// then the built-in convenience catalog.
+/// Resolve a model selector using provider-grouped user configuration first.
+/// Unknown model IDs are supported for configured OpenAI-compatible providers.
 pub(crate) fn resolve_model_selector(
     selector: &str,
     settings: &Settings,
@@ -48,9 +44,15 @@ pub(crate) fn resolve_model_selector(
         return Some(model);
     }
 
-    // An unknown qualified selector is still useful for a configured provider
-    // whose model catalog is intentionally minimal.
-    let (provider, model_id) = selector.split_once('/').unwrap_or(("openai", selector));
+    // An unknown selector is still useful for a configured provider whose
+    // model catalog is intentionally minimal. An unqualified selector uses
+    // the configured default provider rather than implicitly selecting OpenAI.
+    let (provider, model_id) = selector
+        .split_once('/')
+        .unwrap_or((&settings.provider, selector));
+    if !settings.providers.contains_key(provider) {
+        return None;
+    }
     Some(Model::new(
         model_id,
         model_id,
@@ -68,6 +70,8 @@ pub(crate) fn resolve_model(
     cli: &Cli,
     settings: &Settings,
 ) -> Result<Model, anyhow::Error> {
+    settings.require_configured_providers()?;
+
     if let Some(model_str) = &cli.model {
         return resolve_model_selector(model_str, settings, cli.base_url.as_deref())
             .ok_or_else(|| anyhow::anyhow!("No models available"));
@@ -168,4 +172,24 @@ pub(crate) fn create_provider_for_model(
     };
 
     Ok(Box::new(OpenaiCompatProvider::new(config)))
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[test]
+    fn model_resolution_requires_a_configured_provider() {
+        let cli = Cli::parse_from(["hallucinate"]);
+        let error = resolve_model(&cli, &Settings::default()).unwrap_err();
+        assert!(error.to_string().contains("No providers configured"));
+    }
+
+    #[test]
+    fn available_models_only_contains_configured_models() {
+        let settings = Settings::default();
+        assert!(available_models(&settings).is_empty());
+    }
 }

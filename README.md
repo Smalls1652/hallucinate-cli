@@ -37,32 +37,48 @@ make build-release-artifacts
 
 ## Quick Start
 
-### 1. Authenticate with a provider
+### 1. Configure a provider
+
+Models are not included by default. Add at least one provider and model to `settings.toml` before starting a run mode. For example:
+
+```toml
+default_model = "local/llama-3"
+
+[providers.local]
+base_url = "http://localhost:1234/v1"
+
+[providers.local.models.llama-3]
+name = "Llama 3"
+```
+
+The settings file is stored in the application's configuration directory. Provider model IDs and metadata are user-configurable, so the same structure works for any OpenAI-compatible endpoint.
+
+### 2. Authenticate with a provider
 
 ```bash
 # Save an API key (prefer passing via environment variable)
-hallucinate auth set openai --api-key "$HALLUCINATE_OPENAI_API_KEY"
+hallucinate auth set <provider> --api-key "$HALLUCINATE_API_KEY"
 
 # List saved providers
 hallucinate auth list
 
 # Remove a saved key
-hallucinate auth remove openai
+hallucinate auth remove <provider>
 ```
 
-### 2. Interactive mode (default)
+### 3. Interactive mode (default)
 
 ```bash
 hallucinate
 ```
 
-### 3. Print mode — one-shot prompt
+### 4. Print mode — one-shot prompt
 
 ```bash
 hallucinate -p "Explain why metalcore music is sometimes referred to as unga-bunga music"
 ```
 
-### 4. RPC mode — JSON-RPC over stdin/stdout
+### 5. RPC mode — JSON-RPC over stdin/stdout
 
 ```bash
 hallucinate --rpc
@@ -74,7 +90,7 @@ hallucinate --rpc
 hallucinate [OPTIONS]
 
 Options:
-  -m, --model <MODEL>          Model to use (e.g., "gpt-4o", "openai/gpt-4o")
+  -m, --model <MODEL>          Configured model ID or "provider/model" pair
   -p, --print <PROMPT>         Print mode: send prompt and exit
       --rpc                    Run in RPC mode (JSON-RPC)
       --interactive            Run in interactive mode (default)

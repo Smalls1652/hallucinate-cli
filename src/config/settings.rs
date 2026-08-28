@@ -221,6 +221,20 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Ensure that at least one provider was explicitly configured.
+    ///
+    /// The application does not fall back to a built-in provider or model.
+    /// Keeping this check on settings also makes all run modes enforce the
+    /// same configuration requirement.
+    pub fn require_configured_providers(&self) -> Result<(), anyhow::Error> {
+        if self.providers.is_empty() {
+            anyhow::bail!(
+                "No providers configured. Add a provider to settings.toml before starting hallucinate."
+            );
+        }
+        Ok(())
+    }
+
     /// Load settings from the config file.
     pub fn load() -> Result<Self, anyhow::Error> {
         if let Some(path) = paths::settings_file()
@@ -471,8 +485,8 @@ mod tests {
     fn settings_load_from_toml() {
         let settings: Settings = toml::from_str(
             r#"
-            default_model = "gpt-4o"
-            provider = "openai"
+            default_model = "example/model"
+            provider = "example"
             base_url = "https://example.test/v1"
             shell = "/bin/bash"
             timeout_ms = 30_000
@@ -485,8 +499,8 @@ mod tests {
             temperature = 0.2
             max_tokens = 256
 
-            [credential_store.credentials.openai]
-            provider_id = "openai"
+            [credential_store.credentials.example]
+            provider_id = "example"
             api_key = "sk-test"
             stored_at = 0
 
@@ -496,7 +510,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(settings.default_model.as_deref(), Some("gpt-4o"));
+        assert_eq!(settings.default_model.as_deref(), Some("example/model"));
         assert_eq!(
             settings.base_url.as_deref(),
             Some("https://example.test/v1")
@@ -512,6 +526,18 @@ mod tests {
             Some(&"enabled".to_string())
         );
         assert_eq!(settings.resolve_api_key(None).as_deref(), Some("sk-test"));
+    }
+
+    #[test]
+    fn no_provider_configuration_is_rejected() {
+        let error = Settings::default()
+            .require_configured_providers()
+            .unwrap_err();
+        assert!(error.to_string().contains("No providers configured"));
+
+        let mut settings = Settings::default();
+        settings.providers.insert("local".to_string(), Default::default());
+        assert!(settings.require_configured_providers().is_ok());
     }
 
     #[test]

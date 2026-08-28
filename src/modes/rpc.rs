@@ -494,11 +494,15 @@ mod tests {
             "test-key",
         ])
         .unwrap();
+        let mut settings = Settings::default();
+        settings
+            .providers
+            .insert("openai".to_string(), Default::default());
         let response = chat(
             Some(&json!({ "message": "say hello" })),
             json!(7),
             &cli,
-            &Settings::default(),
+            &settings,
         )
         .await;
         let result = response.result.unwrap();

@@ -1,67 +1,18 @@
-//! Catalog and resolution for models supported by the OpenAI-compatible API.
+//! Model catalog and resolution helpers.
+//!
+//! Models are supplied by configured providers. The application intentionally
+//! does not ship a built-in model catalog; provider and model selections come
+//! from `settings.toml` or an explicit CLI selector for a configured provider.
 
-use crate::ai::types::{Api, Model};
+use crate::ai::types::Model;
 
-/// Return the built-in OpenAI model metadata.
-pub fn openai_models() -> Vec<Model> {
-    vec![
-        Model::new(
-            "gpt-4o",
-            "GPT-4o",
-            Api::OpenaiCompletions,
-            "openai",
-            "https://api.openai.com/v1",
-            false,
-            128_000,
-            16_384,
-        ),
-        Model::new(
-            "gpt-4o-mini",
-            "GPT-4o Mini",
-            Api::OpenaiCompletions,
-            "openai",
-            "https://api.openai.com/v1",
-            false,
-            128_000,
-            16_384,
-        ),
-        Model::new(
-            "o1",
-            "o1",
-            Api::OpenaiCompletions,
-            "openai",
-            "https://api.openai.com/v1",
-            true,
-            200_000,
-            100_000,
-        ),
-        Model::new(
-            "o1-mini",
-            "o1 Mini",
-            Api::OpenaiCompletions,
-            "openai",
-            "https://api.openai.com/v1",
-            true,
-            128_000,
-            65_536,
-        ),
-        Model::new(
-            "o3-mini",
-            "o3 Mini",
-            Api::OpenaiCompletions,
-            "openai",
-            "https://api.openai.com/v1",
-            true,
-            200_000,
-            100_000,
-        ),
-    ]
-}
-
-/// Return all built-in models. Custom OpenAI-compatible model IDs are accepted
-/// by the CLI even when they are not in this small convenience catalog.
+/// Return all built-in models.
+///
+/// This is intentionally empty. In particular, OpenAI models are not added to
+/// the available model list implicitly; models must come from a configured
+/// provider.
 pub fn all_models() -> Vec<Model> {
-    openai_models()
+    Vec::new()
 }
 
 pub fn find_model(model_id: &str) -> Option<Model> {
@@ -87,21 +38,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_contains_openai_models() {
-        let models = openai_models();
-        assert!(models.iter().any(|model| model.id == "gpt-4o"));
-        assert!(models.iter().any(|model| model.id == "gpt-4o-mini"));
-        assert_eq!(all_models().len(), models.len());
-    }
-
-    #[test]
-    fn model_resolution_supports_ids_and_provider_prefixes() {
-        assert_eq!(find_model("gpt-4o").unwrap().name, "GPT-4o");
-        assert_eq!(
-            find_model_by_provider("openai/gpt-4o").unwrap().provider,
-            "openai"
-        );
-        assert!(find_model("claude-sonnet-4").is_none());
-        assert!(find_model_by_provider("openai/missing").is_none());
+    fn catalog_has_no_built_in_models() {
+        assert!(all_models().is_empty());
+        assert!(find_model("gpt-4o").is_none());
+        assert!(find_model_by_provider("openai/gpt-4o").is_none());
+        assert!(resolve_model("gpt-4o").is_none());
     }
 }

@@ -10,8 +10,7 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
 
-    /// Model to use (e.g., "gpt-4o", "openai/gpt-4o", or a configured
-    /// "provider/model" pair).
+    /// Model to use as a configured model ID or "provider/model" pair.
     #[arg(short, long)]
     pub model: Option<String>,
 

@@ -669,8 +669,21 @@ mod tests {
     use super::*;
     use crate::ai::{
         providers::faux::{FauxProvider, FauxResponse},
-        types::StopReason,
+        types::{Api, Model, StopReason},
     };
+
+    fn test_model() -> Model {
+        Model::new(
+            "test-model",
+            "Test Model",
+            Api::OpenaiCompletions,
+            "test",
+            "http://localhost:0",
+            false,
+            128_000,
+            16_384,
+        )
+    }
 
     #[tokio::test]
     async fn emits_text_deltas_and_a_completed_message() {
@@ -679,10 +692,7 @@ mod tests {
             "Streaming text".to_string(),
             StopReason::Stop,
         )]);
-        let model = crate::ai::model_catalog::openai_models()
-            .into_iter()
-            .next()
-            .unwrap();
+        let model = test_model();
         let mut agent = Agent::new(Box::new(provider), model, AgentConfig::default());
         let mut events = agent.subscribe();
 
@@ -712,10 +722,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancellation_handle_transitions_agent_to_aborted() {
-        let model = crate::ai::model_catalog::openai_models()
-            .into_iter()
-            .next()
-            .unwrap();
+        let model = test_model();
         let mut agent = Agent::new(Box::new(FauxProvider::new()), model, AgentConfig::default());
         let cancellation = agent.cancellation();
         cancellation.cancel();
@@ -731,10 +738,7 @@ mod tests {
             FauxResponse::Text("second".to_string(), StopReason::Stop),
             FauxResponse::Text("first".to_string(), StopReason::Stop),
         ]);
-        let model = crate::ai::model_catalog::openai_models()
-            .into_iter()
-            .next()
-            .unwrap();
+        let model = test_model();
         let mut agent = Agent::new(Box::new(provider), model, AgentConfig::default());
         let first_handle = agent.cancellation();
         agent.add_user_message("first prompt");
@@ -749,10 +753,7 @@ mod tests {
     async fn provider_failures_emit_error_and_update_state() {
         let provider = FauxProvider::new();
         provider.set_responses(vec![FauxResponse::Error("provider failed".to_string())]);
-        let model = crate::ai::model_catalog::openai_models()
-            .into_iter()
-            .next()
-            .unwrap();
+        let model = test_model();
         let mut agent = Agent::new(Box::new(provider), model, AgentConfig::default());
         let mut events = agent.subscribe();
         agent.add_user_message("fail");
@@ -777,10 +778,7 @@ mod tests {
             serde_json::json!({ "command": "printf hello" }),
             StopReason::ToolUse,
         )]);
-        let model = crate::ai::model_catalog::openai_models()
-            .into_iter()
-            .next()
-            .unwrap();
+        let model = test_model();
         let config = AgentConfig {
             max_turns: 1,
             ..AgentConfig::default()
@@ -806,10 +804,7 @@ mod tests {
                 StopReason::ToolUse,
             ),
         ]);
-        let model = crate::ai::model_catalog::openai_models()
-            .into_iter()
-            .next()
-            .unwrap();
+        let model = test_model();
         let mut agent = Agent::with_all_tools_and_image_resize(
             Box::new(provider),
             model,
@@ -827,10 +822,7 @@ mod tests {
 
     #[test]
     fn rejects_history_with_multiple_unmatched_tool_calls() {
-        let model = crate::ai::model_catalog::openai_models()
-            .into_iter()
-            .next()
-            .unwrap();
+        let model = test_model();
         let mut agent = Agent::new(Box::new(FauxProvider::new()), model, AgentConfig::default());
         let assistant = crate::ai::types::AssistantMessage::new(
             vec![
@@ -867,10 +859,7 @@ mod tests {
         };
         let agent = Agent::with_all_tools_and_image_resize(
             Box::new(FauxProvider::new()),
-            crate::ai::model_catalog::openai_models()
-                .into_iter()
-                .next()
-                .unwrap(),
+            test_model(),
             config,
             true,
         );
@@ -881,10 +870,7 @@ mod tests {
     fn advertises_skills_when_the_read_tool_is_enabled() {
         let agent = Agent::with_all_tools_and_image_resize(
             Box::new(FauxProvider::new()),
-            crate::ai::model_catalog::openai_models()
-                .into_iter()
-                .next()
-                .unwrap(),
+            test_model(),
             AgentConfig::default(),
             true,
         )
