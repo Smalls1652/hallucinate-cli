@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "skills": {
+    "rust-code-style": {
+      "source": "https://git.smalls.online/smalls/agent-skills.git",
+      "sourceUrl": "https://git.smalls.online/smalls/agent-skills.git",
+      "sourceType": "git",
+      "skillPath": "skills/rust-code-style/SKILL.md",
+      "computedHash": "c9b72c16fe079e16751f5ad9aa836ee44faa561aaa9515e8714108fee42650b6"
+    }
+  }
+}
