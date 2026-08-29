@@ -91,28 +91,35 @@ pub enum AgentEvent {
         new_state: AgentState,
         old_state: AgentState,
     },
+    
     /// A new turn started.
     TurnStarted { turn_number: u32 },
+    
     /// A text fragment from the assistant response.
     AssistantTextDelta { delta: String },
+    
     /// A reasoning fragment from the assistant response.
     AssistantThinkingDelta { delta: String },
+    
     /// A complete assistant response for a turn.
     AssistantMessageCompleted {
         turn_number: u32,
         message: Box<AssistantMessage>,
     },
+    
     /// Tool call detected in assistant response.
     ToolCallDetected {
         tool_call_id: String,
         tool_name: String,
         arguments: serde_json::Value,
     },
+    
     /// Tool execution started.
     ToolExecutionStarted {
         tool_call_id: String,
         tool_name: String,
     },
+    
     /// Tool execution completed.
     ToolExecutionCompleted {
         tool_call_id: String,
@@ -120,25 +127,30 @@ pub enum AgentEvent {
         result: String,
         is_error: bool,
     },
+    
     /// Tool execution failed.
     ToolExecutionFailed {
         tool_call_id: String,
         tool_name: String,
         error: String,
     },
+    
     /// Turn completed successfully.
     TurnCompleted {
         turn_number: u32,
         stop_reason: StopReason,
     },
+    
     /// Error occurred during agent operation.
     Error { message: String },
+    
     /// Context compaction performed.
     CompactionPerformed {
         tokens_before: u64,
         tokens_after: u64,
         summaries_added: u32,
     },
+    
     /// Agent aborted.
     Aborted,
 }
@@ -152,36 +164,47 @@ impl fmt::Display for AgentEvent {
             AgentEvent::StateChanged { new_state, .. } => {
                 write!(f, "[state] {new_state}")
             },
+
             AgentEvent::TurnStarted { turn_number } => {
                 write!(f, "[turn] started #{turn_number}")
             },
+            
             AgentEvent::AssistantTextDelta { delta, .. } => {
                 write!(f, "[text_delta len={}]", delta.len())
             },
+            
             AgentEvent::AssistantThinkingDelta { delta } => {
                 write!(f, "[thinking_delta len={}]", delta.len())
             },
+            
             AgentEvent::AssistantMessageCompleted { turn_number, .. } => {
                 write!(f, "[assistant] completed turn #{turn_number}")
             },
+            
             AgentEvent::ToolCallDetected { tool_name, .. } => {
                 write!(f, "[tool_call] {tool_name}")
             },
+            
             AgentEvent::ToolExecutionStarted { tool_name, .. } => {
                 write!(f, "[tool_exec] starting {tool_name}")
             },
+            
             AgentEvent::ToolExecutionCompleted { tool_name, .. } => {
                 write!(f, "[tool_done] {tool_name}")
             },
+            
             AgentEvent::ToolExecutionFailed { tool_name, .. } => {
                 write!(f, "[tool_failed] {tool_name}")
             },
+            
             AgentEvent::TurnCompleted { turn_number, .. } => {
                 write!(f, "[turn] completed #{turn_number}")
             },
+            
             AgentEvent::Error { message } => {
                 write!(f, "[error] {message}")
             },
+            
             AgentEvent::CompactionPerformed {
                 tokens_before,
                 tokens_after,
@@ -189,6 +212,7 @@ impl fmt::Display for AgentEvent {
             } => {
                 write!(f, "[compaction] {tokens_before} -> {tokens_after} tokens")
             },
+            
             AgentEvent::Aborted => write!(f, "[abort]"),
         }
     }
@@ -289,6 +313,7 @@ pub fn estimate_message_tokens(message: &Message) -> u64 {
         crate::ai::types::Message::User(msg) => {
             estimate_text_tokens(&msg.content) + estimate_image_tokens(msg.images.len())
         },
+        
         crate::ai::types::Message::Assistant(msg) => {
             let mut tokens: u64 = 0;
             for content in &msg.content {
@@ -296,9 +321,11 @@ pub fn estimate_message_tokens(message: &Message) -> u64 {
                     crate::ai::types::AssistantContent::Text(t) => {
                         tokens += estimate_text_tokens(&t.text);
                     },
+                    
                     crate::ai::types::AssistantContent::Thinking(t) => {
                         tokens += estimate_text_tokens(&t.thinking);
                     },
+                    
                     crate::ai::types::AssistantContent::ToolCall(tc) => {
                         // Tool calls have overhead
                         tokens += 10
@@ -307,13 +334,17 @@ pub fn estimate_message_tokens(message: &Message) -> u64 {
                     },
                 }
             }
+            
             tokens
         },
+        
         crate::ai::types::Message::ToolResult(msg) => {
             let mut tokens: u64 = 0;
+            
             for content in &msg.content {
                 tokens += estimate_text_tokens(&content.text);
             }
+            
             tokens + estimate_image_tokens(msg.images.len())
         },
     }
@@ -330,6 +361,7 @@ fn estimate_text_tokens(text: &str) -> u64 {
     if text.is_empty() {
         return 0;
     }
+    
     (text.chars().count() as u64).div_ceil(4)
 }
 
@@ -384,6 +416,7 @@ mod tests {
             "Hello, this is a test message.",
         ));
         let tokens = estimate_message_tokens(&msg);
+        
         assert!(tokens > 0);
         assert!(tokens < 100); // Should be a small number
     }
@@ -399,7 +432,9 @@ mod tests {
             "test-model",
             StopReason::Stop,
         ));
+        
         let tokens = estimate_message_tokens(&msg);
+        
         assert!(tokens > 0);
     }
 
@@ -409,6 +444,7 @@ mod tests {
             .with_system_prompt("You are a helpful assistant.");
 
         let tokens = estimate_context_tokens(&context);
+        
         assert!(tokens > 0);
     }
 

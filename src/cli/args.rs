@@ -141,6 +141,7 @@ mod tests {
             "session-id",
         ])
         .unwrap();
+        
         assert_eq!(cli.model, Some("gpt-4o".to_string()));
         assert_eq!(cli.shell, Some("/bin/bash".to_string()));
         assert_eq!(cli.print, Some("hello".to_string()));
@@ -162,6 +163,7 @@ mod tests {
             "sk-test",
         ])
         .unwrap();
+        
         assert!(matches!(
             cli.command,
             Some(Command::Auth {
@@ -176,6 +178,7 @@ mod tests {
     #[test]
     fn test_cli_parses_thinking_options() {
         let cli = Cli::try_parse_from(["hallucinate", "--thinking"]).unwrap();
+        
         assert!(cli.thinking);
         assert!(!cli.no_thinking);
         assert!(Cli::try_parse_from(["hallucinate", "--thinking", "--no-thinking"]).is_err());
@@ -195,6 +198,7 @@ mod tests {
             "--debug",
         ])
         .unwrap();
+        
         assert_eq!(cli.skills.len(), 2);
         assert!(cli.no_skills);
         assert_eq!(cli.prompt_templates.len(), 1);

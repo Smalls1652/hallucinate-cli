@@ -73,6 +73,7 @@ pub fn display_path(
     project_dir: impl AsRef<Path>,
 ) -> String {
     let project_dir = absolute_normalized(project_dir.as_ref());
+    
     let path = expand_tilde(path.as_ref());
     let path = if path.is_absolute() {
         absolute_normalized(&path)
@@ -93,6 +94,7 @@ pub fn display_path(
 
         let mut shortened = PathBuf::from("~");
         shortened.push(relative);
+        
         return shortened.display().to_string();
     }
 
@@ -122,6 +124,7 @@ fn absolute_normalized(path: &Path) -> PathBuf {
             component => normalized.push(component.as_os_str()),
         }
     }
+    
     normalized
 }
 
@@ -182,6 +185,7 @@ pub fn session_file(session_id: &str) -> Option<PathBuf> {
     {
         return None;
     }
+    
     sessions_dir().map(|dir| dir.join(format!("{}.jsonl", session_id)))
 }
 
@@ -190,26 +194,33 @@ pub fn ensure_directories() -> Result<(), std::io::Error> {
     if let Some(dir) = config_dir() {
         std::fs::create_dir_all(&dir)?;
     }
+    
     if let Some(dir) = data_dir() {
         std::fs::create_dir_all(&dir)?;
     }
+    
     if let Some(dir) = cache_dir() {
         std::fs::create_dir_all(&dir)?;
     }
+    
     if let Some(dir) = sessions_dir() {
         std::fs::create_dir_all(&dir)?;
     }
+    
     if let Some(dir) = skills_dir() {
         std::fs::create_dir_all(&dir)?;
     }
+    
     if let Some(dir) = prompts_dir() {
         std::fs::create_dir_all(&dir)?;
     }
+    
     if let Some(path) = debug_log_file()
         && let Some(dir) = path.parent()
     {
         std::fs::create_dir_all(dir)?;
     }
+    
     Ok(())
 }
 
@@ -247,6 +258,7 @@ mod tests {
     fn display_path_prefers_project_relative_paths() {
         let home = BaseDirs::new().unwrap().home_dir().to_path_buf();
         let project = home.join("hallucinate-project");
+        
         assert_eq!(
             display_path(project.join("src/main.rs"), &project),
             "src/main.rs"
@@ -262,6 +274,7 @@ mod tests {
     fn display_path_shortens_paths_in_the_home_directory() {
         let home = BaseDirs::new().unwrap().home_dir().to_path_buf();
         let project = home.join("hallucinate-project");
+        
         assert_eq!(
             display_path(home.join("shared/config.toml"), &project),
             "~/shared/config.toml"
@@ -296,6 +309,7 @@ mod tests {
     fn test_session_file_path() {
         let path = session_file("test-session-123");
         assert!(path.is_some());
+        
         let path = path.unwrap();
         assert!(path.to_string_lossy().contains("test-session-123.jsonl"));
         assert!(session_file("../outside").is_none());

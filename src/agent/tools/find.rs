@@ -75,6 +75,7 @@ impl Tool for FindTool {
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: pattern"))?;
 
             let project_dir = cwd.unwrap_or(".");
+            
             let search_path = arguments
                 .get("path")
                 .and_then(|v| v.as_str())
@@ -88,6 +89,7 @@ impl Tool for FindTool {
 
             let full_pattern = search_path.join(pattern);
             let full_pattern_string = full_pattern.to_string_lossy().into_owned();
+            
             let expanded_pattern = shellexpand::full(&full_pattern_string)
                 .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&full_pattern_string));
 
@@ -111,6 +113,7 @@ impl Tool for FindTool {
                     pattern,
                     matches.join("\n")
                 );
+                
                 Ok(super::types::ToolResult::success("find", "find", result))
             }
         })
@@ -122,6 +125,7 @@ fn resolve_path(
     cwd: &str,
 ) -> PathBuf {
     let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
+    
     let path = Path::new(expanded.as_ref());
     if path.is_relative() {
         Path::new(cwd).join(path)
@@ -137,6 +141,7 @@ mod tests {
     #[tokio::test]
     async fn test_find_tool_exists() {
         let tool = FindTool::new();
+        
         assert_eq!(tool.name(), "find");
         assert!(!tool.description().is_empty());
     }
@@ -146,6 +151,7 @@ mod tests {
         let tool = FindTool::new();
         let args = json!({});
         let result = futures::executor::block_on(tool.execute(&args, None));
+        
         assert!(result.is_err());
     }
 
@@ -154,6 +160,7 @@ mod tests {
         let tool = FindTool::new();
         let args = json!({ "pattern": "**/nonexistent_xyz_123.rs" });
         let result = futures::executor::block_on(tool.execute(&args, None)).unwrap();
+        
         assert!(!result.is_error);
         assert!(result.content.contains("No files"));
     }

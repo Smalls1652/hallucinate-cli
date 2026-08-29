@@ -31,6 +31,7 @@ pub(crate) fn resolve_path(
     cwd: Option<&str>,
 ) -> std::path::PathBuf {
     let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
+    
     let path = Path::new(expanded.as_ref());
     if path.is_relative() {
         if let Some(cwd) = cwd {
@@ -38,6 +39,7 @@ pub(crate) fn resolve_path(
         }
         return std::env::current_dir().unwrap_or_default().join(path);
     }
+    
     path.to_path_buf()
 }
 
@@ -145,6 +147,7 @@ mod tests {
     #[tokio::test]
     async fn test_edit_tool_exists() {
         let tool = EditTool::new();
+        
         assert_eq!(tool.name(), "edit");
         assert!(!tool.description().is_empty());
     }
@@ -154,6 +157,7 @@ mod tests {
         let tool = EditTool::new();
         let args = json!({ "path": "/tmp/test.txt" });
         let result = futures::executor::block_on(tool.execute(&args, None));
+        
         assert!(result.is_err());
     }
 

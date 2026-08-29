@@ -65,6 +65,7 @@ pub fn load_prompt_templates(options: &PromptTemplateLoadOptions) -> PromptTempl
         if let Some(directory) = paths::prompts_dir() {
             load_directory(&directory, &mut result, &mut names, &mut files);
         }
+        
         load_directory(
             &paths::project_prompts_dir(&options.cwd),
             &mut result,
@@ -75,6 +76,7 @@ pub fn load_prompt_templates(options: &PromptTemplateLoadOptions) -> PromptTempl
 
     for path in &options.prompt_paths {
         let path = expand_path(path, &options.cwd);
+        
         if path.is_dir() {
             load_directory(&path, &mut result, &mut names, &mut files);
         } else if is_markdown_file(&path) {
@@ -101,13 +103,17 @@ pub fn expand_prompt_template(
     templates: &[PromptTemplate],
 ) -> String {
     let input = text.trim_start();
+    
     let Some(command) = input.strip_prefix('/') else {
         return text.to_string();
     };
+    
     let mut parts = command.splitn(2, char::is_whitespace);
+    
     let Some(name) = parts.next().filter(|name| !name.is_empty()) else {
         return text.to_string();
     };
+    
     let Some(template) = templates.iter().find(|template| template.name == name) else {
         return text.to_string();
     };
@@ -141,9 +147,11 @@ pub fn parse_command_args(arguments: &str) -> Vec<String> {
             current.push(character);
         }
     }
+    
     if !current.is_empty() {
         parsed.push(current);
     }
+    
     parsed
 }
 
@@ -156,11 +164,14 @@ pub fn substitute_args(
         r"\$\{(\d+|ARGUMENTS|@):-([^}]*)\}|\$\{@:(\d+)(?::(\d+))?\}|\$(ARGUMENTS|@|\d+)",
     )
     .expect("template substitution pattern is valid");
+    
     let all_arguments = arguments.join(" ");
+    
     pattern
         .replace_all(content, |captures: &regex::Captures<'_>| {
             if let Some(target) = captures.get(1) {
                 let value = argument_value(target.as_str(), arguments, &all_arguments);
+                
                 return if value.is_empty() {
                     captures
                         .get(2)
@@ -170,6 +181,7 @@ pub fn substitute_args(
                     value.to_string()
                 };
             }
+            
             if let Some(start) = captures.get(3) {
                 let start = start
                     .as_str()
@@ -180,8 +192,10 @@ pub fn substitute_args(
                     .get(4)
                     .and_then(|length| length.as_str().parse::<usize>().ok())
                     .map_or(arguments.len(), |length| start.saturating_add(length));
+                
                 return arguments[start.min(arguments.len())..end.min(arguments.len())].join(" ");
             }
+            
             argument_value(captures.get(5).unwrap().as_str(), arguments, &all_arguments).to_string()
         })
         .into_owned()
@@ -196,10 +210,13 @@ fn load_directory(
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
+    
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(|entry| entry.file_name());
+    
     for entry in entries {
         let path = entry.path();
+        
         if path.is_file() && is_markdown_file(&path) {
             load_file(&path, result, names, files);
         }
@@ -213,9 +230,11 @@ fn load_file(
     files: &mut HashSet<PathBuf>,
 ) {
     let file_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    
     if !files.insert(file_path.clone()) {
         return;
     }
+    
     let raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
         Err(error) => {
@@ -223,9 +242,11 @@ fn load_file(
                 message: format!("failed to read prompt template: {error}"),
                 path: path.to_path_buf(),
             });
+            
             return;
         },
     };
+    
     let (frontmatter, content) = match split_frontmatter(&raw) {
         Ok(parts) => parts,
         Err(message) => {
@@ -236,14 +257,17 @@ fn load_file(
             return;
         },
     };
+    
     let name = path
         .file_stem()
         .and_then(|name| name.to_str())
         .unwrap_or_default()
         .to_string();
+    
     if name.is_empty() {
         return;
     }
+    
     if !names.insert(name.clone()) {
         result.diagnostics.push(PromptTemplateDiagnostic {
             message: format!(
@@ -251,12 +275,15 @@ fn load_file(
             ),
             path: path.to_path_buf(),
         });
+        
         return;
     }
+    
     let description = frontmatter
         .description
         .filter(|description| !description.trim().is_empty())
         .unwrap_or_else(|| first_line_description(&content));
+    
     result.templates.push(PromptTemplate {
         name,
         description,
@@ -268,23 +295,28 @@ fn load_file(
 
 fn split_frontmatter(raw: &str) -> Result<(PromptFrontmatter, String), String> {
     let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
+    
     let Some(rest) = raw
         .strip_prefix("---\n")
         .or_else(|| raw.strip_prefix("---\r\n"))
     else {
         return Ok((PromptFrontmatter::default(), raw.to_string()));
     };
+    
     let Some(end) = rest.find("\n---\n").or_else(|| rest.find("\n---\r\n")) else {
         return Err("prompt template frontmatter is not terminated".to_string());
     };
+    
     let frontmatter = serde_yaml::from_str(&rest[..end])
         .map_err(|error| format!("invalid prompt template frontmatter: {error}"))?;
+    
     let body_start = end
         + if rest[end..].starts_with("\n---\r\n") {
             6
         } else {
             5
         };
+    
     Ok((frontmatter, rest[body_start..].to_string()))
 }
 
@@ -296,6 +328,7 @@ fn argument_value<'a>(
     if matches!(target, "@" | "ARGUMENTS") {
         return all_arguments;
     }
+    
     target
         .parse::<usize>()
         .ok()
@@ -309,6 +342,7 @@ fn first_line_description(content: &str) -> String {
         .lines()
         .find(|line| !line.trim().is_empty())
         .unwrap_or_default();
+    
     if line.chars().count() <= 60 {
         line.to_string()
     } else {
@@ -327,6 +361,7 @@ fn expand_path(
 ) -> PathBuf {
     let value = shellexpand::tilde(&path.to_string_lossy()).into_owned();
     let path = PathBuf::from(value);
+    
     if path.is_absolute() {
         path
     } else {
@@ -354,6 +389,7 @@ mod tests {
     #[test]
     fn expands_positional_defaults_and_slices() {
         let content = "$1 $2 $@ ${3:-fallback} ${@:2} ${@:1:2}";
+        
         assert_eq!(
             substitute_args(
                 content,
@@ -374,14 +410,17 @@ mod tests {
     #[test]
     fn expands_only_known_slash_commands() {
         let templates = vec![template("review", "Review $1: $@")];
+        
         assert_eq!(
             expand_prompt_template("/review src 'be strict'", &templates),
             "Review src: src be strict"
         );
+        
         assert_eq!(
             expand_prompt_template("/unknown value", &templates),
             "/unknown value"
         );
+        
         assert_eq!(
             expand_prompt_template("  /review src", &templates),
             "Review src: src"
@@ -394,6 +433,7 @@ mod tests {
             "---\ndescription: Review code\nargument-hint: <path>\n---\nReview $1",
         )
         .unwrap();
+        
         assert_eq!(frontmatter.description.as_deref(), Some("Review code"));
         assert_eq!(frontmatter.argument_hint.as_deref(), Some("<path>"));
         assert_eq!(body, "Review $1");
@@ -403,12 +443,15 @@ mod tests {
     fn loads_only_top_level_templates_from_an_explicit_directory() {
         let directory =
             std::env::temp_dir().join(format!("hallucinate-prompts-{}", uuid::Uuid::new_v4()));
+        
         fs::create_dir_all(directory.join("nested")).unwrap();
+        
         fs::write(
             directory.join("review.md"),
             "---\ndescription: Review a change\n---\nReview $1",
         )
         .unwrap();
+        
         fs::write(directory.join("nested/ignored.md"), "This is ignored").unwrap();
 
         let result = load_prompt_templates(&PromptTemplateLoadOptions {
@@ -416,9 +459,11 @@ mod tests {
             prompt_paths: vec![directory.clone()],
             include_defaults: false,
         });
+        
         assert_eq!(result.templates.len(), 1);
         assert_eq!(result.templates[0].name, "review");
         assert_eq!(result.templates[0].description, "Review a change");
+        
         fs::remove_dir_all(directory).unwrap();
     }
 }

@@ -80,6 +80,7 @@ pub fn load_skills(options: &SkillLoadOptions) -> SkillLoadResult {
         if let Some(directory) = paths::skills_dir() {
             load_skills_from_dir(&directory, &mut result, &mut seen_paths, &mut seen_names);
         }
+        
         load_skills_from_dir(
             &paths::project_skills_dir(&options.cwd),
             &mut result,
@@ -100,6 +101,7 @@ pub fn load_skills(options: &SkillLoadOptions) -> SkillLoadResult {
                 &mut seen_names,
             );
         }
+        
         for directory in project_agents_skills_dirs(&options.cwd) {
             load_skills_from_dir_with_root_files(
                 &directory,
@@ -113,6 +115,7 @@ pub fn load_skills(options: &SkillLoadOptions) -> SkillLoadResult {
 
     for path in &options.skill_paths {
         let path = expand_path(path, &options.cwd);
+        
         if path.is_dir() {
             load_skills_from_dir(&path, &mut result, &mut seen_paths, &mut seen_names);
         } else if path.is_file() && is_markdown_file(&path) {
@@ -142,18 +145,23 @@ pub fn expand_skill_command(
     skills: &[Skill],
 ) -> Result<String, anyhow::Error> {
     let input = text.trim_start();
+    
     let Some(command) = input.strip_prefix("/skill:") else {
         return Ok(text.to_string());
     };
+    
     let end = command.find(char::is_whitespace).unwrap_or(command.len());
     let name = &command[..end];
+    
     let Some(skill) = skills.iter().find(|skill| skill.name == name) else {
         return Ok(text.to_string());
     };
 
     let content = fs::read_to_string(&skill.file_path)
         .map_err(|error| anyhow::anyhow!("failed to read skill '{}': {error}", name))?;
+    
     let body = skill_body(&content).trim();
+    
     let block = format!(
         "<skill name=\"{}\" location=\"{}\">\nReferences are relative to {}.\n\n{}\n</skill>",
         escape_xml(&skill.name),
@@ -161,7 +169,9 @@ pub fn expand_skill_command(
         escape_xml(&skill.base_dir.to_string_lossy()),
         body
     );
+    
     let arguments = command[end..].trim();
+    
     Ok(if arguments.is_empty() {
         block
     } else {
@@ -175,6 +185,7 @@ pub fn format_skills_for_prompt(skills: &[Skill]) -> String {
         .iter()
         .filter(|skill| !skill.disable_model_invocation)
         .collect();
+    
     if visible.is_empty() {
         return String::new();
     }
@@ -200,6 +211,7 @@ When a skill file references a relative path, resolve it against the skill direc
         output.push_str("  </skill>");
     }
     output.push_str("\n</available_skills>");
+    
     output
 }
 
@@ -240,13 +252,16 @@ fn load_skills_from_dir_with_root_files(
 
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(|entry| entry.file_name());
+    
     for entry in entries {
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
+        
         if name.starts_with('.') || matches!(name.as_ref(), "node_modules" | "target") {
             continue;
         }
+        
         if path.is_dir() {
             // Root files are special only for the directory supplied by the
             // caller. Markdown files inside grouping directories are valid
@@ -276,9 +291,11 @@ fn load_skill_file(
                 message: format!("failed to read skill: {error}"),
                 path: path.to_path_buf(),
             });
+
             return;
         },
     };
+    
     let frontmatter = match parse_frontmatter(&content) {
         Ok(frontmatter) => frontmatter,
         Err(message) => {
@@ -288,6 +305,7 @@ fn load_skill_file(
                     path: path.to_path_buf(),
                 });
             }
+
             return;
         },
     };
@@ -300,14 +318,17 @@ fn load_skill_file(
             message: "description is required".to_string(),
             path: path.to_path_buf(),
         });
+
         return;
     };
+    
     let fallback_name = path
         .parent()
         .and_then(Path::file_name)
         .and_then(|name| name.to_str())
         .unwrap_or_default()
         .to_string();
+    
     let name = frontmatter.name.unwrap_or(fallback_name);
 
     for message in validate_skill(&name, &description) {
@@ -316,11 +337,13 @@ fn load_skill_file(
             path: path.to_path_buf(),
         });
     }
+    
     if !seen_names.insert(name.clone()) {
         result.diagnostics.push(SkillDiagnostic {
             message: format!("skill name collision: {name:?}; keeping the first skill"),
             path: path.to_path_buf(),
         });
+
         return;
     }
 
@@ -335,36 +358,43 @@ fn load_skill_file(
 
 fn parse_frontmatter(content: &str) -> Result<SkillFrontmatter, String> {
     let content = content.strip_prefix('\u{feff}').unwrap_or(content);
+    
     let Some(rest) = content
         .strip_prefix("---\n")
         .or_else(|| content.strip_prefix("---\r\n"))
     else {
         return Err("skill is missing YAML frontmatter".to_string());
     };
+    
     let Some(end) = rest.find("\n---\n").or_else(|| rest.find("\n---\r\n")) else {
         return Err("skill frontmatter is not terminated".to_string());
     };
+    
     serde_yaml::from_str(&rest[..end])
         .map_err(|error| format!("invalid skill frontmatter: {error}"))
 }
 
 fn skill_body(content: &str) -> &str {
     let content = content.strip_prefix('\u{feff}').unwrap_or(content);
+    
     let Some(rest) = content
         .strip_prefix("---\n")
         .or_else(|| content.strip_prefix("---\r\n"))
     else {
         return content;
     };
+    
     let Some(end) = rest.find("\n---\n").or_else(|| rest.find("\n---\r\n")) else {
         return content;
     };
+    
     let body_start = end
         + if rest[end..].starts_with("\n---\r\n") {
             6
         } else {
             5
         };
+    
     &rest[body_start..]
 }
 
@@ -373,9 +403,11 @@ fn validate_skill(
     description: &str,
 ) -> Vec<String> {
     let mut messages = Vec::new();
+    
     if name.len() > MAX_NAME_LENGTH {
         messages.push(format!("name exceeds {MAX_NAME_LENGTH} characters"));
     }
+    
     if name.is_empty()
         || !name
             .bytes()
@@ -388,11 +420,13 @@ fn validate_skill(
             "name must use lowercase letters, numbers, and single internal hyphens".to_string(),
         );
     }
+    
     if description.len() > MAX_DESCRIPTION_LENGTH {
         messages.push(format!(
             "description exceeds {MAX_DESCRIPTION_LENGTH} characters"
         ));
     }
+    
     messages
 }
 
@@ -404,10 +438,12 @@ fn is_markdown_file(path: &Path) -> bool {
 fn project_agents_skills_dirs(cwd: &Path) -> Vec<PathBuf> {
     let mut directories = Vec::new();
     let mut directory = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+    
     let git_root = find_git_root(&directory);
 
     loop {
         directories.push(paths::project_agents_skills_dir(&directory));
+        
         if git_root.as_ref().is_some_and(|root| root == &directory) {
             break;
         }
@@ -415,9 +451,11 @@ fn project_agents_skills_dirs(cwd: &Path) -> Vec<PathBuf> {
         let Some(parent) = directory.parent() else {
             break;
         };
+        
         if parent == directory {
             break;
         }
+        
         directory = parent.to_path_buf();
     }
 
@@ -426,6 +464,7 @@ fn project_agents_skills_dirs(cwd: &Path) -> Vec<PathBuf> {
 
 fn find_git_root(start: &Path) -> Option<PathBuf> {
     let mut directory = start.to_path_buf();
+    
     loop {
         if directory.join(".git").exists() {
             return Some(directory);
@@ -435,6 +474,7 @@ fn find_git_root(start: &Path) -> Option<PathBuf> {
         if parent == directory {
             return None;
         }
+        
         directory = parent;
     }
 }
@@ -446,6 +486,7 @@ fn expand_path(
     let path = path.to_string_lossy();
     let expanded = shellexpand::tilde(&path);
     let path = PathBuf::from(expanded.as_ref());
+    
     if path.is_absolute() {
         path
     } else {
@@ -471,7 +512,9 @@ mod tests {
             "hallucinate-skills-{name}-{}",
             uuid::Uuid::new_v4()
         ));
+        
         fs::create_dir_all(&path).unwrap();
+        
         path
     }
 
@@ -486,56 +529,69 @@ mod tests {
     #[test]
     fn loads_nested_skill_directories() {
         let directory = temp_dir("nested");
+        
         write_skill(
             &directory.join("git/SKILL.md"),
             "---\nname: git-helper\ndescription: Help with Git tasks\n---\n# Git",
         );
+        
         let result = load_skills(&SkillLoadOptions {
             cwd: directory.clone(),
             skill_paths: vec![directory.clone()],
             include_defaults: false,
         });
+        
         assert_eq!(result.skills.len(), 1);
         assert_eq!(result.skills[0].name, "git-helper");
         assert_eq!(result.skills[0].base_dir, directory.join("git"));
+        
         fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn skill_root_is_preferred_to_nested_skills() {
         let directory = temp_dir("root");
+        
         write_skill(
             &directory.join("SKILL.md"),
             "---\ndescription: Root skill\n---\n",
         );
+        
         write_skill(
             &directory.join("child/SKILL.md"),
             "---\ndescription: Child skill\n---\n",
         );
+        
         let result = load_skills(&SkillLoadOptions {
             cwd: directory.clone(),
             skill_paths: vec![directory.clone()],
             include_defaults: false,
         });
+        
         assert_eq!(result.skills.len(), 1);
+        
         assert_eq!(
             result.skills[0].name,
             directory.file_name().unwrap().to_string_lossy()
         );
+        
         fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn loads_agents_skills_and_ignores_root_markdown() {
         let directory = temp_dir("agents");
+        
         write_skill(
             &directory.join("root-file.md"),
             "---\nname: root-file\ndescription: Root file\n---\n",
         );
+        
         write_skill(
             &directory.join("group/nested.md"),
             "---\nname: nested\ndescription: Nested skill\n---\n",
         );
+        
         write_skill(
             &directory.join("declared/SKILL.md"),
             "---\nname: declared\ndescription: Declared skill\n---\n",
@@ -544,6 +600,7 @@ mod tests {
         let mut result = SkillLoadResult::default();
         let mut seen_paths = HashSet::new();
         let mut seen_names = HashSet::new();
+        
         load_skills_from_dir_with_root_files(
             &directory,
             false,
@@ -560,6 +617,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["declared", "nested"]
         );
+        
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -567,12 +625,15 @@ mod tests {
     fn loads_project_agents_directories_from_cwd_to_repo_root() {
         let directory = temp_dir("agents-ancestors");
         let cwd = directory.join("packages").join("feature");
+        
         fs::create_dir_all(&cwd).unwrap();
+        
         fs::create_dir(directory.join(".git")).unwrap();
         write_skill(
             &directory.join(".agents/skills/repo/SKILL.md"),
             "---\nname: repo\ndescription: Repository skill\n---\n",
         );
+        
         write_skill(
             &directory.join("packages/.agents/skills/package/SKILL.md"),
             "---\nname: package\ndescription: Package skill\n---\n",
@@ -581,12 +642,14 @@ mod tests {
         let directories = project_agents_skills_dirs(&cwd);
         let canonical_cwd = cwd.canonicalize().unwrap();
         let canonical_root = directory.canonicalize().unwrap();
+        
         assert_eq!(directories[0], canonical_cwd.join(".agents/skills"));
         assert!(directories.contains(&canonical_root.join(".agents/skills")));
 
         let mut result = SkillLoadResult::default();
         let mut seen_paths = HashSet::new();
         let mut seen_names = HashSet::new();
+        
         for skill_directory in directories {
             load_skills_from_dir_with_root_files(
                 &skill_directory,
@@ -600,20 +663,25 @@ mod tests {
         assert_eq!(result.skills.len(), 2);
         assert!(result.skills.iter().any(|skill| skill.name == "package"));
         assert!(result.skills.iter().any(|skill| skill.name == "repo"));
+        
         fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn rejects_missing_description() {
         let directory = temp_dir("description");
+        
         write_skill(&directory.join("bad/SKILL.md"), "---\nname: bad\n---\n");
+        
         let result = load_skills(&SkillLoadOptions {
             cwd: directory.clone(),
             skill_paths: vec![directory.clone()],
             include_defaults: false,
         });
+        
         assert!(result.skills.is_empty());
         assert!(result.diagnostics[0].message.contains("description"));
+        
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -622,6 +690,7 @@ mod tests {
         let directory = temp_dir("dedupe");
         let first = directory.join("first");
         let second = directory.join("second");
+        
         write_skill(
             &first.join("shared/SKILL.md"),
             "---\nname: shared\ndescription: First skill\n---\n",
@@ -645,6 +714,7 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("skill name collision"))
         );
+        
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -652,16 +722,20 @@ mod tests {
     fn expands_explicit_skill_commands_with_arguments() {
         let directory = temp_dir("expand");
         let path = directory.join("review/SKILL.md");
+        
         write_skill(
             &path,
             "---\nname: review\ndescription: Review code\n---\nCheck the diff",
         );
+        
         let result = load_skills(&SkillLoadOptions {
             cwd: directory.clone(),
             skill_paths: vec![directory.clone()],
             include_defaults: false,
         });
+        
         let expanded = expand_skill_command("/skill:review be strict", &result.skills).unwrap();
+        
         assert!(expanded.contains("<skill name=\"review\""));
         assert!(expanded.contains("Check the diff"));
         assert!(expanded.ends_with("be strict"));
@@ -669,6 +743,7 @@ mod tests {
             expand_skill_command("/skill:missing", &result.skills).unwrap(),
             "/skill:missing"
         );
+        
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -690,7 +765,9 @@ mod tests {
                 disable_model_invocation: true,
             },
         ];
+        
         let prompt = format_skills_for_prompt(&skills);
+        
         assert!(prompt.contains("normal"));
         assert!(prompt.contains("Use &lt;this&gt; &amp; that"));
         assert!(!prompt.contains("manual"));

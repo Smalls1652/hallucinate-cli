@@ -62,6 +62,7 @@ impl fmt::Display for Key {
             KeyCode::Esc => "Esc".to_string(),
             _ => format!("{:?}", self.code),
         };
+        
         if self.ctrl {
             write!(f, "Ctrl-{name}")
         } else if self.alt {

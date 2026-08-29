@@ -44,6 +44,7 @@ impl CredentialStore {
         api_key: impl Into<String>,
     ) {
         let provider_id = provider_id.into();
+        
         self.credentials.insert(
             provider_id.clone(),
             Credential {

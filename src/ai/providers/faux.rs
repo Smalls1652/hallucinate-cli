@@ -116,6 +116,7 @@ impl Provider for FauxProvider {
     > {
         let responses = self.state.responses.clone();
         let call_count = &self.state.call_count;
+        
         let response = {
             let mut r = responses.lock().unwrap();
             call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -149,6 +150,7 @@ impl Provider for FauxProvider {
                 Some(FauxResponse::Text(text, stop_reason)) => {
                     let content = vec![AssistantContent::Text(TextContent::new(text.clone()))];
                     let stop = stop_reason.clone();
+                    
                     let _ = stream
                         .push(AssistantMessageEvent::TextStart {
                             content_index: 0,
@@ -161,6 +163,7 @@ impl Provider for FauxProvider {
                             ),
                         })
                         .await;
+                    
                     let _ = stream
                         .push(AssistantMessageEvent::TextDelta {
                             content_index: 0,
@@ -174,6 +177,7 @@ impl Provider for FauxProvider {
                             ),
                         })
                         .await;
+                    
                     let _ = stream
                         .push(AssistantMessageEvent::TextEnd {
                             content_index: 0,
@@ -187,6 +191,7 @@ impl Provider for FauxProvider {
                             ),
                         })
                         .await;
+                    
                     let _ = stream
                         .push(AssistantMessageEvent::Done {
                             reason: stop,
@@ -199,6 +204,7 @@ impl Provider for FauxProvider {
                             ),
                         })
                         .await;
+                    
                     stream
                         .final_message
                         .lock()
@@ -215,6 +221,7 @@ impl Provider for FauxProvider {
                     let tool_call = ToolCall::new(id, name, args);
                     let content = vec![AssistantContent::ToolCall(tool_call.clone())];
                     let stop = stop_reason.clone();
+                    
                     let _ = stream
                         .push(AssistantMessageEvent::ToolcallStart {
                             content_index: 0,
@@ -227,6 +234,7 @@ impl Provider for FauxProvider {
                             ),
                         })
                         .await;
+                    
                     let _ = stream
                         .push(AssistantMessageEvent::ToolcallEnd {
                             content_index: 0,
@@ -240,6 +248,7 @@ impl Provider for FauxProvider {
                             ),
                         })
                         .await;
+                    
                     let _ = stream
                         .push(AssistantMessageEvent::Done {
                             reason: stop,
@@ -252,6 +261,7 @@ impl Provider for FauxProvider {
                             ),
                         })
                         .await;
+                    
                     stream
                         .final_message
                         .lock()
@@ -264,6 +274,7 @@ impl Provider for FauxProvider {
                             stop_reason,
                         ));
                 },
+                
                 Some(FauxResponse::Error(msg)) => {
                     let error_content = Vec::new();
                     let error_msg = AssistantMessage {
@@ -283,12 +294,14 @@ impl Provider for FauxProvider {
                             .unwrap_or_default()
                             .as_millis() as u64,
                     };
+                    
                     let _ = stream
                         .push(AssistantMessageEvent::Error {
                             reason: StopReason::Error,
                             error: error_msg.clone(),
                         })
                         .await;
+                    
                     stream.final_message.lock().unwrap().replace(error_msg);
                 },
                 None => {
@@ -310,12 +323,14 @@ impl Provider for FauxProvider {
                             .unwrap_or_default()
                             .as_millis() as u64,
                     };
+                    
                     let _ = stream
                         .push(AssistantMessageEvent::Error {
                             reason: StopReason::Error,
                             error: error_msg.clone(),
                         })
                         .await;
+                    
                     stream.final_message.lock().unwrap().replace(error_msg);
                 },
             }
@@ -332,6 +347,7 @@ mod tests {
     #[tokio::test]
     async fn test_faux_text_response() {
         let provider = FauxProvider::new();
+        
         provider.set_responses(vec![FauxResponse::Text(
             "Hello, world!".to_string(),
             StopReason::Stop,
@@ -349,7 +365,9 @@ mod tests {
         // Check that final message was set
         let final_msg = stream.final_message.lock().unwrap();
         assert!(final_msg.is_some());
+        
         let msg = final_msg.as_ref().unwrap();
+        
         assert_eq!(msg.stop_reason, StopReason::Stop);
         assert!(!msg.content.is_empty());
     }
@@ -357,6 +375,7 @@ mod tests {
     #[tokio::test]
     async fn test_faux_tool_call_response() {
         let provider = FauxProvider::new();
+        
         provider.set_responses(vec![FauxResponse::ToolCall(
             "call_123".to_string(),
             "bash".to_string(),
@@ -375,6 +394,7 @@ mod tests {
 
         let final_msg = stream.final_message.lock().unwrap();
         assert!(final_msg.is_some());
+        
         let msg = final_msg.as_ref().unwrap();
         assert_eq!(msg.stop_reason, StopReason::ToolUse);
     }
@@ -395,6 +415,7 @@ mod tests {
 
         let final_msg = stream.final_message.lock().unwrap();
         assert!(final_msg.is_some());
+        
         let msg = final_msg.as_ref().unwrap();
         assert_eq!(msg.stop_reason, StopReason::Error);
         assert!(msg.error_message.is_some());
@@ -414,6 +435,7 @@ mod tests {
 
         let final_msg = stream.final_message.lock().unwrap();
         assert!(final_msg.is_some());
+        
         let msg = final_msg.as_ref().unwrap();
         assert_eq!(msg.stop_reason, StopReason::Error);
     }

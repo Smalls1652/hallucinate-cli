@@ -82,6 +82,7 @@ mod tests {
     #[test]
     fn test_build_system_prompt() {
         let prompt = build_system_prompt(None);
+        
         // A user-installed SYSTEM.md is allowed to customize this result, so
         // this assertion only verifies that the result is non-empty.
         assert!(!prompt.is_empty());
@@ -91,6 +92,7 @@ mod tests {
     fn test_build_system_prompt_with_custom() {
         let custom = "You are a custom assistant.";
         let prompt = build_system_prompt(Some(custom));
+        
         assert_eq!(prompt, custom);
     }
 
@@ -98,11 +100,14 @@ mod tests {
     fn project_agents_are_appended_to_the_prompt() {
         let directory =
             std::env::temp_dir().join(format!("hallucinate-system-prompt-{}", std::process::id()));
+        
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
         fs::write(directory.join("AGENTS.md"), "Follow project conventions.").unwrap();
 
+        
         let prompt = build_system_prompt_for_cwd(Some("Base prompt."), Some(&directory));
+        
         assert!(prompt.starts_with("Base prompt."));
         assert!(prompt.contains("## Project Instructions"));
         assert!(prompt.contains("Follow project conventions."));
@@ -114,12 +119,15 @@ mod tests {
     fn prompt_file_paths_only_reports_existing_files() {
         let directory =
             std::env::temp_dir().join(format!("hallucinate-system-paths-{}", std::process::id()));
+        
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
 
+        
         let files = prompt_file_paths(&directory);
         assert!(files.agents.is_none());
 
+        
         fs::write(directory.join("AGENTS.md"), "instructions").unwrap();
         let files = prompt_file_paths(&directory);
         assert_eq!(files.agents, Some(directory.join("AGENTS.md")));

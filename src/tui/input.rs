@@ -29,6 +29,7 @@ pub fn parse_event(event: Event) -> InputEvent {
                     key_event.modifiers |= KeyModifiers::SHIFT;
                 }
             }
+            
             // Terminal.app historically emits plain Return for Shift+Enter,
             // even though the Shift key is still physically held. Recover the
             // modifier from macOS so the shortcut works without a terminal
@@ -39,17 +40,24 @@ pub fn parse_event(event: Event) -> InputEvent {
             {
                 key_event.modifiers |= KeyModifiers::SHIFT;
             }
+            
             // Ignore release and repeat events. Returning Null keeps the
             // caller's event handling total without inventing a new variant.
             if matches!(key_event.kind, KeyEventKind::Release | KeyEventKind::Repeat) {
                 return InputEvent::Key(Key::new(KeyCode::Null));
             }
+            
             InputEvent::Key(key_to_key_event(key_event))
         },
+        
         Event::Mouse(mouse_event) => InputEvent::Mouse(mouse_event),
+        
         Event::Resize(width, height) => InputEvent::Resize(width, height),
+        
         Event::FocusGained => InputEvent::FocusGained,
+        
         Event::FocusLost => InputEvent::FocusLost,
+        
         Event::Paste(text) => InputEvent::Paste(text),
     }
 }
@@ -72,10 +80,12 @@ fn apple_terminal_shift_pressed() -> bool {
         if std::env::var("TERM_PROGRAM").as_deref() != Ok("Apple_Terminal") {
             return false;
         }
+        
         // kVK_Shift (56) and kVK_RightShift (60), using the combined session
         // state (0) documented by CoreGraphics.
         unsafe { CGEventSourceKeyState(0, 56) || CGEventSourceKeyState(0, 60) }
     }
+
     #[cfg(not(target_os = "macos"))]
     {
         false
@@ -90,6 +100,7 @@ fn key_to_key_event(key_event: KeyEvent) -> Key {
         KeyModifiers::ALT => KeyModifiers::ALT,
         _ => key_event.modifiers,
     };
+    
     Key::with_modifiers(key_event.code, modifiers)
 }
 
@@ -106,6 +117,7 @@ mod tests {
             KeyModifiers::NONE,
             KeyEventKind::Press,
         )));
+    
         assert!(matches!(
             event,
             InputEvent::Key(Key {
@@ -123,6 +135,7 @@ mod tests {
             KeyModifiers::SUPER,
             KeyEventKind::Press,
         )));
+    
         assert!(matches!(
             event,
             InputEvent::Key(Key {

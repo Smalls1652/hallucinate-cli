@@ -102,6 +102,7 @@ fn tool_result_messages(result: &ToolResultMessage) -> Vec<serde_json::Value> {
         .map(|item| item.text.as_str())
         .collect::<Vec<_>>()
         .join("\n");
+    
     let tool_content = if text.is_empty() && !result.images.is_empty() {
         "(see attached image)"
     } else if text.is_empty() {
@@ -109,27 +110,33 @@ fn tool_result_messages(result: &ToolResultMessage) -> Vec<serde_json::Value> {
     } else {
         &text
     };
+    
     let mut messages = vec![serde_json::json!({
         "role": "tool",
         "tool_call_id": result.tool_call_id,
         "content": tool_content
     })];
+    
     if !result.images.is_empty() {
         let mut content = vec![serde_json::json!({
             "type": "text",
             "text": "Attached image(s) from tool result:"
         })];
+        
         content.extend(result.images.iter().map(openai_image_part));
+        
         messages.push(serde_json::json!({
             "role": "user",
             "content": content
         }));
     }
+    
     messages
 }
 
 fn parse_usage(chunk: &serde_json::Value) -> Option<Usage> {
     let usage = chunk.get("usage")?;
+    
     Some(Usage {
         input: usage
             .get("prompt_tokens")
@@ -164,6 +171,7 @@ async fn process_chunk(
     if let Some(usage) = parse_usage(chunk) {
         builder.set_usage(usage);
     }
+    
     let Some(choices) = chunk.get("choices").and_then(|value| value.as_array()) else {
         return Ok(None);
     };
@@ -176,8 +184,10 @@ async fn process_chunk(
                     "Missing delta in non-terminal choice".into(),
                 ));
             }
+            
             continue;
         };
+        
         if let Some(text) = delta
             .get("content")
             .and_then(|value| value.as_str())
@@ -185,6 +195,7 @@ async fn process_chunk(
         {
             builder.append_text(0, text).await;
         }
+        
         // Several OpenAI-compatible servers use one of these names for
         // reasoning deltas. Treat them as a separate block so reasoning is not
         // accidentally included in the user-visible answer text.
@@ -197,6 +208,7 @@ async fn process_chunk(
                 builder.append_thinking(0, thinking).await;
             }
         }
+        
         if let Some(tool_calls) = delta.get("tool_calls").and_then(|value| value.as_array()) {
             for tool_call in tool_calls {
                 let index = tool_call
@@ -204,18 +216,22 @@ async fn process_chunk(
                     .and_then(|value| value.as_u64())
                     .ok_or_else(|| ProviderError::Stream("Tool call is missing its index".into()))?
                     as usize;
+                
                 let function = tool_call
                     .get("function")
                     .and_then(|value| value.as_object());
+                
                 // Continuation chunks are allowed to contain only an argument
                 // fragment. An absent function object is therefore different
                 // from a malformed function value.
                 let invalid_function = tool_call.get("function").is_some() && function.is_none();
+                
                 if invalid_function {
                     return Err(ProviderError::Stream(
                         "Tool call function must be an object".into(),
                     ));
                 }
+                
                 builder
                     .append_tool_call(
                         index,
@@ -230,6 +246,7 @@ async fn process_chunk(
                     .await;
             }
         }
+        
         if let Some(reason) = choice.get("finish_reason").and_then(|value| value.as_str()) {
             return match reason {
                 "stop" => Ok(Some(StopReason::Stop)),
@@ -241,6 +258,7 @@ async fn process_chunk(
             };
         }
     }
+    
     Ok(None)
 }
 
@@ -253,23 +271,30 @@ async fn process_sse_line(
         .map_err(|_| ProviderError::Stream("SSE stream contained invalid UTF-8".into()))?;
     let line = line.strip_suffix('\n').unwrap_or(line);
     let line = line.strip_suffix('\r').unwrap_or(line);
+    
     let Some(data) = line.strip_prefix("data:") else {
         // Comments and other SSE fields are not part of the chat-completion
         // payload. They are legal and can be ignored.
         return Ok(false);
     };
+    
     let data = data.trim_start();
+    
     if data == "[DONE]" {
         return Ok(true);
     }
+    
     if data.is_empty() {
         return Ok(false);
     }
+    
     let value = serde_json::from_str::<serde_json::Value>(data)
         .map_err(|error| ProviderError::Stream(format!("Malformed SSE JSON: {error}")))?;
+    
     if let Some(reason) = process_chunk(&value, builder).await? {
         *terminal_reason = Some(reason);
     }
+    
     Ok(false)
 }
 
@@ -286,14 +311,18 @@ async fn process_sse_bytes(
     if *done_seen {
         return Ok(());
     }
+    
     buffer.extend_from_slice(bytes);
+    
     while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
         let line: Vec<u8> = buffer.drain(..=newline).collect();
+        
         if process_sse_line(&line, builder, terminal_reason).await? {
             *done_seen = true;
             break;
         }
     }
+    
     Ok(())
 }
 
@@ -322,13 +351,16 @@ impl OpenaiCompatProvider {
         api_key: &str,
     ) -> Result<HeaderMap, ProviderError> {
         let mut headers = HeaderMap::new();
+        
         for (key, value) in &self.config.headers {
             let name = HeaderName::from_bytes(key.as_bytes()).map_err(|error| {
                 ProviderError::Configuration(format!("invalid header name {key:?}: {error}"))
             })?;
+            
             let value = HeaderValue::from_str(value).map_err(|error| {
                 ProviderError::Configuration(format!("invalid value for header {key:?}: {error}"))
             })?;
+            
             headers.insert(name, value);
         }
         // Authentication and content type are controlled by the provider so a
@@ -350,7 +382,9 @@ impl OpenaiCompatProvider {
                 if let Message::ToolResult(result) = msg {
                     return tool_result_messages(result);
                 }
+                
                 let message = match msg {
+                
                 Message::User(u) => {
                     if u.images.is_empty() {
                         serde_json::json!({
@@ -362,6 +396,7 @@ impl OpenaiCompatProvider {
                             "type": "text",
                             "text": u.content
                         })];
+                        
                         content.extend(u.images.iter().map(|image| {
                             serde_json::json!({
                                 "type": "image_url",
@@ -374,28 +409,30 @@ impl OpenaiCompatProvider {
                                 }
                             })
                         }));
+                        
                         serde_json::json!({
                             "role": "user",
                             "content": content
                         })
                     }
-                }
+                },
                 Message::Assistant(a) => {
                     let mut text_parts: Vec<String> = Vec::new();
                     let mut has_tool_calls = false;
+                    
                     for block in &a.content {
                         match block {
                             AssistantContent::Text(t) => {
                                 if !t.text.is_empty() {
                                     text_parts.push(t.text.clone());
                                 }
-                            }
+                            },
                             AssistantContent::ToolCall(_tc) => {
                                 has_tool_calls = true;
-                            }
+                            },
                             AssistantContent::Thinking(tc) => {
                                 text_parts.push(format!("<thinking>\n{}\n</thinking>", tc.thinking));
-                            }
+                            },
                         }
                     }
 
@@ -436,9 +473,10 @@ impl OpenaiCompatProvider {
                             "content": text_parts.join("\n")
                         })
                     }
-                }
+                },
                 Message::ToolResult(_) => unreachable!("tool results return above")
                 };
+
                 vec![message]
             })
             .collect()
@@ -497,11 +535,13 @@ impl OpenaiCompatProvider {
             && !tools.is_empty()
         {
             body.insert("tools".into(), self.convert_tools(tools).into());
+            
             if let Some(tool_choice) = &options.tool_choice {
                 match tool_choice {
                     crate::ai::types::ToolChoice::Auto => {
                         body.insert("tool_choice".into(), "auto".into());
                     },
+                    
                     crate::ai::types::ToolChoice::None => {
                         body.insert("tool_choice".into(), "none".into());
                     },
@@ -549,6 +589,7 @@ impl Provider for OpenaiCompatProvider {
             let headers = self.request_headers(&api_key)?;
             let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
             let mut attempt = 0;
+            
             let response = loop {
                 match client
                     .post(&url)
@@ -562,8 +603,10 @@ impl Provider for OpenaiCompatProvider {
                         let status = response.status().as_u16();
                         let retry_after = retry_after_delay(&response);
                         let error_text = response.text().await.unwrap_or_default();
+                        
                         if should_retry_status(status) && attempt < max_retries {
                             let delay = retry_after.unwrap_or_else(|| retry_delay(attempt));
+                            
                             tracing::warn!(
                                 attempt = attempt + 1,
                                 max_retries,
@@ -571,6 +614,7 @@ impl Provider for OpenaiCompatProvider {
                                 delay_ms = delay.as_millis(),
                                 "retrying transient API failure"
                             );
+                            
                             tokio::time::sleep(delay).await;
                             attempt += 1;
                         } else {
@@ -579,7 +623,9 @@ impl Provider for OpenaiCompatProvider {
                     },
                     Err(error) if is_retryable_transport_error(&error) && attempt < max_retries => {
                         let delay = retry_delay(attempt);
+                        
                         tracing::warn!(attempt = attempt + 1, max_retries, error = %error, delay_ms = delay.as_millis(), "retrying transient transport failure");
+                        
                         tokio::time::sleep(delay).await;
                         attempt += 1;
                     },
@@ -592,11 +638,13 @@ impl Provider for OpenaiCompatProvider {
             tokio::spawn(async move {
                 let mut builder =
                     AssistantMessageBuilder::new(producer_stream, model_api, model_id);
+                
                 // The shared builder uses a generic provider label. Preserve
                 // the configured provider in persisted assistant messages so
                 // model switching remains visible in session history.
                 builder.message.provider = model_provider;
                 builder.emit_start().await;
+                
                 let mut reader = response.bytes_stream();
                 let mut buffer = Vec::new();
                 let mut terminal_reason = None;
@@ -608,6 +656,7 @@ impl Provider for OpenaiCompatProvider {
                     let Some(chunk) = reader.next().await else {
                         break;
                     };
+                    
                     let chunk = match chunk {
                         Ok(chunk) => chunk,
                         Err(error) => {
@@ -615,6 +664,7 @@ impl Provider for OpenaiCompatProvider {
                             break;
                         },
                     };
+                    
                     if let Err(error) = process_sse_bytes(
                         &chunk,
                         &mut buffer,
@@ -627,6 +677,7 @@ impl Provider for OpenaiCompatProvider {
                         failure = Some(error.to_string());
                         break;
                     }
+                    
                     if failure.is_some() {
                         break;
                     }
@@ -660,6 +711,7 @@ impl Provider for OpenaiCompatProvider {
                     },
                 }
             });
+            
             Ok(stream)
         })
     }
@@ -680,12 +732,15 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("authorization".to_string(), "Bearer wrong".to_string());
         headers.insert("content-type".to_string(), "text/plain".to_string());
+        
         let provider = OpenaiCompatProvider::new(OpenaiCompatConfig {
             api_key: "default".to_string(),
             headers,
             ..Default::default()
         });
+        
         let request_headers = provider.request_headers("override").unwrap();
+        
         assert_eq!(
             request_headers
                 .get(AUTHORIZATION)
@@ -694,6 +749,7 @@ mod tests {
                 .unwrap(),
             "Bearer override"
         );
+        
         assert_eq!(
             request_headers.get(CONTENT_TYPE).unwrap().to_str().unwrap(),
             "application/json"
@@ -704,10 +760,12 @@ mod tests {
     fn invalid_provider_headers_return_configuration_errors() {
         let mut headers = HashMap::new();
         headers.insert("bad header".to_string(), "value".to_string());
+        
         let provider = OpenaiCompatProvider::new(OpenaiCompatConfig {
             headers,
             ..Default::default()
         });
+        
         assert!(matches!(
             provider.request_headers("key"),
             Err(ProviderError::Configuration(_))
@@ -735,10 +793,12 @@ mod tests {
             api_key: "test-key".to_string(),
             ..Default::default()
         });
+        
         let messages = provider.convert_messages(&[Message::User(UserMessage::with_images(
             "Describe this",
             vec![ImageContent::new("aGVsbG8=", "image/png")],
         ))]);
+        
         assert_eq!(messages[0]["content"][0]["type"], "text");
         assert_eq!(messages[0]["content"][1]["type"], "image_url");
         assert_eq!(
@@ -753,11 +813,15 @@ mod tests {
             api_key: "test-key".to_string(),
             ..Default::default()
         });
+        
         let mut result = ToolResultMessage::new("call-1", "read", "Read image", false);
+        
         result
             .images
             .push(ImageContent::new("aGVsbG8=", "image/png"));
+        
         let messages = provider.convert_messages(&[Message::ToolResult(result)]);
+        
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "tool");
         assert_eq!(messages[0]["content"], "Read image");
@@ -771,27 +835,32 @@ mod tests {
     #[tokio::test]
     async fn streamed_sse_accumulates_text_and_usage() {
         let mut server = mockito::Server::new_async().await;
+        
         let chunks = [
             serde_json::json!({"choices":[{"delta":{"content":"hel"},"finish_reason":null}]}),
             serde_json::json!({"choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}),
             serde_json::json!({"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}),
         ];
+        
         let body = chunks
             .into_iter()
             .map(|chunk| format!("data: {chunk}\n\n"))
             .collect::<String>()
             + "data: [DONE]\n\n";
+        
         let _mock = server
             .mock("POST", "/chat/completions")
             .with_status(200)
             .with_body(body)
             .create_async()
             .await;
+        
         let provider = OpenaiCompatProvider::new(OpenaiCompatConfig {
             base_url: server.url(),
             api_key: "test".to_string(),
             ..Default::default()
         });
+        
         let model = Model::new(
             "test",
             "test",
@@ -802,11 +871,14 @@ mod tests {
             4096,
             100,
         );
+        
         let mut stream = provider
             .stream(&model, &Context::new(Vec::new()), &StreamOptions::new())
             .await
             .unwrap();
+        
         let events: Vec<_> = stream.by_ref().collect().await;
+        
         let message = events
             .into_iter()
             .find_map(|event| match event {
@@ -814,6 +886,7 @@ mod tests {
                 _ => None,
             })
             .unwrap();
+        
         assert_eq!(message.content[0].text_content(), Some("hello"));
         assert_eq!(message.usage.total_tokens, 5);
     }
@@ -821,11 +894,13 @@ mod tests {
     #[tokio::test]
     async fn fragmented_http_bytes_are_reassembled_as_sse_lines() {
         let stream = crate::ai::streaming::create_assistant_message_event_stream();
+        
         let mut builder = AssistantMessageBuilder::new(
             stream.clone(),
             crate::ai::types::Api::OpenaiCompletions,
             "test",
         );
+        
         let body = format!(
             "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
             serde_json::json!({
@@ -835,9 +910,11 @@ mod tests {
                 "choices": [{ "delta": {}, "finish_reason": "stop" }]
             })
         );
+        
         let mut buffer = Vec::new();
         let mut terminal_reason = None;
         let mut done_seen = false;
+        
         for fragment in body.as_bytes().chunks(3) {
             process_sse_bytes(
                 fragment,
@@ -849,10 +926,14 @@ mod tests {
             .await
             .unwrap();
         }
+        
         assert!(done_seen);
         assert_eq!(terminal_reason, Some(StopReason::Stop));
+        
         builder.finish(StopReason::Stop).await.unwrap();
+        
         let events: Vec<_> = stream.collect().await;
+        
         assert!(events.iter().any(|event| {
             matches!(
                 event,
@@ -865,12 +946,16 @@ mod tests {
     #[tokio::test]
     async fn malformed_sse_and_tool_chunks_are_reported() {
         let stream = crate::ai::streaming::create_assistant_message_event_stream();
+        
         let mut builder =
             AssistantMessageBuilder::new(stream, crate::ai::types::Api::OpenaiCompletions, "test");
+        
         let mut terminal_reason = None;
+        
         let error = process_sse_line(b"data: {not-json}\n", &mut builder, &mut terminal_reason)
             .await
             .unwrap_err();
+        
         assert!(error.to_string().contains("Malformed SSE JSON"));
 
         let error = process_chunk(
@@ -885,28 +970,35 @@ mod tests {
         )
         .await
         .unwrap_err();
+        
         assert!(error.to_string().contains("missing its index"));
     }
 
     #[tokio::test]
     async fn done_without_a_terminal_completion_is_a_stream_error() {
         let stream = crate::ai::streaming::create_assistant_message_event_stream();
+        
         let mut builder = AssistantMessageBuilder::new(
             stream.clone(),
             crate::ai::types::Api::OpenaiCompletions,
             "test",
         );
+        
         let mut terminal_reason = None;
+        
         assert!(
             process_sse_line(b"data: [DONE]\n", &mut builder, &mut terminal_reason)
                 .await
                 .unwrap()
         );
         assert!(terminal_reason.is_none());
+        
         builder
             .fail("SSE stream ended without a terminal completion chunk")
             .await;
+        
         let events: Vec<_> = stream.collect().await;
+        
         assert!(events.iter().any(|event| {
             matches!(event, AssistantMessageEventStreamEvent::Error { error, .. }
                 if error.error_message.as_deref() == Some("SSE stream ended without a terminal completion chunk"))
@@ -916,23 +1008,27 @@ mod tests {
     #[tokio::test]
     async fn accepts_a_final_non_newline_terminated_done_marker() {
         let mut server = mockito::Server::new_async().await;
+        
         let body = format!(
             "data: {}\n\ndata: [DONE]",
             serde_json::json!({
                 "choices": [{ "delta": { "content": "complete" }, "finish_reason": "stop" }]
             })
         );
+        
         let _mock = server
             .mock("POST", "/chat/completions")
             .with_status(200)
             .with_body(body)
             .create_async()
             .await;
+        
         let provider = OpenaiCompatProvider::new(OpenaiCompatConfig {
             base_url: server.url(),
             api_key: "test".to_string(),
             ..Default::default()
         });
+        
         let model = Model::new(
             "test",
             "test",
@@ -943,11 +1039,14 @@ mod tests {
             4096,
             100,
         );
+        
         let mut stream = provider
             .stream(&model, &Context::default(), &StreamOptions::new())
             .await
             .unwrap();
+        
         let events: Vec<_> = stream.by_ref().collect().await;
+        
         assert!(
             events
                 .iter()
@@ -958,11 +1057,13 @@ mod tests {
     #[tokio::test]
     async fn streamed_reasoning_is_kept_in_a_thinking_block() {
         let stream = crate::ai::streaming::create_assistant_message_event_stream();
+        
         let mut builder = AssistantMessageBuilder::new(
             stream.clone(),
             crate::ai::types::Api::OpenaiCompletions,
             "test",
         );
+        
         process_chunk(
             &serde_json::json!({
                 "choices": [{ "delta": { "reasoning_content": "considering" }, "finish_reason": null }]
@@ -971,6 +1072,7 @@ mod tests {
         )
         .await
         .unwrap();
+        
         process_chunk(
             &serde_json::json!({
                 "choices": [{ "delta": { "content": "answer" }, "finish_reason": "stop" }]
@@ -979,9 +1081,13 @@ mod tests {
         )
         .await
         .unwrap();
+        
         builder.finish(StopReason::Stop).await.unwrap();
+        
         let mut stream = stream;
+        
         let events: Vec<_> = stream.by_ref().collect().await;
+        
         let message = events
             .into_iter()
             .find_map(|event| match event {
@@ -989,6 +1095,7 @@ mod tests {
                 _ => None,
             })
             .unwrap();
+        
         assert!(message.content.iter().any(|content| matches!(
             content,
             AssistantContent::Thinking(thinking) if thinking.thinking == "considering"
@@ -998,16 +1105,23 @@ mod tests {
     #[tokio::test]
     async fn streamed_tool_calls_are_completed_with_json_arguments() {
         let stream = crate::ai::streaming::create_assistant_message_event_stream();
+        
         let mut builder = AssistantMessageBuilder::new(
             stream.clone(),
             crate::ai::types::Api::OpenaiCompletions,
             "test",
         );
+        
         process_chunk(&serde_json::json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"first","arguments":r#"{"a":"#}},{"index":1,"id":"call_b","function":{"name":"second","arguments":r#"{"b":"#}}]},"finish_reason":null}]}), &mut builder).await.unwrap();
+        
         let finish = process_chunk(&serde_json::json!({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"1}"}},{"index":1,"function":{"arguments":"2}"}}]},"finish_reason":"tool_calls"}]}), &mut builder).await.unwrap();
+        
         builder.finish(finish.unwrap()).await.unwrap();
+        
         let mut stream = stream;
+        
         let events: Vec<_> = stream.by_ref().collect().await;
+        
         let tools: Vec<_> = events
             .into_iter()
             .filter_map(|event| match event {
@@ -1015,6 +1129,7 @@ mod tests {
                 _ => None,
             })
             .collect();
+        
         assert_eq!(tools.len(), 2);
         assert_eq!(tools[0].arguments, serde_json::json!({"a": 1}));
         assert_eq!(tools[1].arguments, serde_json::json!({"b": 2}));

@@ -89,6 +89,7 @@ impl SessionManager {
         let storage = SessionStorage::new(&session_id);
 
         let title = options.title.or_else(|| Some("New Session".to_string()));
+        
         storage.save_metadata(
             title.clone(),
             options.parent_session_id.clone(),
@@ -105,6 +106,7 @@ impl SessionManager {
         };
 
         self.current_session = Some(session.clone());
+        
         Ok(session)
     }
 
@@ -113,9 +115,11 @@ impl SessionManager {
         &mut self,
         parent_id: &str,
     ) -> Result<Session, anyhow::Error> {
-        validate_session_id(parent_id)?;
+        validate_session_id(parent_id)?;   
         let parent_storage = SessionStorage::new(parent_id);
+        
         let messages = parent_storage.load_messages()?;
+        
         let parent_cwd = parent_storage
             .load_metadata()?
             .map(|(_, _, cwd)| cwd)
@@ -133,6 +137,7 @@ impl SessionManager {
 
         // Copy messages to the new session
         let new_storage = SessionStorage::new(&session.id);
+        
         for msg in &messages {
             new_storage.save_message(msg)?;
         }
@@ -142,6 +147,7 @@ impl SessionManager {
         session.modified = Utc::now().timestamp_millis() as u64;
 
         self.current_session = Some(session.clone());
+        
         Ok(session)
     }
 
@@ -158,11 +164,13 @@ impl SessionManager {
         }
 
         let metadata = storage.load_metadata()?;
+        
         let (title, parent_session_id, saved_cwd) = metadata.unwrap_or((
             None,
             None,
             SessionCwd::load(session_id).unwrap_or_else(|_| ".".to_string()),
         ));
+        
         let cwd = if std::path::Path::new(&saved_cwd).is_dir() {
             saved_cwd
         } else {
@@ -170,6 +178,7 @@ impl SessionManager {
                 .map(|path| path.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| ".".to_string())
         };
+        
         let message_count = storage.message_count()?;
 
         let session = Session {
@@ -182,6 +191,7 @@ impl SessionManager {
         };
 
         self.current_session = Some(session.clone());
+        
         Ok(session)
     }
 
@@ -214,11 +224,13 @@ impl SessionManager {
     ) -> Result<(), anyhow::Error> {
         if let Some(storage) = self.current_storage() {
             storage.save_message(message)?;
+            
             if let Some(session) = self.current_session.as_mut() {
                 session.message_count += 1;
                 session.modified = Utc::now().timestamp_millis() as u64;
             }
         }
+
         Ok(())
     }
 
@@ -232,6 +244,7 @@ impl SessionManager {
             storage.save_event(event_type, data)?;
             self.touch();
         }
+
         Ok(())
     }
 
@@ -248,7 +261,9 @@ impl SessionManager {
             .current_session
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("there is no current session"))?;
+        
         let title = title.filter(|title| !title.trim().is_empty());
+        
         let storage = SessionStorage::new(&session.id);
         storage.save_metadata(
             title.clone(),
@@ -257,6 +272,7 @@ impl SessionManager {
         )?;
         session.title = title;
         session.modified = Utc::now().timestamp_millis() as u64;
+       
         Ok(())
     }
 
@@ -267,8 +283,10 @@ impl SessionManager {
         if storage.exists() {
             fs::remove_file(storage.path())?;
         }
+        
         // Also delete the cwd file
         SessionCwd::delete(session_id)?;
+        
         Ok(())
     }
 
@@ -288,6 +306,7 @@ fn validate_session_id(session_id: &str) -> Result<(), anyhow::Error> {
     {
         return Err(anyhow::anyhow!("invalid session id"));
     }
+    
     Ok(())
 }
 
@@ -305,6 +324,7 @@ mod tests {
     #[test]
     fn test_session_creation() {
         let mut manager = SessionManager::new();
+        
         let session = manager
             .create(SessionCreateOptions {
                 title: Some("Test Session".to_string()),
@@ -316,6 +336,7 @@ mod tests {
         assert!(!session.id.is_empty());
         assert_eq!(session.title, Some("Test Session".to_string()));
         assert_eq!(manager.current().unwrap().id, session.id);
+        
         SessionManager::delete_session(&session.id).unwrap();
     }
 
@@ -323,12 +344,14 @@ mod tests {
     fn test_session_list_empty() {
         // Just verify it returns without error.
         let sessions = SessionManager::list();
+        
         assert!(sessions.is_ok(), "Session listing should succeed");
     }
 
     #[test]
     fn rejects_path_traversal_session_ids() {
         let mut manager = SessionManager::new();
+        
         assert!(manager.resume("../outside").is_err());
         assert!(SessionManager::delete_session("../outside").is_err());
     }
@@ -336,6 +359,7 @@ mod tests {
     #[test]
     fn fork_copies_history_and_parent_metadata_for_short_ids() {
         let parent_id = format!("fork-test-{}", Uuid::new_v4());
+        
         let parent_storage = SessionStorage::new(&parent_id);
         parent_storage
             .save_metadata(None, None, "/tmp".to_string())
@@ -346,6 +370,7 @@ mod tests {
 
         let mut manager = SessionManager::new();
         let child = manager.fork(&parent_id).unwrap();
+        
         assert_eq!(child.parent_session_id.as_deref(), Some(parent_id.as_str()));
         assert_eq!(child.cwd, "/tmp");
         assert_eq!(child.message_count, 1);
@@ -364,6 +389,7 @@ mod tests {
     #[test]
     fn resume_falls_back_when_saved_cwd_is_missing() {
         let mut manager = SessionManager::new();
+        
         let session = manager
             .create(SessionCreateOptions {
                 title: None,
@@ -371,18 +397,22 @@ mod tests {
                 cwd: Some("/path/that/does/not/exist".to_string()),
             })
             .unwrap();
+        
         let expected = std::env::current_dir()
             .unwrap()
             .to_string_lossy()
             .into_owned();
+        
         let mut resumed_manager = SessionManager::new();
         assert_eq!(resumed_manager.resume(&session.id).unwrap().cwd, expected);
+        
         SessionManager::delete_session(&session.id).unwrap();
     }
 
     #[test]
     fn renaming_appends_metadata_and_survives_resume() {
         let mut manager = SessionManager::new();
+        
         let session = manager
             .create(SessionCreateOptions {
                 title: Some("Original".to_string()),
@@ -390,24 +420,30 @@ mod tests {
                 cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
             })
             .unwrap();
+        
         manager
             .rename_current(Some("Renamed session".to_string()))
             .unwrap();
+        
         assert_eq!(
             manager.current().unwrap().title.as_deref(),
             Some("Renamed session")
         );
 
         let mut resumed_manager = SessionManager::new();
+        
         let resumed = resumed_manager.resume(&session.id).unwrap();
         assert_eq!(resumed.title.as_deref(), Some("Renamed session"));
+        
         SessionManager::delete_session(&session.id).unwrap();
     }
 
     #[test]
     fn session_messages_and_metadata_survive_resume_and_delete() {
         let cwd = std::env::temp_dir();
+        
         let mut manager = SessionManager::new();
+        
         let session = manager
             .create(SessionCreateOptions {
                 title: Some("Persistent session".to_string()),
@@ -415,6 +451,7 @@ mod tests {
                 cwd: Some(cwd.to_string_lossy().into_owned()),
             })
             .unwrap();
+        
         manager
             .save_message(&Message::User(crate::ai::types::UserMessage::new("hello")))
             .unwrap();
@@ -423,6 +460,7 @@ mod tests {
             .unwrap();
 
         let mut resumed_manager = SessionManager::new();
+        
         let resumed = resumed_manager.resume(&session.id).unwrap();
         assert_eq!(resumed.title.as_deref(), Some("Persistent session"));
         assert_eq!(resumed.cwd, cwd.to_string_lossy());

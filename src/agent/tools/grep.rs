@@ -75,6 +75,7 @@ impl Tool for GrepTool {
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: pattern"))?;
 
             let project_dir = cwd.unwrap_or(".");
+            
             let search_path = arguments
                 .get("path")
                 .and_then(|v| v.as_str())
@@ -141,6 +142,7 @@ impl Tool for GrepTool {
                     pattern,
                     results.join("\n")
                 );
+                
                 Ok(super::types::ToolResult::success("grep", "grep", result))
             }
         })
@@ -152,6 +154,7 @@ fn resolve_path(
     cwd: &str,
 ) -> std::path::PathBuf {
     let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
+    
     let path = Path::new(expanded.as_ref());
     if path.is_relative() {
         Path::new(cwd).join(path)
@@ -192,6 +195,7 @@ fn collect_files(
             }
         }
         files.sort();
+        
         Ok(files)
     } else {
         Ok(Vec::new())
@@ -215,6 +219,7 @@ mod tests {
     #[tokio::test]
     async fn test_grep_tool_exists() {
         let tool = GrepTool::new();
+        
         assert_eq!(tool.name(), "grep");
         assert!(!tool.description().is_empty());
     }
@@ -224,6 +229,7 @@ mod tests {
         let tool = GrepTool::new();
         let args = json!({});
         let result = futures::executor::block_on(tool.execute(&args, None));
+        
         assert!(result.is_err());
     }
 
@@ -232,6 +238,7 @@ mod tests {
         let tool = GrepTool::new();
         let args = json!({ "pattern": "[invalid" });
         let result = futures::executor::block_on(tool.execute(&args, None));
+        
         assert!(result.is_err());
     }
 

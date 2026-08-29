@@ -53,6 +53,7 @@ impl ToolCall {
     #[allow(dead_code)]
     pub fn human_readable(&self) -> String {
         let cwd = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+        
         self.human_readable_with_cwd(&cwd)
     }
 
@@ -76,6 +77,7 @@ impl ToolCall {
                     self.arguments.clone()
                 }
             },
+        
             "read" | "write" | "edit" => {
                 // Show tool name + path
                 if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
@@ -84,6 +86,7 @@ impl ToolCall {
                     self.arguments.clone()
                 }
             },
+        
             "find" => {
                 // Show tool name + pattern (and optional path)
                 if let Some(pattern) = args.get("pattern").and_then(|v| v.as_str()) {
@@ -96,6 +99,7 @@ impl ToolCall {
                     self.arguments.clone()
                 }
             },
+        
             "grep" => {
                 // Show grep pattern + optional path
                 if let Some(pattern) = args.get("pattern").and_then(|v| v.as_str()) {
@@ -108,6 +112,7 @@ impl ToolCall {
                     self.arguments.clone()
                 }
             },
+        
             "ls" => {
                 // Show ls + optional path
                 if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
@@ -116,6 +121,7 @@ impl ToolCall {
                     "ls .".to_string()
                 }
             },
+        
             _ => self.arguments.clone(),
         }
     }
@@ -126,6 +132,7 @@ fn display_tool_path(
     cwd: &Path,
 ) -> String {
     let displayed = crate::config::paths::display_path(path, cwd);
+    
     if (path.ends_with('/') || path.ends_with('\\'))
         && displayed != "."
         && !displayed.ends_with('/')
@@ -172,6 +179,7 @@ impl TranscriptRenderer {
         lines: usize,
     ) {
         self.scroll_offset = self.scroll_offset.saturating_sub(lines);
+    
         if self.scroll_offset == 0 {
             self.follow_mode = true;
         }
@@ -183,11 +191,13 @@ impl TranscriptRenderer {
         viewport_lines: usize,
     ) -> u16 {
         let bottom = total_lines.saturating_sub(viewport_lines);
+    
         let position = if self.follow_mode {
             bottom
         } else {
             bottom.saturating_sub(self.scroll_offset)
         };
+    
         position.min(u16::MAX as usize) as u16
     }
 
@@ -258,9 +268,11 @@ impl TranscriptRenderer {
             {
                 let prefix = if is_error { "❌" } else { "✅" };
                 call.result = Some(format!("{prefix} {result}"));
+    
                 return true;
             }
         }
+    
         false
     }
 
@@ -287,6 +299,7 @@ mod tests {
             arguments: r#"{"command": "echo hello world"}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "bash echo hello world");
     }
 
@@ -298,6 +311,7 @@ mod tests {
             arguments: r#"{"command": "grep -r 'foo' src/ | wc -l"}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "bash grep -r 'foo' src/ | wc -l");
     }
 
@@ -309,6 +323,7 @@ mod tests {
             arguments: r#"{"path": "/path/to/file.rs"}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "read /path/to/file.rs");
     }
 
@@ -320,6 +335,7 @@ mod tests {
             arguments: r#"{"path": "/path/to/file.rs", "content": "hello"}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "write /path/to/file.rs");
     }
 
@@ -332,6 +348,7 @@ mod tests {
                 .to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "edit /path/to/file.rs");
     }
 
@@ -343,6 +360,7 @@ mod tests {
             arguments: r#"{"pattern": "**/*.rs"}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "find **/*.rs");
     }
 
@@ -354,6 +372,7 @@ mod tests {
             arguments: r#"{"pattern": "*.toml", "path": "src"}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "find *.toml src");
     }
 
@@ -365,6 +384,7 @@ mod tests {
             arguments: r#"{"pattern": "hello"}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "grep hello");
     }
 
@@ -376,6 +396,7 @@ mod tests {
             arguments: r#"{"pattern": "foo", "path": "src/"}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "grep foo src/");
     }
 
@@ -387,6 +408,7 @@ mod tests {
             arguments: r#"{"path": "/some/dir"}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "ls /some/dir");
     }
 
@@ -398,6 +420,7 @@ mod tests {
             arguments: r#"{}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "ls .");
     }
 
@@ -409,6 +432,7 @@ mod tests {
             arguments: r#"{"foo": "bar"}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), r#"{"foo": "bar"}"#);
     }
 
@@ -420,6 +444,7 @@ mod tests {
             arguments: "not valid json".to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), "not valid json");
     }
 
@@ -431,6 +456,7 @@ mod tests {
             arguments: r#"{"timeout_ms": 5000}"#.to_string(),
             result: None,
         };
+    
         assert_eq!(call.human_readable(), r#"{"timeout_ms": 5000}"#);
     }
 
@@ -449,6 +475,7 @@ mod tests {
             }],
             timestamp: chrono::Utc::now(),
         });
+    
         assert!(transcript.complete_tool_call("call-1", "ok".to_string(), false));
         assert_eq!(
             transcript.messages()[0].tool_calls[0].result.as_deref(),
@@ -470,6 +497,7 @@ mod tests {
         transcript.append_thinking_to_message(0, "first");
         transcript.set_show_thinking(true);
         transcript.append_thinking_to_message(0, " second");
+    
         assert_eq!(transcript.messages()[0].thinking, "first second");
     }
 
@@ -477,6 +505,7 @@ mod tests {
     fn scroll_position_clamps_to_the_available_history() {
         let mut transcript = TranscriptRenderer::new();
         transcript.scroll_up(100);
+    
         assert_eq!(transcript.scroll_position(20, 5), 0);
         transcript.scroll_down(100);
     }

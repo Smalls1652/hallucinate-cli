@@ -29,62 +29,73 @@ use crate::ai::types::{
 pub enum AssistantMessageEvent {
     /// Stream started with a partial message.
     Start { partial: AssistantMessage },
+    
     /// Text content block started.
     TextStart {
         content_index: usize,
         partial: AssistantMessage,
     },
+    
     /// Text content delta.
     TextDelta {
         content_index: usize,
         delta: String,
         partial: AssistantMessage,
     },
+    
     /// Text content block completed.
     TextEnd {
         content_index: usize,
         content: String,
         partial: AssistantMessage,
     },
+    
     /// Thinking/reasoning block started.
     ThinkingStart {
         content_index: usize,
         partial: AssistantMessage,
     },
+    
     /// Thinking/reasoning delta.
     ThinkingDelta {
         content_index: usize,
         delta: String,
         partial: AssistantMessage,
     },
+    
     /// Thinking/reasoning block completed.
     ThinkingEnd {
         content_index: usize,
         content: String,
         partial: AssistantMessage,
     },
+    
     /// Tool call started.
     ToolcallStart {
         content_index: usize,
         partial: AssistantMessage,
     },
+    
     /// Tool call delta.
     ToolcallDelta {
         content_index: usize,
         delta: String,
         partial: AssistantMessage,
     },
+    
     /// Tool call completed.
     ToolcallEnd {
         content_index: usize,
         tool_call: ToolCall,
         partial: AssistantMessage,
     },
+    
     /// Stream completed successfully.
     Done {
         reason: StopReason,
         message: AssistantMessage,
     },
+    
     /// Stream terminated with an error.
     Error {
         reason: StopReason,
@@ -104,6 +115,7 @@ pub(crate) fn event_partial(event: &AssistantMessageEvent) -> &AssistantMessage 
         | AssistantMessageEvent::ToolcallStart { partial, .. }
         | AssistantMessageEvent::ToolcallDelta { partial, .. }
         | AssistantMessageEvent::ToolcallEnd { partial, .. } => partial,
+        
         AssistantMessageEvent::Done { message, .. }
         | AssistantMessageEvent::Error { error: message, .. } => message,
     }
@@ -116,12 +128,15 @@ impl fmt::Display for AssistantMessageEvent {
     ) -> fmt::Result {
         match self {
             AssistantMessageEvent::Start { .. } => write!(f, "[start]"),
+            
             AssistantMessageEvent::TextStart { content_index, .. } => {
                 write!(f, "[text_start idx={content_index}]")
             },
+            
             AssistantMessageEvent::TextDelta { delta, .. } => {
                 write!(f, "[text_delta len={}]", delta.len())
             },
+            
             AssistantMessageEvent::TextEnd {
                 content_index,
                 content,
@@ -129,12 +144,15 @@ impl fmt::Display for AssistantMessageEvent {
             } => {
                 write!(f, "[text_end idx={content_index} len={}]", content.len())
             },
+            
             AssistantMessageEvent::ThinkingStart { content_index, .. } => {
                 write!(f, "[thinking_start idx={content_index}]")
             },
+            
             AssistantMessageEvent::ThinkingDelta { delta, .. } => {
                 write!(f, "[thinking_delta len={}]", delta.len())
             },
+            
             AssistantMessageEvent::ThinkingEnd {
                 content_index,
                 content,
@@ -146,12 +164,15 @@ impl fmt::Display for AssistantMessageEvent {
                     content.len()
                 )
             },
+            
             AssistantMessageEvent::ToolcallStart { content_index, .. } => {
                 write!(f, "[toolcall_start idx={content_index}]")
             },
+            
             AssistantMessageEvent::ToolcallDelta { delta, .. } => {
                 write!(f, "[toolcall_delta len={}]", delta.len())
             },
+            
             AssistantMessageEvent::ToolcallEnd {
                 content_index,
                 tool_call,
@@ -163,7 +184,9 @@ impl fmt::Display for AssistantMessageEvent {
                     tool_call.name
                 )
             },
+            
             AssistantMessageEvent::Done { reason, .. } => write!(f, "[done reason={reason}]"),
+            
             AssistantMessageEvent::Error { reason, .. } => write!(f, "[error reason={reason}]"),
         }
     }
@@ -192,6 +215,7 @@ impl AssistantMessageEventStream {
             event,
             AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. }
         );
+        
         self.sender
             .send(event)
             .await
@@ -216,6 +240,7 @@ impl Stream for AssistantMessageEventStream {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         let mut receiver = self.receiver.lock().unwrap();
+        
         // `Receiver::close` still permits already-buffered events to be
         // consumed, including the terminal Done or Error event.
         Pin::new(&mut *receiver).poll_recv(cx)
@@ -235,6 +260,7 @@ pub enum StreamError {
 /// and iterate over them asynchronously.
 pub fn create_assistant_message_event_stream() -> AssistantMessageEventStream {
     let (sender, receiver) = mpsc::channel::<AssistantMessageEvent>(64);
+    
     AssistantMessageEventStream {
         sender,
         receiver: Arc::new(Mutex::new(receiver)),
@@ -249,6 +275,7 @@ pub fn create_assistant_message_event_stream() -> AssistantMessageEventStream {
 pub struct AssistantMessageBuilder {
     pub message: AssistantMessage,
     pub stream: AssistantMessageEventStream,
+    
     text_indices: HashMap<usize, usize>,
     thinking_indices: HashMap<usize, usize>,
     tool_indices: HashMap<usize, usize>,
@@ -298,10 +325,13 @@ impl AssistantMessageBuilder {
             *index
         } else {
             let index = self.message.content.len();
+            
             self.message
                 .content
                 .push(AssistantContent::Text(TextContent::new("")));
+            
             self.text_indices.insert(provider_index, index);
+            
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::TextStart {
@@ -309,11 +339,14 @@ impl AssistantMessageBuilder {
                     partial: self.message.clone(),
                 })
                 .await;
+            
             index
         };
+        
         if let AssistantContent::Text(text) = &mut self.message.content[index] {
             text.text.push_str(delta);
         }
+        
         let _ = self
             .stream
             .push(AssistantMessageEvent::TextDelta {
@@ -335,10 +368,13 @@ impl AssistantMessageBuilder {
             *index
         } else {
             let index = self.message.content.len();
+            
             self.message
                 .content
                 .push(AssistantContent::Thinking(ThinkingContent::new("")));
+            
             self.thinking_indices.insert(provider_index, index);
+            
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::ThinkingStart {
@@ -346,11 +382,14 @@ impl AssistantMessageBuilder {
                     partial: self.message.clone(),
                 })
                 .await;
+            
             index
         };
+        
         if let AssistantContent::Thinking(thinking) = &mut self.message.content[index] {
             thinking.thinking.push_str(delta);
         }
+        
         let _ = self
             .stream
             .push(AssistantMessageEvent::ThinkingDelta {
@@ -374,6 +413,7 @@ impl AssistantMessageBuilder {
             *index
         } else {
             let index = self.message.content.len();
+            
             self.message
                 .content
                 .push(AssistantContent::ToolCall(ToolCall::new(
@@ -381,8 +421,10 @@ impl AssistantMessageBuilder {
                     name.unwrap_or_default(),
                     serde_json::Value::Null,
                 )));
+            
             self.tool_indices.insert(provider_index, index);
             self.tool_arguments.insert(provider_index, String::new());
+            
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::ToolcallStart {
@@ -390,25 +432,31 @@ impl AssistantMessageBuilder {
                     partial: self.message.clone(),
                 })
                 .await;
+            
             index
         };
+        
         if let AssistantContent::ToolCall(call) = &mut self.message.content[index] {
             if let Some(id) = id.filter(|value| !value.is_empty()) {
                 call.id = id.to_string();
             }
+            
             if let Some(name) = name.filter(|value| !value.is_empty()) {
                 call.name = name.to_string();
             }
         }
+        
         if let Some(delta) = arguments {
             let argument_buffer = self.tool_arguments.entry(provider_index).or_default();
             argument_buffer.push_str(delta);
+            
             // Incomplete JSON cannot be represented as an object yet, so keep
             // the raw argument buffer in the partial tool call. `finish`
             // replaces it with the validated JSON value before ToolcallEnd.
             if let AssistantContent::ToolCall(call) = &mut self.message.content[index] {
                 call.arguments = serde_json::Value::String(argument_buffer.clone());
             }
+            
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::ToolcallDelta {
@@ -431,11 +479,13 @@ impl AssistantMessageBuilder {
         let mut text_blocks: Vec<_> = self.text_indices.values().copied().collect();
         text_blocks.sort_unstable();
         text_blocks.dedup();
+        
         for index in text_blocks {
             let content = self.message.content[index]
                 .text_content()
                 .unwrap_or_default()
                 .to_string();
+            
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::TextEnd {
@@ -449,11 +499,13 @@ impl AssistantMessageBuilder {
         let mut thinking_blocks: Vec<_> = self.thinking_indices.values().copied().collect();
         thinking_blocks.sort_unstable();
         thinking_blocks.dedup();
+        
         for index in thinking_blocks {
             let content = match &self.message.content[index] {
                 AssistantContent::Thinking(thinking) => thinking.thinking.clone(),
                 _ => unreachable!("thinking index must reference a thinking block"),
             };
+            
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::ThinkingEnd {
@@ -470,14 +522,17 @@ impl AssistantMessageBuilder {
             .map(|(provider, index)| (*provider, *index))
             .collect();
         tools.sort_unstable_by_key(|(provider, _)| *provider);
+        
         for (provider_index, index) in tools {
             let arguments = self
                 .tool_arguments
                 .remove(&provider_index)
                 .unwrap_or_default();
+            
             let parsed = serde_json::from_str(&arguments).map_err(|error| {
                 format!("invalid JSON arguments for streamed tool call: {error}")
             })?;
+            
             let tool_call = match &mut self.message.content[index] {
                 AssistantContent::ToolCall(call) => {
                     if call.id.is_empty() || call.name.is_empty() {
@@ -485,11 +540,13 @@ impl AssistantMessageBuilder {
                             "streamed tool call is missing an id or function name".to_string()
                         );
                     }
+
                     call.arguments = parsed;
                     call.clone()
                 },
                 _ => unreachable!("tool index must reference a tool call"),
             };
+            
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::ToolcallEnd {
@@ -499,6 +556,7 @@ impl AssistantMessageBuilder {
                 })
                 .await;
         }
+        
         Ok(())
     }
 
@@ -508,15 +566,19 @@ impl AssistantMessageBuilder {
         reason: StopReason,
     ) -> Result<(), String> {
         self.close_content_blocks().await?;
+        
         let message = AssistantMessage {
             stop_reason: reason.clone(),
             ..self.message.clone()
         };
+        
         *self.stream.final_message.lock().unwrap() = Some(message.clone());
+        
         let _ = self
             .stream
             .push(AssistantMessageEvent::Done { reason, message })
             .await;
+        
         Ok(())
     }
 
@@ -529,7 +591,9 @@ impl AssistantMessageBuilder {
             error_message: Some(error.into()),
             ..self.message.clone()
         };
+        
         *self.stream.final_message.lock().unwrap() = Some(message.clone());
+        
         let _ = self
             .stream
             .push(AssistantMessageEvent::Error {
@@ -566,11 +630,14 @@ mod tests {
     #[tokio::test]
     async fn partial_tool_arguments_reflect_raw_fragments_until_completion() {
         let stream = create_assistant_message_event_stream();
+        
         let mut builder =
             AssistantMessageBuilder::new(stream.clone(), Api::OpenaiCompletions, "test-model");
+        
         builder
             .append_tool_call(0, Some("call-1"), Some("bash"), Some(r#"{"command":"#))
             .await;
+        
         assert_eq!(
             builder.message.content[0],
             AssistantContent::ToolCall(ToolCall {
@@ -582,11 +649,13 @@ mod tests {
                 namespace: None
             })
         );
+        
         let argument_fragment = "\"hello\"}";
         builder
             .append_tool_call(0, None, None, Some(argument_fragment))
             .await;
         builder.finish(StopReason::ToolUse).await.unwrap();
+        
         let events: Vec<_> = stream.collect().await;
         assert!(events.iter().any(|event| {
             matches!(event, AssistantMessageEvent::ToolcallEnd { tool_call, .. }
@@ -606,6 +675,7 @@ mod tests {
             "test-model",
             StopReason::Stop,
         );
+        
         let _ = stream
             .push(AssistantMessageEvent::Done {
                 reason: StopReason::Stop,

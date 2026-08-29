@@ -123,6 +123,7 @@ impl ToolCall {
     /// the tool name so users can quickly understand what action was taken.
     pub fn human_readable(&self) -> String {
         let cwd = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+        
         self.human_readable_with_cwd(&cwd)
     }
 
@@ -188,6 +189,7 @@ fn display_tool_path(
     cwd: &Path,
 ) -> String {
     let displayed = crate::config::paths::display_path(path, cwd);
+    
     if (path.ends_with('/') || path.ends_with('\\'))
         && displayed != "."
         && !displayed.ends_with('/')
@@ -621,11 +623,13 @@ mod tests {
     #[test]
     fn tool_paths_are_relative_to_the_project_directory() {
         let project = std::path::PathBuf::from("/tmp/hallucinate-project");
+        
         let call = ToolCall::new(
             "call-1",
             "read",
             serde_json::json!({"path": project.join("src/main.rs")}),
         );
+        
         assert_eq!(call.human_readable_with_cwd(&project), "read src/main.rs");
     }
 
@@ -636,12 +640,14 @@ mod tests {
             "edit",
             serde_json::json!({"path": "/path/to/file.rs", "old_text": "foo", "new_text": "bar"}),
         );
+        
         assert_eq!(call.human_readable(), "edit /path/to/file.rs");
     }
 
     #[test]
     fn find_tool_shows_pattern() {
         let call = ToolCall::new("call-1", "find", serde_json::json!({"pattern": "**/*.rs"}));
+        
         assert_eq!(call.human_readable(), "find **/*.rs");
     }
 
@@ -652,12 +658,14 @@ mod tests {
             "find",
             serde_json::json!({"pattern": "*.toml", "path": "src"}),
         );
+        
         assert_eq!(call.human_readable(), "find *.toml src");
     }
 
     #[test]
     fn grep_tool_shows_pattern() {
         let call = ToolCall::new("call-1", "grep", serde_json::json!({"pattern": "hello"}));
+        
         assert_eq!(call.human_readable(), "grep hello");
     }
 
@@ -668,30 +676,35 @@ mod tests {
             "grep",
             serde_json::json!({"pattern": "foo", "path": "src/"}),
         );
+        
         assert_eq!(call.human_readable(), "grep foo src/");
     }
 
     #[test]
     fn ls_tool_shows_path() {
         let call = ToolCall::new("call-1", "ls", serde_json::json!({"path": "/some/dir"}));
+        
         assert_eq!(call.human_readable(), "ls /some/dir");
     }
 
     #[test]
     fn ls_tool_defaults_to_current_dir() {
         let call = ToolCall::new("call-1", "ls", serde_json::json!({}));
+        
         assert_eq!(call.human_readable(), "ls .");
     }
 
     #[test]
     fn unknown_tool_falls_back_to_json() {
         let call = ToolCall::new("call-1", "custom_tool", serde_json::json!({"foo": "bar"}));
+        
         assert_eq!(call.human_readable(), r#"{"foo":"bar"}"#);
     }
 
     #[test]
     fn bash_tool_missing_command_falls_back() {
         let call = ToolCall::new("call-1", "bash", serde_json::json!({"timeout_ms": 5000}));
+        
         assert_eq!(call.human_readable(), r#"{"timeout_ms":5000}"#);
     }
 }

@@ -48,11 +48,13 @@ pub(crate) fn resolve_path(
     cwd: Option<&str>,
 ) -> std::path::PathBuf {
     let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
+    
     let path = Path::new(expanded.as_ref());
     if path.is_relative() {
         if let Some(cwd) = cwd {
             return Path::new(cwd).join(path);
         }
+        
         return std::env::current_dir().unwrap_or_default().join(path);
     }
     path.to_path_buf()
@@ -122,10 +124,12 @@ impl Tool for ReadTool {
 
             let metadata = std::fs::metadata(&path)?;
             let bytes = std::fs::read(&path)?;
+            
             if crate::ai::images::is_supported_image(&bytes) {
                 // Allow source images larger than the text limit so automatic
                 // resizing can make them safe to attach to a vision model.
                 const MAX_SOURCE_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+                
                 if metadata.len() > MAX_SOURCE_IMAGE_BYTES {
                     return Ok(super::types::ToolResult::error(
                         "read",
@@ -137,8 +141,10 @@ impl Tool for ReadTool {
                         ),
                     ));
                 }
+                
                 let image =
                     crate::ai::images::process_image_bytes(&bytes, self.auto_resize_images)?;
+                
                 return Ok(super::types::ToolResult::success(
                     "read",
                     "read",
@@ -146,6 +152,7 @@ impl Tool for ReadTool {
                 )
                 .with_images(vec![image]));
             }
+
             if metadata.len() as usize > max_size {
                 return Ok(super::types::ToolResult::error(
                     "read",
@@ -161,7 +168,9 @@ impl Tool for ReadTool {
             let content = String::from_utf8(bytes).map_err(|_| {
                 anyhow::anyhow!("file is not valid UTF-8 text or a supported image")
             })?;
+            
             let truncated = truncate_output(&content, max_size);
+            
             Ok(super::types::ToolResult::success(
                 "read",
                 "read",
@@ -179,6 +188,7 @@ fn truncate_output(
         content.to_string()
     } else {
         let truncated = &content[..max_size];
+        
         format!(
             "{}\n\n[Content truncated: {} total characters]",
             truncated,
@@ -194,6 +204,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_tool_exists() {
         let tool = ReadTool::new();
+        
         assert_eq!(tool.name(), "read");
         assert!(!tool.description().is_empty());
     }
@@ -203,7 +214,9 @@ mod tests {
         let tool = ReadTool::new();
         let args = json!({ "path": "/nonexistent/file.txt" });
         let result = futures::executor::block_on(tool.execute(&args, None));
+        
         assert!(result.is_ok());
+        
         let result = result.unwrap();
         assert!(result.is_error);
     }
@@ -213,6 +226,7 @@ mod tests {
         let tool = ReadTool::new();
         let args = json!({});
         let result = futures::executor::block_on(tool.execute(&args, None));
+        
         assert!(result.is_err());
     }
 
@@ -229,21 +243,25 @@ mod tests {
         let tool = ReadTool::new();
         let args = json!({ "path": path });
         let result = tool.execute(&args, None).await.unwrap();
+        
         assert!(!result.is_error);
         assert_eq!(result.images.len(), 1);
         assert_eq!(result.images[0].mime_type, "image/png");
+        
         std::fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn test_resolve_path_relative() {
         let path = resolve_path("test.txt", Some("/some/dir"));
+        
         assert_eq!(path, Path::new("/some/dir/test.txt"));
     }
 
     #[test]
     fn test_resolve_path_absolute() {
         let path = resolve_path("/absolute/path.txt", Some("/some/dir"));
+        
         assert_eq!(path, Path::new("/absolute/path.txt"));
     }
 }

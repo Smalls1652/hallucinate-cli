@@ -102,12 +102,15 @@ pub fn tool_result_to_message(result: &ToolResult) -> crate::ai::types::ToolResu
         &result.content,
         result.is_error,
     );
+    
     if result.is_error {
         message.content.push(crate::ai::types::TextContent::new(
             "\n[This is an error result. The tool execution failed.]",
         ));
     }
+    
     message.images = result.images.clone();
+    
     message
 }
 

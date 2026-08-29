@@ -92,6 +92,7 @@ impl Agent {
     ) -> Self {
         let mut agent = Self::new(provider, model, config);
         agent.tool_registry = ToolRegistry::with_all_builtins_and_image_resize(auto_resize_images);
+        
         agent
     }
 
@@ -116,6 +117,7 @@ impl Agent {
         let mut agent = Self::new(provider, model, config);
         agent.tool_registry =
             ToolRegistry::with_all_builtins_and_image_resize_and_shell(auto_resize_images, shell);
+        
         agent
     }
 
@@ -125,6 +127,7 @@ impl Agent {
         prompt: String,
     ) -> Self {
         self.system_prompt = Some(prompt);
+        
         self
     }
 
@@ -134,6 +137,7 @@ impl Agent {
         skills: Vec<Skill>,
     ) -> Self {
         self.skills = skills;
+        
         self
     }
 
@@ -143,6 +147,7 @@ impl Agent {
         cwd: String,
     ) -> Self {
         self.cwd = Some(cwd);
+        
         self
     }
 
@@ -170,7 +175,9 @@ impl Agent {
     /// Returns a receiver channel for [`AgentEvent`]s.
     pub fn subscribe(&mut self) -> mpsc::UnboundedReceiver<AgentEvent> {
         let (tx, rx) = mpsc::unbounded_channel();
+        
         self.event_senders.push(tx);
+        
         rx
     }
 
@@ -211,6 +218,7 @@ impl Agent {
             let Message::Assistant(assistant) = message else {
                 continue;
             };
+            
             let tool_calls: Vec<_> = assistant
                 .content
                 .iter()
@@ -219,12 +227,14 @@ impl Agent {
                     _ => None,
                 })
                 .collect();
+            
             for (offset, tool_call_id) in tool_calls.iter().enumerate() {
                 let result = messages.get(index + 1 + offset);
                 let matches_call = matches!(
                     result,
                     Some(Message::ToolResult(result)) if result.tool_call_id == **tool_call_id
                 );
+                
                 if !matches_call {
                     return Err(anyhow::anyhow!(
                         "persisted history has tool call '{}' without its matching following tool result",
@@ -233,12 +243,15 @@ impl Agent {
                 }
             }
         }
+        
         self.messages = messages;
         self.turn_context = None;
         self.cancellation = AgentCancellation::fresh();
+        
         if self.state != AgentState::Idle {
             self.set_state(AgentState::Idle);
         }
+        
         Ok(())
     }
 
@@ -261,6 +274,7 @@ impl Agent {
         new_state: AgentState,
     ) {
         let old_state = std::mem::replace(&mut self.state, new_state.clone());
+        
         self.emit(AgentEvent::StateChanged {
             new_state,
             old_state,
@@ -300,6 +314,7 @@ impl Agent {
         content: impl Into<String>,
     ) {
         let msg = Message::User(crate::ai::types::UserMessage::new(content));
+        
         self.messages.push(msg);
     }
 
@@ -326,6 +341,7 @@ impl Agent {
         message: &crate::ai::types::AssistantMessage,
     ) -> Vec<PendingToolCall> {
         let mut calls = Vec::new();
+        
         for content in &message.content {
             if let AssistantContent::ToolCall(tc) = content {
                 calls.push(PendingToolCall {
@@ -335,6 +351,7 @@ impl Agent {
                 });
             }
         }
+        
         calls
     }
 
@@ -352,9 +369,11 @@ impl Agent {
 
         // Build stream options
         let mut options = StreamOptions::new();
+        
         if let Some(temp) = self.config.temperature {
             options = options.with_temperature(temp);
         }
+        
         if let Some(max) = self.config.max_tokens {
             options = options.with_max_tokens(max);
         }
@@ -378,9 +397,11 @@ impl Agent {
                     return Err(anyhow::anyhow!("Agent generation was cancelled"));
                 }
             };
+            
             let Some(event) = event else {
                 break;
             };
+            
             // Every incremental event carries the accumulated partial message;
             // touch it here so consumers can rely on that contract even when
             // this agent only needs the deltas and terminal message.
@@ -392,35 +413,42 @@ impl Agent {
                     ..
                 } => {
                     let _ = content_index;
+                    
                     self.emit(AgentEvent::AssistantTextDelta {
                         delta: delta.clone(),
                     });
                 },
+
                 crate::ai::streaming::AssistantMessageEvent::ThinkingDelta {
                     content_index,
                     delta,
                     ..
                 } => {
                     let _ = content_index;
+                    
                     self.emit(AgentEvent::AssistantThinkingDelta {
                         delta: delta.clone(),
                     });
                 },
+
                 crate::ai::streaming::AssistantMessageEvent::ToolcallDelta {
                     content_index,
                     ..
                 } => {
                     let _ = content_index;
                 },
+                
                 crate::ai::streaming::AssistantMessageEvent::Done { message, .. } => {
                     assistant_message = Some(message.clone());
                 },
+                
                 crate::ai::streaming::AssistantMessageEvent::Error { error, .. } => {
                     return Err(anyhow::anyhow!(
                         "LLM error: {}",
                         error.error_message.as_deref().unwrap_or("unknown error")
                     ));
                 },
+                
                 crate::ai::streaming::AssistantMessageEvent::ToolcallEnd { tool_call, .. } => {
                     self.emit(AgentEvent::ToolCallDetected {
                         tool_call_id: tool_call.id.clone(),
@@ -428,6 +456,7 @@ impl Agent {
                         arguments: tool_call.arguments.clone(),
                     });
                 },
+                
                 _ => {},
             }
         }
@@ -459,10 +488,12 @@ impl Agent {
         if tool_calls.is_empty() {
             // No tool calls, turn is complete
             self.set_state(AgentState::TurnComplete);
+            
             self.emit(AgentEvent::TurnCompleted {
                 turn_number,
                 stop_reason: message.stop_reason.clone(),
             });
+            
             return Ok(message.stop_reason);
         }
 
@@ -491,29 +522,35 @@ impl Agent {
                         turn_context.remove_completed_tool_call(&call.tool_call_id);
                         turn_context.tool_results.push(tool_result.clone());
                     }
+                    
                     self.emit(AgentEvent::ToolExecutionCompleted {
                         tool_call_id: call.tool_call_id.clone(),
                         tool_name: call.tool_name.clone(),
                         result: tool_result.content.clone(),
                         is_error: tool_result.is_error,
                     });
+                    
                     results.push(tool_result);
                 },
+
                 Err(e) => {
                     let error_result = crate::agent::tools::ToolResult::error(
                         &call.tool_call_id,
                         &call.tool_name,
                         format!("Tool execution failed: {e}"),
                     );
+                    
                     if let Some(turn_context) = self.turn_context.as_mut() {
                         turn_context.remove_completed_tool_call(&call.tool_call_id);
                         turn_context.tool_results.push(error_result.clone());
                     }
+                    
                     self.emit(AgentEvent::ToolExecutionFailed {
                         tool_call_id: call.tool_call_id.clone(),
                         tool_name: call.tool_name.clone(),
                         error: error_result.content.clone(),
                     });
+                    
                     results.push(error_result);
                 },
             }
@@ -541,10 +578,13 @@ impl Agent {
             self.set_state(AgentState::Aborted);
             self.emit(AgentEvent::Aborted);
             self.cancellation = AgentCancellation::fresh();
+            
             return Err(anyhow::anyhow!("Agent generation was cancelled"));
         }
+
         let result = self.run_loop().await;
         self.cancellation = AgentCancellation::fresh();
+        
         result
     }
 
@@ -555,6 +595,7 @@ impl Agent {
             if self.cancellation.is_cancelled() {
                 self.set_state(AgentState::Aborted);
                 self.emit(AgentEvent::Aborted);
+                
                 return Err(anyhow::anyhow!("Agent generation was cancelled"));
             }
 
@@ -564,10 +605,12 @@ impl Agent {
                     "Reached maximum number of turns ({})",
                     self.config.max_turns
                 );
+                
                 self.set_state(AgentState::Error(message.clone()));
                 self.emit(AgentEvent::Error {
                     message: message.clone(),
                 });
+                
                 return Err(anyhow::anyhow!(message));
             }
 
@@ -580,8 +623,10 @@ impl Agent {
                     && let Err(error) = self.compact_context()
                 {
                     let message = error.to_string();
+                    
                     self.set_state(AgentState::Error(message.clone()));
                     self.emit(AgentEvent::Error { message });
+                    
                     return Err(error);
                 }
             }
@@ -599,6 +644,7 @@ impl Agent {
                         self.set_state(AgentState::Error(message.clone()));
                         self.emit(AgentEvent::Error { message });
                     }
+                    
                     return Err(error);
                 },
             };
@@ -618,15 +664,19 @@ impl Agent {
 
     fn compact_context(&mut self) -> Result<(), anyhow::Error> {
         let before_tokens = crate::agent::types::estimate_context_tokens(&self.build_context());
+        
         let message_tokens: u64 = self
             .messages
             .iter()
             .map(crate::agent::types::estimate_message_tokens)
             .sum();
+        
         let non_message_tokens = before_tokens.saturating_sub(message_tokens);
+        
         let message_budget = u64::from(self.config.max_context_tokens)
             .saturating_sub(non_message_tokens)
             .min(u64::from(self.config.max_context_tokens));
+        
         if message_budget > u64::from(u32::MAX) {
             return Err(anyhow::anyhow!("context budget is too large to compact"));
         }
@@ -663,6 +713,7 @@ impl Agent {
     /// Get the estimated token count of the current context.
     pub fn estimate_tokens(&self) -> u64 {
         let context = self.build_context();
+        
         crate::agent::types::estimate_context_tokens(&context)
     }
 }
@@ -693,10 +744,12 @@ mod tests {
     #[tokio::test]
     async fn emits_text_deltas_and_a_completed_message() {
         let provider = FauxProvider::new();
+        
         provider.set_responses(vec![FauxResponse::Text(
             "Streaming text".to_string(),
             StopReason::Stop,
         )]);
+        
         let model = test_model();
         let mut agent = Agent::new(Box::new(provider), model, AgentConfig::default());
         let mut events = agent.subscribe();
@@ -706,6 +759,7 @@ mod tests {
 
         let mut saw_delta = false;
         let mut saw_completed_message = false;
+        
         while let Ok(event) = events.try_recv() {
             match event {
                 AgentEvent::AssistantTextDelta { delta, .. } => {
@@ -743,13 +797,16 @@ mod tests {
             FauxResponse::Text("second".to_string(), StopReason::Stop),
             FauxResponse::Text("first".to_string(), StopReason::Stop),
         ]);
+        
         let model = test_model();
         let mut agent = Agent::new(Box::new(provider), model, AgentConfig::default());
         let first_handle = agent.cancellation();
+        
         agent.add_user_message("first prompt");
         agent.run().await.unwrap();
         first_handle.cancel();
         agent.add_user_message("second prompt");
+        
         assert_eq!(agent.run().await.unwrap(), StopReason::Stop);
         assert_eq!(agent.state(), &AgentState::TurnComplete);
     }
@@ -758,19 +815,24 @@ mod tests {
     async fn provider_failures_emit_error_and_update_state() {
         let provider = FauxProvider::new();
         provider.set_responses(vec![FauxResponse::Error("provider failed".to_string())]);
+        
         let model = test_model();
         let mut agent = Agent::new(Box::new(provider), model, AgentConfig::default());
         let mut events = agent.subscribe();
+        
         agent.add_user_message("fail");
 
         assert!(agent.run().await.is_err());
         assert!(
             matches!(agent.state(), AgentState::Error(message) if message.contains("provider failed"))
         );
+        
         let mut saw_error = false;
+        
         while let Ok(event) = events.try_recv() {
             saw_error |= matches!(event, AgentEvent::Error { message } if message.contains("provider failed"));
         }
+        
         assert!(saw_error);
     }
 
@@ -783,16 +845,19 @@ mod tests {
             serde_json::json!({ "command": "printf hello" }),
             StopReason::ToolUse,
         )]);
+        
         let model = test_model();
         let config = AgentConfig {
             max_turns: 1,
             ..AgentConfig::default()
         };
+        
         let mut agent =
             Agent::with_all_tools_and_image_resize(Box::new(provider), model, config, true);
         agent.add_user_message("keep going");
 
         let result = agent.run().await;
+        
         assert!(result.is_err());
         assert!(matches!(agent.state(), AgentState::Error(message) if message.contains("maximum")));
     }
@@ -809,7 +874,9 @@ mod tests {
                 StopReason::ToolUse,
             ),
         ]);
+        
         let model = test_model();
+        
         let mut agent = Agent::with_all_tools_and_image_resize(
             Box::new(provider),
             model,
@@ -829,6 +896,7 @@ mod tests {
     fn rejects_history_with_multiple_unmatched_tool_calls() {
         let model = test_model();
         let mut agent = Agent::new(Box::new(FauxProvider::new()), model, AgentConfig::default());
+        
         let assistant = crate::ai::types::AssistantMessage::new(
             vec![
                 AssistantContent::ToolCall(crate::ai::types::ToolCall::new(
@@ -847,12 +915,14 @@ mod tests {
             "test",
             StopReason::ToolUse,
         );
+        
         let result = agent.load_history(vec![
             Message::Assistant(assistant),
             Message::ToolResult(crate::ai::types::ToolResultMessage::new(
                 "call-1", "bash", "ok", false,
             )),
         ]);
+        
         assert!(result.is_err());
     }
 
@@ -862,12 +932,14 @@ mod tests {
             include_tool_definitions: false,
             ..AgentConfig::default()
         };
+        
         let agent = Agent::with_all_tools_and_image_resize(
             Box::new(FauxProvider::new()),
             test_model(),
             config,
             true,
         );
+        
         assert!(agent.build_context().tools.is_none());
     }
 
@@ -888,6 +960,7 @@ mod tests {
         }]);
 
         let prompt = agent.build_context().system_prompt.unwrap();
+        
         assert!(prompt.contains("<name>release-helper</name>"));
         assert!(prompt.contains("/tmp/release/SKILL.md"));
     }

@@ -22,12 +22,14 @@ pub enum SessionEntry {
         #[serde(flatten)]
         message: Box<Message>,
     },
+    
     /// An event (e.g., tool execution, state change).
     Event {
         timestamp: u64,
         event_type: String,
         data: serde_json::Value,
     },
+    
     /// Session metadata, written when a session is created.
     Metadata {
         timestamp: u64,
@@ -46,6 +48,7 @@ impl SessionEntry {
                 // Serialize the message directly (it has its own "role" tag)
                 serde_json::to_string(message)
             },
+            
             Self::Event {
                 timestamp,
                 event_type,
@@ -56,6 +59,7 @@ impl SessionEntry {
                 "event_type": event_type,
                 "data": data,
             })),
+            
             Self::Metadata {
                 timestamp,
                 title,
@@ -80,18 +84,22 @@ impl SessionEntry {
             match type_str {
                 "event" => {
                     let timestamp = value.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0);
+            
                     let event_type = value
                         .get("event_type")
                         .and_then(|t| t.as_str())
                         .unwrap_or("")
                         .to_string();
+            
                     let data = value.get("data").cloned().unwrap_or(serde_json::json!({}));
+            
                     return Ok(Self::Event {
                         timestamp,
                         event_type,
                         data,
                     });
                 },
+               
                 "metadata" => {
                     return Ok(Self::Metadata {
                         timestamp: value.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0),
@@ -110,6 +118,7 @@ impl SessionEntry {
                             .to_string(),
                     });
                 },
+                
                 _ => {},
             }
         }
@@ -117,6 +126,7 @@ impl SessionEntry {
         // No type field, try to deserialize as a Message
         // The Message enum uses "role" as its discriminant
         let message: Message = serde_json::from_value(value)?;
+        
         Ok(Self::Message {
             message: Box::new(message),
         })
@@ -170,6 +180,7 @@ impl SessionStorage {
     pub fn new(session_id: &str) -> Self {
         let path = paths::session_file(session_id)
             .unwrap_or_else(|| PathBuf::from(format!("/tmp/session-{}.jsonl", session_id)));
+        
         Self { path }
     }
 
@@ -211,6 +222,7 @@ impl SessionStorage {
     /// updating a session name without rewriting its conversation history.
     pub fn load_metadata(&self) -> Result<Option<SessionMetadata>, anyhow::Error> {
         let mut metadata = None;
+        
         for entry in self.load_all()? {
             if let SessionEntry::Metadata {
                 title,
@@ -222,6 +234,7 @@ impl SessionStorage {
                 metadata = Some((title, parent_session_id, cwd));
             }
         }
+        
         Ok(metadata)
     }
 
@@ -289,6 +302,7 @@ impl SessionStorage {
                     error
                 )
             })?;
+           
             if line.trim().is_empty() {
                 continue;
             }
@@ -301,6 +315,7 @@ impl SessionStorage {
                     error
                 )
             })?;
+         
             entries.push(entry);
         }
 
@@ -331,6 +346,7 @@ pub fn list_sessions() -> Result<Vec<SessionInfo>, anyhow::Error> {
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
+            
             if path.extension().map(|e| e == "jsonl").unwrap_or(false)
                 && let Some(filename) = path.file_stem()
             {
@@ -398,6 +414,7 @@ mod tests {
         // Load it back
         let loaded = storage.load_messages().unwrap();
         assert_eq!(loaded.len(), 1);
+        
         match &loaded[0] {
             Message::User(u) => assert_eq!(u.content, "Hello, world!"),
             _ => panic!("Expected User message"),
@@ -413,6 +430,7 @@ mod tests {
             "hallucinate-metadata-{}.jsonl",
             uuid::Uuid::new_v4()
         ));
+        
         let storage = SessionStorage::with_path(path.clone());
         storage
             .save_metadata(
@@ -421,6 +439,7 @@ mod tests {
                 "/tmp".to_string(),
             )
             .unwrap();
+        
         assert_eq!(
             storage.load_metadata().unwrap(),
             Some((
@@ -429,6 +448,7 @@ mod tests {
                 "/tmp".to_string()
             ))
         );
+        
         let _ = fs::remove_file(path);
     }
 
@@ -443,15 +463,18 @@ mod tests {
             "{\"role\":\"user\",\"content\":\"ok\",\"timestamp\":1}\nnot json\n",
         )
         .unwrap();
+        
         let error = SessionStorage::with_path(path.clone())
             .load_all()
             .unwrap_err();
+        
         let message = error.to_string();
         assert!(message.contains("line 2"), "unexpected error: {message}");
         assert!(
             message.contains("invalid session entry"),
             "unexpected error: {message}"
         );
+        
         let _ = fs::remove_file(path);
     }
 }

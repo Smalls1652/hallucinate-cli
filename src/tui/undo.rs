@@ -10,6 +10,7 @@ pub enum EditOperation {
         position: usize,
         text: String,
     },
+    
     Delete {
         position: usize,
         length: usize,
@@ -30,11 +31,13 @@ impl EditOperation {
                 let position = (*position).min(text.len());
                 text.insert_str(position, inserted);
             },
+            
             Self::Delete {
                 position, length, ..
             } => {
                 let position = (*position).min(text.len());
                 let end = position.saturating_add(*length).min(text.len());
+            
                 if position < end && text.is_char_boundary(position) && text.is_char_boundary(end) {
                     text.drain(position..end);
                 }
@@ -66,6 +69,7 @@ impl UndoStack {
     ) {
         self.undo_stack.push_back(operation);
         self.redo_stack.clear();
+        
         while self.undo_stack.len() > self.max_size {
             self.undo_stack.pop_front();
         }
@@ -76,6 +80,7 @@ impl UndoStack {
         text: &mut String,
     ) -> Option<EditOperation> {
         let operation = self.undo_stack.pop_back()?;
+        
         match &operation {
             EditOperation::Insert {
                 position,
@@ -83,22 +88,27 @@ impl UndoStack {
             } => {
                 let position = (*position).min(text.len());
                 let end = position.saturating_add(inserted.len()).min(text.len());
+            
                 if position < end && text.is_char_boundary(position) && text.is_char_boundary(end) {
                     text.drain(position..end);
                 }
             },
+            
             EditOperation::Delete {
                 position,
                 deleted_text,
                 ..
             } => {
                 let position = (*position).min(text.len());
+            
                 if text.is_char_boundary(position) {
                     text.insert_str(position, deleted_text);
                 }
             },
         }
+        
         self.redo_stack.push_back(operation.clone());
+        
         Some(operation)
     }
 
@@ -108,7 +118,9 @@ impl UndoStack {
     ) -> Option<EditOperation> {
         let operation = self.redo_stack.pop_back()?;
         operation.apply(text);
+        
         self.undo_stack.push_back(operation.clone());
+        
         Some(operation)
     }
 

@@ -23,6 +23,7 @@ use ratatui::{
 /// left to ratatui's `Paragraph` widget, which knows the available width.
 pub fn markdown_to_lines(markdown: &str) -> Vec<Line<'static>> {
     let arena = Arena::new();
+    
     let mut options = Options::default();
     options.extension.table = true;
     options.extension.strikethrough = true;
@@ -30,11 +31,14 @@ pub fn markdown_to_lines(markdown: &str) -> Vec<Line<'static>> {
     options.extension.autolink = true;
 
     let root = parse_document(&arena, markdown, &options);
+    
     let mut renderer = Renderer { lines: Vec::new() };
     renderer.blocks(root);
+    
     while renderer.lines.last().is_some_and(Vec::is_empty) {
         renderer.lines.pop();
     }
+    
     renderer.lines.into_iter().map(Line::from).collect()
 }
 
@@ -63,9 +67,11 @@ pub fn markdown_to_text(markdown: &str) -> String {
 /// emitted only for spans which have a style.
 pub fn markdown_to_ansi(markdown: &str) -> String {
     let mut output = String::new();
+    
     for line in markdown_to_lines(markdown) {
         for span in line.spans {
             let style = ansi_style(span.style);
+    
             if !style.is_empty() {
                 output.push_str(&style);
                 output.push_str(&span.content);
@@ -74,8 +80,10 @@ pub fn markdown_to_ansi(markdown: &str) -> String {
                 output.push_str(&span.content);
             }
         }
+    
         output.push('\n');
     }
+    
     output
 }
 
@@ -99,14 +107,17 @@ impl Renderer {
         indent: usize,
     ) {
         let value = node.data().value.clone();
+    
         match value {
             NodeValue::Document => self.blocks(node),
+    
             NodeValue::Paragraph => {
                 for line in inline_lines(node, Style::default()) {
                     self.lines.push(with_prefix(line, " ".repeat(indent)));
                 }
                 self.separator();
             },
+    
             NodeValue::Heading(heading) => {
                 let style = Style::default()
                     .fg(Color::Cyan)
@@ -125,42 +136,54 @@ impl Renderer {
 
                 self.separator();
             },
+    
             NodeValue::CodeBlock(code) => {
                 let code_style = Style::default().fg(Color::Green);
+    
                 for code_line in code.literal.trim_end_matches('\n').split('\n') {
                     let mut line = vec![Span::styled(
                         format!("{}│ ", " ".repeat(indent)),
                         Style::default().fg(Color::DarkGray),
                     )];
+    
                     line.push(Span::styled(code_line.to_string(), code_style));
+    
                     self.lines.push(line);
                 }
+    
                 if code.literal.is_empty() {
                     self.lines.push(vec![Span::styled(
                         format!("{}│ ", " ".repeat(indent)),
                         Style::default().fg(Color::DarkGray),
                     )]);
                 }
+    
                 self.separator();
             },
+    
             NodeValue::List(list) => {
                 self.render_list(node, list, indent);
                 self.separator();
             },
+    
             NodeValue::BlockQuote => {
                 let mut nested = Renderer { lines: Vec::new() };
                 nested.blocks(node);
                 nested.remove_trailing_separators();
+    
                 for line in nested.lines {
                     let mut prefixed = vec![Span::styled(
                         format!("{}│ ", " ".repeat(indent)),
                         Style::default().fg(Color::DarkGray),
                     )];
                     prefixed.extend(line);
+    
                     self.lines.push(prefixed);
                 }
+    
                 self.separator();
             },
+    
             NodeValue::ThematicBreak => {
                 self.lines.push(vec![Span::styled(
                     format!("{}────────────────", " ".repeat(indent)),
@@ -168,10 +191,12 @@ impl Renderer {
                 )]);
                 self.separator();
             },
+    
             NodeValue::Table(_) => {
                 self.render_table(node, indent);
                 self.separator();
             },
+    
             NodeValue::HtmlBlock(html) => {
                 for line in html.literal.trim_end_matches('\n').split('\n') {
                     self.lines.push(vec![Span::styled(
@@ -179,8 +204,10 @@ impl Renderer {
                         Style::default().fg(Color::DarkGray),
                     )]);
                 }
+    
                 self.separator();
             },
+    
             // Item and cell nodes are rendered by their containing list/table.
             // For less common container extensions, recursively rendering the
             // children is more useful than dropping their text.
@@ -202,12 +229,15 @@ impl Renderer {
         indent: usize,
     ) {
         let mut number = list.start;
+    
         for item in node.children() {
             let item_value = item.data().value.clone();
+    
             let task = match item_value {
                 NodeValue::TaskItem(task) => task.symbol,
                 _ => None,
             };
+    
             let marker = match (list.list_type, task) {
                 (_, Some(symbol)) => format!(
                     "[{}] ",
@@ -217,26 +247,31 @@ impl Renderer {
                         ' '
                     }
                 ),
+    
                 (ListType::Ordered, None) => {
                     let marker = format!("{}. ", number);
                     number += 1;
                     marker
                 },
+    
                 (ListType::Bullet, None) => "• ".to_string(),
             };
 
             let mut nested = Renderer { lines: Vec::new() };
             nested.blocks(item);
             nested.remove_trailing_separators();
+    
             if nested.lines.is_empty() {
                 nested.lines.push(Vec::new());
             }
+    
             for (index, mut line) in nested.lines.into_iter().enumerate() {
                 let prefix = if index == 0 {
                     format!("{}{}", " ".repeat(indent), marker)
                 } else {
                     " ".repeat(indent + marker.chars().count())
                 };
+    
                 line.insert(
                     0,
                     Span::styled(
@@ -248,6 +283,7 @@ impl Renderer {
                         },
                     ),
                 );
+    
                 self.lines.push(line);
             }
         }
@@ -267,29 +303,35 @@ impl Renderer {
             NodeValue::Table(table) => table.alignments.clone(),
             _ => Vec::new(),
         };
+    
         let rows = node
             .children()
             .map(|row| {
                 let header = matches!(row.data().value, NodeValue::TableRow(true));
+    
                 let style = if header {
                     Style::default().add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 };
+    
                 let cells = row
                     .children()
                     .map(|cell| inline_lines(cell, style))
                     .collect::<Vec<_>>();
+    
                 (header, cells)
             })
             .collect::<Vec<_>>();
 
         let column_count = rows.iter().map(|(_, cells)| cells.len()).max().unwrap_or(0);
+    
         if column_count == 0 {
             return;
         }
 
         let mut widths = vec![0; column_count];
+    
         for (_, cells) in &rows {
             for (column, cell_lines) in cells.iter().enumerate() {
                 widths[column] = widths[column].max(
@@ -303,22 +345,29 @@ impl Renderer {
         }
 
         let border_style = Style::default().fg(Color::DarkGray);
+    
         for (header, cells) in rows {
             let height = cells.iter().map(Vec::len).max().unwrap_or(1);
+    
             for line_index in 0..height {
                 let mut line = vec![Span::styled(
                     format!("{}│", " ".repeat(indent)),
                     border_style,
                 )];
+    
                 for column in 0..column_count {
                     line.push(Span::raw(" "));
+    
                     let cell_line = cells
                         .get(column)
                         .and_then(|lines| lines.get(line_index))
                         .cloned()
                         .unwrap_or_default();
+    
                     let content_width = line_width(&cell_line);
+    
                     let extra = widths[column].saturating_sub(content_width);
+    
                     let (left, right) = table_padding(
                         alignments
                             .get(column)
@@ -326,6 +375,7 @@ impl Renderer {
                             .unwrap_or(TableAlignment::None),
                         extra,
                     );
+    
                     if left > 0 {
                         line.push(Span::raw(" ".repeat(left)));
                     }
@@ -336,8 +386,10 @@ impl Renderer {
                     line.push(Span::raw(" "));
                     line.push(Span::styled("│", border_style));
                 }
+    
                 self.lines.push(line);
             }
+    
             if header {
                 self.lines.push(vec![Span::styled(
                     table_divider(indent, &widths),
@@ -365,9 +417,11 @@ fn inline_lines<'a>(
     style: Style,
 ) -> Vec<Vec<Span<'static>>> {
     let mut lines = vec![Vec::new()];
+    
     for child in node.children() {
         inline_node(child, style, &mut lines);
     }
+    
     lines
 }
 
@@ -377,12 +431,16 @@ fn inline_node<'a>(
     lines: &mut Vec<Vec<Span<'static>>>,
 ) {
     let value = node.data().value.clone();
+    
     match value {
         NodeValue::Text(text) => add_text(lines, text.into_owned(), style),
+    
         // A terminal has no HTML whitespace collapsing, so retaining soft
         // breaks makes Markdown source line breaks visible and predictable.
         NodeValue::SoftBreak => lines.push(Vec::new()),
+    
         NodeValue::LineBreak => lines.push(Vec::new()),
+    
         NodeValue::Code(code) => add_text(
             lines,
             code.literal,
@@ -391,24 +449,32 @@ fn inline_node<'a>(
                 .bg(Color::Rgb(45, 45, 45))
                 .add_modifier(Modifier::BOLD),
         ),
+    
         NodeValue::Emph => children_inline(node, style.add_modifier(Modifier::ITALIC), lines),
+    
         NodeValue::Strong => children_inline(node, style.add_modifier(Modifier::BOLD), lines),
+    
         NodeValue::Strikethrough => {
             children_inline(node, style.add_modifier(Modifier::CROSSED_OUT), lines)
         },
+    
         NodeValue::Link(link) => {
             let link_style = style.fg(Color::Cyan).add_modifier(Modifier::UNDERLINED);
             children_inline(node, link_style, lines);
+    
             if !link.url.is_empty() {
                 add_text(lines, format!(" ({})", link.url), style.fg(Color::DarkGray));
             }
         },
+    
         NodeValue::Image(link) => {
             add_text(lines, "[".to_string(), style);
             children_inline(node, style.fg(Color::Cyan), lines);
             add_text(lines, format!("]({})", link.url), style.fg(Color::DarkGray));
         },
+    
         NodeValue::HtmlInline(text) | NodeValue::Raw(text) => add_text(lines, text, style),
+    
         _ => children_inline(node, style, lines),
     }
 }
@@ -432,7 +498,8 @@ fn add_text(
         if index > 0 {
             lines.push(Vec::new());
         }
-        if !part.is_empty() {
+       
+       if !part.is_empty() {
             lines
                 .last_mut()
                 .expect("inline renderer always has a line")
@@ -466,6 +533,7 @@ fn table_divider(
         .iter()
         .map(|width| "─".repeat(width + 2))
         .collect::<Vec<_>>();
+    
     format!("{}├{}┤", " ".repeat(indent), segments.join("┼"))
 }
 
@@ -476,11 +544,13 @@ fn with_prefix(
     if !prefix.is_empty() {
         line.insert(0, Span::raw(prefix));
     }
+    
     line
 }
 
 fn ansi_style(style: Style) -> String {
     let mut codes = Vec::new();
+    
     if let Some(color) = style.fg {
         codes.push(match color {
             Color::Reset => "39".to_string(),
@@ -504,6 +574,7 @@ fn ansi_style(style: Style) -> String {
             Color::Indexed(index) => format!("38;5;{index}"),
         });
     }
+    
     if let Some(color) = style.bg {
         codes.push(match color {
             Color::Reset => "49".to_string(),
@@ -527,22 +598,29 @@ fn ansi_style(style: Style) -> String {
             Color::Indexed(index) => format!("48;5;{index}"),
         });
     }
+    
     let modifiers = style.add_modifier;
+    
     if modifiers.contains(Modifier::BOLD) {
         codes.push("1".to_string());
     }
+    
     if modifiers.contains(Modifier::ITALIC) {
         codes.push("3".to_string());
     }
+    
     if modifiers.contains(Modifier::UNDERLINED) {
         codes.push("4".to_string());
     }
+    
     if modifiers.contains(Modifier::CROSSED_OUT) {
         codes.push("9".to_string());
     }
+    
     if modifiers.contains(Modifier::DIM) {
         codes.push("2".to_string());
     }
+    
     if codes.is_empty() {
         String::new()
     } else {
@@ -570,6 +648,7 @@ mod tests {
     #[test]
     fn renders_markdown_structure_without_markers() {
         let output = plain(markdown_to_lines("# Title\n\n- **one**\n- `two`"));
+    
         assert!(output.contains("Title"));
         assert!(output.contains("• one"));
         assert!(output.contains("two"));
@@ -579,6 +658,7 @@ mod tests {
     #[test]
     fn ansi_output_contains_emphasis_codes() {
         let output = markdown_to_ansi("**bold**");
+    
         assert!(output.contains("\x1b[1m"));
         assert!(output.contains("bold"));
     }

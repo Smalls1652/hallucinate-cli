@@ -32,6 +32,7 @@ async fn main() -> Result<(), anyhow::Error> {
             config::paths::display_path(path, &project_dir)
         );
     }
+    
     tracing::debug!(
         print_mode = cli.print.is_some(),
         rpc_mode = cli.rpc,

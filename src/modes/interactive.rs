@@ -71,11 +71,13 @@ pub async fn run(
     // included in the system prompt. Invalid skill files do not prevent the
     // session from starting.
     let cwd = std::env::current_dir().context("Failed to determine working directory")?;
+    
     let skills = crate::agent::skills::load_skills(&crate::agent::skills::SkillLoadOptions {
         cwd: cwd.clone(),
         skill_paths: cli.skills.clone(),
         include_defaults: !cli.no_skills,
     });
+    
     for diagnostic in &skills.diagnostics {
         eprintln!(
             "Warning: could not load skill {}: {}",
@@ -89,8 +91,10 @@ pub async fn run(
         prompt_paths: cli.prompt_templates.clone(),
         include_defaults: !cli.no_prompt_templates,
     };
+    
     let prompt_templates =
         crate::agent::prompt_templates::load_prompt_templates(&prompt_template_options);
+    
     for diagnostic in &prompt_templates.diagnostics {
         eprintln!(
             "Warning: could not load prompt template {}: {}",
@@ -101,6 +105,7 @@ pub async fn run(
 
     // Create agent with all built-in tools.
     let loaded_skills = skills.skills;
+    
     let mut agent = Agent::with_all_tools_and_image_resize_and_shell(
         provider,
         model.clone(),
@@ -121,12 +126,14 @@ pub async fn run(
     // user and assistant messages can never be silently discarded. `--session`
     // restores validated history and the persisted cwd when it still exists.
     let mut session_manager = SessionManager::new();
+    
     if let Some(session_id) = &cli.session {
         let session = session_manager.resume(session_id)?;
         let messages = session_manager
             .current_storage()
             .expect("resumed session has storage")
             .load_messages()?;
+        
         agent.load_history(messages)?;
         agent.set_cwd(session.cwd);
     } else {
@@ -298,10 +305,12 @@ impl InteractiveTui {
         // keys such as Shift+Enter distinguishable from plain Enter in
         // terminals which support the Kitty keyboard protocol.
         crossterm::terminal::enable_raw_mode().context("Failed to enable raw mode")?;
+        
         let keyboard_enhancement_enabled = matches!(
             crossterm::terminal::supports_keyboard_enhancement(),
             Ok(true)
         );
+        
         if keyboard_enhancement_enabled
             && let Err(error) = crossterm::execute!(
                 std::io::stdout(),
@@ -314,8 +323,10 @@ impl InteractiveTui {
             )
         {
             let _ = crossterm::terminal::disable_raw_mode();
+            
             return Err(error).context("Failed to enable keyboard enhancements");
         }
+        
         if let Err(error) = crossterm::execute!(
             std::io::stdout(),
             crossterm::terminal::EnterAlternateScreen,
@@ -328,7 +339,9 @@ impl InteractiveTui {
                     crossterm::event::PopKeyboardEnhancementFlags
                 );
             }
+            
             let _ = crossterm::terminal::disable_raw_mode();
+            
             return Err(error).context("Failed to enter alternate screen");
         }
         if let Err(error) = enable_mouse_capture() {
@@ -338,12 +351,15 @@ impl InteractiveTui {
                     crossterm::event::PopKeyboardEnhancementFlags
                 );
             }
+            
             let _ = crossterm::execute!(
                 std::io::stdout(),
                 crossterm::event::DisableBracketedPaste,
                 crossterm::terminal::LeaveAlternateScreen
             );
+            
             let _ = crossterm::terminal::disable_raw_mode();
+            
             return Err(error).context("Failed to enable mouse capture");
         }
 
@@ -355,6 +371,7 @@ impl InteractiveTui {
         let agent_state = agent.state().clone();
         let token_count = agent.estimate_tokens();
         let show_thinking = super::resolve_show_thinking(&cli, &settings);
+        
         let (agent_completion_tx, agent_completion_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let mut tui = Self {
@@ -418,8 +435,10 @@ impl InteractiveTui {
     /// rendering or input handling returns an error.
     async fn run(&mut self) -> Result<(), anyhow::Error> {
         self.running = true;
+        
         let result = self.run_loop();
         self.exit_raw_mode();
+        
         result
     }
 
@@ -428,10 +447,12 @@ impl InteractiveTui {
             self.process_events();
             self.process_completed_runs();
             self.render()?;
+            
             if self.handle_input()? {
                 break;
             }
         }
+
         Ok(())
     }
 
@@ -443,12 +464,14 @@ impl InteractiveTui {
                 crossterm::event::PopKeyboardEnhancementFlags
             );
         }
+
         let _ = crossterm::execute!(
             std::io::stdout(),
             crossterm::event::DisableMouseCapture,
             crossterm::event::DisableBracketedPaste,
             crossterm::terminal::LeaveAlternateScreen,
         );
+        
         let _ = crossterm::terminal::disable_raw_mode();
     }
 
@@ -460,9 +483,11 @@ impl InteractiveTui {
             {
                 eprintln!("Warning: could not persist session event: {error}");
             }
+            
             match &event {
                 AgentEvent::StateChanged { new_state, .. } => {
                     self.agent_state = new_state.clone();
+                    
                     match new_state {
                         AgentState::Streaming => {
                             // Text and reasoning are displayed as their delta
@@ -483,6 +508,7 @@ impl InteractiveTui {
                         _ => {},
                     }
                 },
+
                 AgentEvent::AssistantTextDelta { delta, .. } => {
                     let index = match self.streaming_message_index {
                         Some(index) => index,
@@ -494,13 +520,17 @@ impl InteractiveTui {
                                 tool_calls: Vec::new(),
                                 timestamp: chrono::Utc::now(),
                             });
+                            
                             let index = self.transcript.messages().len() - 1;
                             self.streaming_message_index = Some(index);
+                            
                             index
                         },
                     };
+
                     self.transcript.append_to_message(index, delta);
                 },
+
                 AgentEvent::AssistantThinkingDelta { delta } => {
                     let index = match self.streaming_message_index {
                         Some(index) => index,
@@ -512,15 +542,21 @@ impl InteractiveTui {
                                 tool_calls: Vec::new(),
                                 timestamp: chrono::Utc::now(),
                             });
+                            
                             let index = self.transcript.messages().len() - 1;
+                            
                             self.streaming_message_index = Some(index);
+                            
                             index
                         },
                     };
+
                     self.transcript.append_thinking_to_message(index, delta);
                 },
+
                 AgentEvent::AssistantMessageCompleted { message, .. } => {
                     let (content, thinking, tool_calls) = display_assistant_message(message);
+                    
                     if let Some(index) = self.streaming_message_index.take() {
                         self.transcript
                             .complete_message(index, content, thinking, tool_calls);
@@ -534,7 +570,9 @@ impl InteractiveTui {
                         });
                     }
                 },
+
                 AgentEvent::ToolCallDetected { .. } | AgentEvent::ToolExecutionStarted { .. } => {},
+                
                 AgentEvent::ToolExecutionCompleted {
                     tool_call_id,
                     result,
@@ -544,6 +582,7 @@ impl InteractiveTui {
                     self.transcript
                         .complete_tool_call(tool_call_id, result.clone(), *is_error);
                 },
+                
                 AgentEvent::ToolExecutionFailed {
                     tool_call_id,
                     error,
@@ -552,9 +591,11 @@ impl InteractiveTui {
                     self.transcript
                         .complete_tool_call(tool_call_id, error.clone(), true);
                 },
+                
                 AgentEvent::TurnCompleted { .. } => {
                     self.session_manager.touch();
                 },
+
                 _ => {},
             }
         }
@@ -569,8 +610,10 @@ impl InteractiveTui {
             .and_then(|agent| agent.cwd())
             .map(PathBuf::from)
             .or_else(|| std::env::current_dir().ok());
+        
         if let Some(cwd) = cwd {
             let files = crate::agent::system_prompt::prompt_file_paths(&cwd);
+            
             let context_paths = [
                 files
                     .system_prompt
@@ -583,6 +626,7 @@ impl InteractiveTui {
             .flatten()
             .collect::<Vec<_>>()
             .join("\n");
+            
             if !context_paths.is_empty() {
                 push_loaded_system_items_string(&mut message, "Context", &context_paths);
             }
@@ -645,6 +689,7 @@ impl InteractiveTui {
         messages: impl IntoIterator<Item = String>,
     ) {
         let content = messages.into_iter().collect::<Vec<_>>().join("\n");
+        
         if !content.is_empty() {
             self.add_system_message(content);
         }
@@ -663,6 +708,7 @@ impl InteractiveTui {
         let area = self.transcript_area;
         let right = area.x.saturating_add(area.width);
         let bottom = area.y.saturating_add(area.height);
+        
         if column >= area.x && column < right && row >= area.y && row < bottom {
             Some((column, row))
         } else {
@@ -673,6 +719,7 @@ impl InteractiveTui {
     fn copy_chat_selection(&mut self) {
         if self.selected_text.is_empty() {
             self.show_notice("Nothing selected");
+            
             return;
         }
 
@@ -717,33 +764,42 @@ impl InteractiveTui {
         let Some(cancellation) = &self.agent_cancellation else {
             return false;
         };
+        
         cancellation.cancel();
+        
         self.show_notice("Cancelling the running response.");
+        
         true
     }
 
     /// Refresh slash-command completions for the current editor contents.
     fn refresh_autocomplete(&mut self) {
         let input = self.editor.content().trim_start();
+        
         let Some(prefix) = input.strip_prefix('/') else {
             self.autocomplete_items.clear();
             self.autocomplete_index = 0;
+            
             return;
         };
+        
         // Only complete the command name. Arguments have their own syntax and
         // should continue to be edited normally.
         if prefix.chars().any(char::is_whitespace) {
             self.autocomplete_items.clear();
             self.autocomplete_index = 0;
+            
             return;
         }
 
         let prefix = prefix.to_ascii_lowercase();
         let mut items = Vec::new();
+        
         for command in crate::modes::commands::BUILTIN_COMMANDS {
             if command.name.starts_with("skill:") {
                 continue;
             }
+
             if command.name.starts_with(&prefix) {
                 items.push(AutocompleteItem {
                     value: command.name.to_string(),
@@ -763,6 +819,7 @@ impl InteractiveTui {
         }
         for skill in &self.skills {
             let value = format!("skill:{}", skill.name);
+            
             if value.starts_with(&prefix) && !items.iter().any(|item| item.value == value) {
                 items.push(AutocompleteItem {
                     value,
@@ -770,7 +827,9 @@ impl InteractiveTui {
                 });
             }
         }
+
         items.sort_by(|left, right| left.value.cmp(&right.value));
+        
         self.autocomplete_items = items;
         self.autocomplete_index = self
             .autocomplete_index
@@ -795,19 +854,25 @@ impl InteractiveTui {
             self.show_notice("A response is still running; wait before changing sessions.");
             return Ok(());
         }
+        
         let session = self.session_manager.resume(session_id)?;
         let messages = self
             .session_manager
             .current_storage()
             .expect("resumed session has storage")
             .load_messages()?;
+        
         let agent = self.agent.as_mut().expect("agent checked above");
         agent.load_history(messages.clone())?;
+        
         self.project_cwd = PathBuf::from(&session.cwd);
         agent.set_cwd(session.cwd);
+        
         self.transcript = transcript_from_messages(&messages);
         self.transcript.set_show_thinking(self.show_thinking);
+        
         self.streaming_message_index = None;
+        
         self.message_history = messages
             .iter()
             .filter_map(|message| match message {
@@ -815,9 +880,12 @@ impl InteractiveTui {
                 _ => None,
             })
             .collect();
+        
         self.history_index = self.message_history.len();
         self.token_count = agent.estimate_tokens();
+        
         self.show_notice(format!("Resumed session {}.", short_session_id(session_id)));
+        
         Ok(())
     }
 
@@ -837,26 +905,32 @@ impl InteractiveTui {
             "list" => {
                 let mut providers: Vec<_> = self.settings.credential_store.provider_ids().collect();
                 providers.sort_unstable();
+                
                 if providers.is_empty() {
                     self.add_system_message("No saved provider credentials.");
                 } else {
                     self.add_system_message(format!("Saved credentials: {}", providers.join(", ")));
                 }
             },
+
             "set" => {
                 if !self.ensure_idle("saving credentials") {
                     return Ok(());
                 }
+
                 if arguments.len() != 3 {
                     self.show_notice("Usage: /auth set <provider> <api-key>");
                     return Ok(());
                 }
+
                 let provider = &arguments[1];
                 self.settings.save_api_key(provider, &arguments[2])?;
+                
                 if provider == &self.model.provider {
                     let model = self.model.clone();
                     let new_provider =
                         crate::modes::create_provider_for_model(&self.cli, &self.settings, &model)?;
+                    
                     self.agent
                         .as_mut()
                         .expect("credentials require an idle agent")
@@ -870,17 +944,23 @@ impl InteractiveTui {
                             ),
                         );
                 }
+
                 self.show_notice(format!("Saved credentials for provider '{}'.", provider));
             },
+
             "remove" => {
                 if !self.ensure_idle("removing credentials") {
                     return Ok(());
                 }
+
                 if arguments.len() != 2 {
                     self.show_notice("Usage: /auth remove <provider>");
                     return Ok(());
+                
                 }
+                
                 let provider = &arguments[1];
+                
                 if self.settings.remove_api_key(provider)? {
                     self.show_notice(format!(
                         "Removed saved credentials for provider '{}'.",
@@ -893,6 +973,7 @@ impl InteractiveTui {
                     ));
                 }
             },
+
             _ => self.show_notice("Usage: /auth <list|set|remove> [provider] [api-key]"),
         }
         Ok(())
@@ -908,13 +989,16 @@ impl InteractiveTui {
         let Some(parsed) = crate::modes::commands::parse(content) else {
             return Ok(false);
         };
+
         let Some(command) = crate::modes::commands::resolve_builtin_command(&parsed.name) else {
             return Ok(false);
         };
+        
         let arguments = parsed.arguments;
 
         match command {
             "auth" => self.handle_auth_command(&arguments)?,
+        
             "help" => {
                 let mut lines = vec!["Built-in commands:".to_string()];
                 lines.extend(
@@ -922,23 +1006,29 @@ impl InteractiveTui {
                         .iter()
                         .map(|command| format!("{} — {}", command.usage, command.description)),
                 );
+        
                 if !self.prompt_templates.is_empty() {
                     lines.push(
                         "Prompt templates: type /<name> [arguments]. Use /templates to list them."
                             .to_string(),
                     );
                 }
+        
                 self.add_system_messages(lines);
             },
+        
             "new" | "clear" => {
                 if !self.ensure_idle("creating a session") {
                     return Ok(true);
                 }
+        
                 let title = command_arguments(&arguments)
                     .or_else(|| Some("Interactive session".to_string()));
+        
                 self.create_empty_session(title)?;
                 self.show_notice("Created a new session.");
             },
+        
             "sessions" | "list" => {
                 let sessions = SessionManager::list()?;
                 if sessions.is_empty() {
@@ -946,16 +1036,19 @@ impl InteractiveTui {
                 } else {
                     let current = self.session_manager.current_id().map(str::to_owned);
                     let mut lines = Vec::with_capacity(sessions.len());
+        
                     for session in sessions {
                         let marker = if current.as_deref() == Some(session.id.as_str()) {
                             '*'
                         } else {
                             ' '
                         };
+        
                         let title = crate::session::storage::SessionStorage::new(&session.id)
                             .load_metadata()?
                             .and_then(|metadata| metadata.0)
                             .unwrap_or_else(|| "untitled".to_string());
+        
                         lines.push(format!(
                             "{} {} — {} — {} ({})",
                             marker,
@@ -965,9 +1058,11 @@ impl InteractiveTui {
                             crate::config::paths::display_path(&session.path, &self.project_cwd)
                         ));
                     }
+        
                     self.add_system_messages(lines);
                 }
             },
+        
             "resume" => {
                 let Some(session_id) = command_arguments(&arguments)
                     .and_then(|value| value.split_whitespace().next().map(str::to_owned))
@@ -975,59 +1070,75 @@ impl InteractiveTui {
                     self.show_notice("Usage: /resume <session-id>");
                     return Ok(true);
                 };
+        
                 if !self.ensure_idle("resuming a session") {
                     return Ok(true);
                 }
+        
                 let session_id = resolve_session_id(&session_id)?;
                 self.load_selected_session(&session_id)?;
             },
+
             "fork" => {
                 if !self.ensure_idle("forking a session") {
                     return Ok(true);
                 }
+            
                 let Some(parent_id) = self.session_manager.current_id().map(str::to_owned) else {
                     self.show_notice("There is no current session to fork.");
+            
                     return Ok(true);
                 };
+            
                 let session = self.session_manager.fork(&parent_id)?;
                 self.load_selected_session(&session.id)?;
                 self.show_notice(format!("Forked session {}.", short_session_id(&session.id)));
             },
+            
             "delete" => {
                 if !self.ensure_idle("deleting a session") {
                     return Ok(true);
                 }
+            
                 let session_id = command_arguments(&arguments)
                     .and_then(|value| value.split_whitespace().next().map(str::to_owned))
                     .or_else(|| self.session_manager.current_id().map(str::to_owned));
+            
                 let Some(session_id) = session_id else {
                     self.show_notice("There is no current session to delete.");
                     return Ok(true);
                 };
+            
                 let session_id = resolve_session_id(&session_id)?;
                 let deleting_current =
                     self.session_manager.current_id() == Some(session_id.as_str());
+            
                 SessionManager::delete_session(&session_id)?;
                 if deleting_current {
                     self.create_empty_session(Some("Interactive session".to_string()))?;
                 }
+            
                 self.show_notice(format!(
                     "Deleted session {}.",
                     short_session_id(&session_id)
                 ));
             },
+            
             "name" => {
                 if !self.ensure_idle("renaming a session") {
                     return Ok(true);
                 }
+            
                 let title = command_arguments(&arguments);
                 self.session_manager.rename_current(title.clone())?;
+            
                 if let Some(title) = title {
                     self.show_notice(format!("Session renamed to {title}."));
                 } else {
                     self.show_notice("Session name cleared.");
                 }
             },
+            
             "session" | "status" => {
                 if let Some(session) = self.session_manager.current() {
                     self.add_system_message(format!(
@@ -1041,6 +1152,7 @@ impl InteractiveTui {
                     ));
                 }
             },
+            
             "templates" | "prompts" => {
                 if self.prompt_templates.is_empty() {
                     self.add_system_message("No prompt templates found.");
@@ -1054,9 +1166,11 @@ impl InteractiveTui {
                             .unwrap_or_default();
                         format!("/{}{} — {}", template.name, hint, template.description)
                     }));
+            
                     self.add_system_messages(lines);
                 }
             },
+            
             "skills" => {
                 if self.skills.is_empty() {
                     self.add_system_message("No skills loaded.");
@@ -1067,9 +1181,11 @@ impl InteractiveTui {
                             .iter()
                             .map(|skill| format!("/skill:{} — {}", skill.name, skill.description)),
                     );
+            
                     self.add_system_messages(lines);
                 }
             },
+            
             "model" => {
                 let arguments = crate::agent::prompt_templates::parse_command_args(&arguments);
                 if arguments.is_empty() {
@@ -1078,20 +1194,27 @@ impl InteractiveTui {
                     self.switch_model(&arguments[0])?;
                 }
             },
+            
             "thinking" => self.handle_thinking_command(&arguments),
+            
             "compact" => {
                 if !self.ensure_idle("compacting context") {
                     return Ok(true);
                 }
+            
                 let agent = self.agent.as_mut().expect("agent is idle");
                 agent.compact()?;
+            
                 self.token_count = agent.estimate_tokens();
+            
                 self.show_notice("Compacted the current context.");
             },
+            
             "reload" => {
                 let result = crate::agent::prompt_templates::load_prompt_templates(
                     &self.prompt_template_options,
                 );
+            
                 let diagnostics =
                     result
                         .diagnostics
@@ -1107,8 +1230,11 @@ impl InteractiveTui {
                             )
                         })
                         .collect::<Vec<_>>();
+            
                 self.add_system_messages(diagnostics);
+            
                 self.prompt_templates = result.templates;
+            
                 self.show_notice(format!(
                     "Reloaded {} prompt template{}.",
                     self.prompt_templates.len(),
@@ -1119,19 +1245,24 @@ impl InteractiveTui {
                     }
                 ));
             },
+            
             "stop" | "cancel" => {
                 if !self.cancel_running_response() {
                     self.show_notice("There is no response running.");
                 }
             },
+            
             "quit" | "exit" => {
                 if let Some(cancellation) = &self.agent_cancellation {
                     cancellation.cancel();
                 }
+            
                 self.running = false;
             },
+            
             _ => return Ok(false),
         }
+        
         Ok(true)
     }
 
@@ -1141,11 +1272,13 @@ impl InteractiveTui {
             self.show_notice("No models are configured.");
             return;
         }
+        
         let selected = self
             .models
             .iter()
             .position(|model| model.provider == self.model.provider && model.id == self.model.id)
             .unwrap_or(0);
+        
         self.model_picker = Some(ModelPicker { selected });
     }
 
@@ -1157,6 +1290,7 @@ impl InteractiveTui {
         let Some(picker) = self.model_picker.as_mut() else {
             return Ok(());
         };
+        
         match key.code {
             crossterm::event::KeyCode::Char('c') if key.ctrl => {
                 // Ctrl+C is intentionally not a quit shortcut. It can still
@@ -1165,36 +1299,47 @@ impl InteractiveTui {
                     cancellation.cancel();
                 }
             },
+            
             crossterm::event::KeyCode::Up => {
                 picker.selected = picker.selected.saturating_sub(1);
             },
+            
             crossterm::event::KeyCode::Down => {
                 picker.selected = (picker.selected + 1).min(self.models.len() - 1);
             },
+            
             crossterm::event::KeyCode::PageUp => {
                 picker.selected = picker.selected.saturating_sub(8);
             },
+            
             crossterm::event::KeyCode::PageDown => {
                 picker.selected = (picker.selected + 8).min(self.models.len() - 1);
             },
+            
             crossterm::event::KeyCode::Home => {
                 picker.selected = 0;
             },
+            
             crossterm::event::KeyCode::End => {
                 picker.selected = self.models.len() - 1;
             },
+            
             crossterm::event::KeyCode::Esc => {
                 self.model_picker = None;
             },
+            
             crossterm::event::KeyCode::Enter => {
                 let selected = picker.selected;
                 self.model_picker = None;
+            
                 if let Some(model) = self.models.get(selected).cloned() {
                     self.switch_to_model(model)?;
                 }
             },
+            
             _ => {},
         }
+
         Ok(())
     }
 
@@ -1211,20 +1356,24 @@ impl InteractiveTui {
         } else {
             let mut matches = self.models.iter().filter(|model| model.id == selector);
             let model = matches.next().cloned();
+        
             if matches.next().is_some() {
                 self.show_notice(format!(
                     "Model '{}' is ambiguous; use provider/model.",
                     selector
                 ));
+        
                 return Ok(());
             }
             model
         };
+        
         let Some(model) = model else {
             self.show_notice(format!(
                 "Model '{}' was not found. Use /model to list configured models.",
                 selector
             ));
+        
             return Ok(());
         };
 
@@ -1239,22 +1388,28 @@ impl InteractiveTui {
         if !self.ensure_idle("switching models") {
             return Ok(());
         }
+        
         let provider = crate::modes::create_provider_for_model(&self.cli, &self.settings, &model)?;
         let max_tokens = crate::modes::resolve_max_tokens(&self.cli, &self.settings, &model);
+        
         self.agent
             .as_mut()
             .expect("model changes require an idle agent")
             .set_model(provider, model.clone(), max_tokens);
+        
         self.model = model.clone();
+        
         self.token_count = self
             .agent
             .as_ref()
             .expect("agent was not moved")
             .estimate_tokens();
+        
         self.show_notice(format!(
             "Switched to {}/{} (context: {}, max output: {}).",
             model.provider, model.id, model.context_window, model.max_tokens
         ));
+        
         Ok(())
     }
 
@@ -1264,6 +1419,7 @@ impl InteractiveTui {
         arguments: &str,
     ) {
         let argument = arguments.trim().to_ascii_lowercase();
+        
         let show = match argument.as_str() {
             "" => !self.show_thinking,
             "on" | "true" | "yes" => true,
@@ -1273,7 +1429,9 @@ impl InteractiveTui {
                 return;
             },
         };
+        
         self.set_show_thinking(show);
+        
         self.show_notice(if show {
             "Thinking output enabled."
         } else {
@@ -1290,6 +1448,7 @@ impl InteractiveTui {
             self.show_notice(format!(
                 "A response is still running; wait before {operation}."
             ));
+        
             false
         } else {
             true
@@ -1303,21 +1462,26 @@ impl InteractiveTui {
     ) -> Result<(), anyhow::Error> {
         let cwd = std::env::current_dir()?;
         let cwd_string = cwd.to_string_lossy().into_owned();
+        
         self.session_manager
             .create(crate::session::manager::SessionCreateOptions {
                 title,
                 parent_session_id: None,
                 cwd: Some(cwd_string.clone()),
             })?;
+        
         self.project_cwd = cwd.clone();
+        
         let agent = self
             .agent
             .as_mut()
             .expect("session changes require an idle agent");
         agent.load_history(Vec::new())?;
         agent.set_cwd(cwd_string);
+        
         self.transcript = TranscriptRenderer::new();
         self.transcript.set_show_thinking(self.show_thinking);
+        
         self.streaming_message_index = None;
         self.message_history.clear();
         self.history_index = 0;
@@ -1348,6 +1512,7 @@ impl InteractiveTui {
             ) && self.agent_cancellation.is_some()
             {
                 self.cancel_running_response();
+        
                 return Ok(false);
             }
 
@@ -1366,23 +1531,29 @@ impl InteractiveTui {
                     let _ = (width, height);
                     self.clear_chat_selection();
                     self.terminal.autoresize()?;
+        
                     return Ok(false);
                 },
+        
                 crate::tui::input::InputEvent::Mouse(mouse) => {
                     if let Some(picker) = self.model_picker.as_mut() {
                         match mouse.kind {
                             crossterm::event::MouseEventKind::ScrollUp => {
                                 picker.selected = picker.selected.saturating_sub(3);
                             },
+        
                             crossterm::event::MouseEventKind::ScrollDown => {
                                 picker.selected = (picker.selected + 3).min(self.models.len() - 1);
                             },
+        
                             _ => {},
                         }
+        
                         return Ok(false);
                     }
 
                     use crossterm::event::{MouseButton, MouseEventKind};
+        
                     match mouse.kind {
                         MouseEventKind::Down(MouseButton::Left) => {
                             if let Some(point) = self.chat_point(mouse.column, mouse.row) {
@@ -1390,11 +1561,13 @@ impl InteractiveTui {
                                     anchor: point,
                                     focus: point,
                                 });
+        
                                 self.selected_text.clear();
                             } else {
                                 self.clear_chat_selection();
                             }
                         },
+        
                         MouseEventKind::Drag(MouseButton::Left) => {
                             if let Some(point) = self.chat_point(mouse.column, mouse.row)
                                 && let Some(selection) = self.chat_selection.as_mut()
@@ -1402,12 +1575,14 @@ impl InteractiveTui {
                                 selection.focus = point;
                             }
                         },
+        
                         MouseEventKind::Up(MouseButton::Left) => {
                             if let Some(point) = self.chat_point(mouse.column, mouse.row)
                                 && let Some(selection) = self.chat_selection.as_mut()
                             {
                                 selection.focus = point;
                             }
+        
                             if self
                                 .chat_selection
                                 .is_some_and(|selection| !selection.has_range())
@@ -1425,18 +1600,23 @@ impl InteractiveTui {
                                 }
                             }
                         },
+        
                         MouseEventKind::ScrollUp => {
                             self.clear_chat_selection();
                             self.transcript.scroll_up(3);
                         },
+        
                         MouseEventKind::ScrollDown => {
                             self.clear_chat_selection();
                             self.transcript.scroll_down(3);
                         },
+        
                         _ => {},
                     }
+        
                     return Ok(false);
                 },
+        
                 _ => {},
             }
 
@@ -1446,6 +1626,7 @@ impl InteractiveTui {
                 if let crate::tui::input::InputEvent::Key(key) = input_event {
                     self.handle_model_picker_key(key)?;
                 }
+        
                 return Ok(false);
             }
 
@@ -1459,29 +1640,37 @@ impl InteractiveTui {
                     && !self.autocomplete_items.is_empty()
                 {
                     self.accept_autocomplete();
+        
                     return Ok(false);
                 }
+        
                 if !self.autocomplete_items.is_empty()
                     && matches!(key.code, crossterm::event::KeyCode::Up)
                 {
                     self.autocomplete_index = self.autocomplete_index.saturating_sub(1);
+        
                     return Ok(false);
                 }
+        
                 if !self.autocomplete_items.is_empty()
                     && matches!(key.code, crossterm::event::KeyCode::Down)
                 {
                     self.autocomplete_index = (self.autocomplete_index + 1)
                         .min(self.autocomplete_items.len().saturating_sub(1));
+        
                     return Ok(false);
                 }
+        
                 // Do not reserve printable characters for global
                 // shortcuts: doing so made it impossible to type words
                 // containing `q`, `/`, `j`, or `k` into the editor.
                 if (key.ctrl || key.super_key) && (key.matches('c') || key.matches('C')) {
                     if self.chat_selection.is_some_and(ChatSelection::has_range) {
                         self.copy_chat_selection();
+        
                         return Ok(false);
                     }
+        
                     // Ctrl+C can interrupt an active response, but never
                     // quits the application. Cmd+C is copy-only on macOS.
                     if key.ctrl {
@@ -1489,48 +1678,62 @@ impl InteractiveTui {
                             cancellation.cancel();
                         }
                     }
+        
                     return Ok(false);
                 }
+        
                 if self.chat_selection.is_some() {
                     self.clear_chat_selection();
                 }
+        
                 if key.alt && key.matches('k') && !self.message_history.is_empty() {
                     self.history_index = self
                         .history_index
                         .saturating_sub(1)
                         .min(self.message_history.len());
+        
                     if self.history_index < self.message_history.len() {
                         self.editor
                             .set_content(self.message_history[self.history_index].clone());
                         self.refresh_autocomplete();
                     }
+        
                     return Ok(false);
                 }
+        
                 if matches!(key.code, crossterm::event::KeyCode::Up) && !self.editor.is_multiline()
                 {
                     self.clear_chat_selection();
                     self.transcript.scroll_up(3);
+        
                     return Ok(false);
                 }
+        
                 if matches!(key.code, crossterm::event::KeyCode::Down)
                     && !self.editor.is_multiline()
                 {
                     self.clear_chat_selection();
                     self.transcript.scroll_down(3);
+        
                     return Ok(false);
                 }
+        
                 if key.ctrl && matches!(key.code, crossterm::event::KeyCode::End) {
                     self.clear_chat_selection();
                     self.transcript.follow();
+        
                     return Ok(false);
                 }
+        
                 if key.alt && key.matches('j') && !self.message_history.is_empty() {
                     self.history_index = (self.history_index + 1).min(self.message_history.len());
+        
                     if self.history_index < self.message_history.len() {
                         self.editor
                             .set_content(self.message_history[self.history_index].clone());
                         self.refresh_autocomplete();
                     }
+        
                     return Ok(false);
                 }
             }
@@ -1542,6 +1745,7 @@ impl InteractiveTui {
                 if !cancel_edit && !content.is_empty() {
                     self.send_message(&content)?;
                 }
+        
                 self.editor.set_content("");
                 self.refresh_autocomplete();
             } else {
@@ -1563,21 +1767,27 @@ impl InteractiveTui {
                 Ok(false) => {},
                 Err(error) => {
                     self.show_notice(format!("Command failed: {error}"));
+        
                     return Ok(());
                 },
             }
         }
+        
         if self.agent.is_none() {
             self.show_notice("A response is still running; use /stop or wait for it to finish.");
+        
             return Ok(());
         }
+        
         let content = match crate::agent::skills::expand_skill_command(content, &self.skills) {
             Ok(content) => content,
             Err(error) => {
                 self.show_notice(format!("Skill expansion failed: {error}"));
+        
                 return Ok(());
             },
         };
+        
         let content = crate::agent::prompt_templates::expand_prompt_template(
             &content,
             &self.prompt_templates,
@@ -1612,6 +1822,7 @@ impl InteractiveTui {
             .take()
             .expect("an agent must be available before sending a message");
         agent.add_user_message(&content);
+        
         self.token_count = agent.estimate_tokens();
 
         self.agent_cancellation = Some(agent.cancellation());
@@ -1622,6 +1833,7 @@ impl InteractiveTui {
                 .await
                 .map(|_| ())
                 .map_err(|error| error.to_string());
+            
             let _ = completion_tx.send(AgentRunCompletion { agent, result });
         });
 
@@ -1656,22 +1868,27 @@ impl InteractiveTui {
                     },
                 })
                 .unwrap_or_default();
+            
             for message in agent.messages() {
                 if matches!(message, Message::User(_)) {
                     continue;
                 }
+            
                 let already_persisted = persisted_messages.iter().any(|persisted| {
                     serde_json::to_string(persisted).ok() == serde_json::to_string(message).ok()
                 });
+            
                 if already_persisted {
                     continue;
                 }
+            
                 if let Err(error) = self.session_manager.save_message(message) {
                     eprintln!("Warning: could not persist session message: {error}");
                 } else {
                     persisted_messages.push(message.clone());
                 }
             }
+            
             if let Err(error) = completion.result
                 && !matches!(self.agent_state, AgentState::Aborted | AgentState::Error(_))
             {
@@ -1686,9 +1903,11 @@ impl InteractiveTui {
     /// Render the current state.
     fn render(&mut self) -> Result<(), anyhow::Error> {
         self.clear_expired_notice();
+        
         let selection = self.chat_selection;
         let mut rendered_transcript_area = Rect::default();
         let mut rendered_selection_text = String::new();
+        
         self.terminal.draw(|frame| {
             use ratatui::{
                 layout::{Constraint, Layout},
@@ -1705,13 +1924,16 @@ impl InteractiveTui {
                 // rows are reserved for the popup border.
                 (self.autocomplete_items.len().min(5) + 2) as u16
             };
+        
             let mut constraints = vec![
                 Constraint::Length(1), // Status bar
                 Constraint::Min(1),    // Transcript
             ];
+        
             if autocomplete_height > 0 {
                 constraints.push(Constraint::Length(autocomplete_height));
             }
+        
             let editor_height = self.editor.desired_height(frame.area().width).min(
                 frame
                     .area()
@@ -1719,10 +1941,13 @@ impl InteractiveTui {
                     .saturating_sub(2 + autocomplete_height)
                     .max(3),
             );
+        
             constraints.push(Constraint::Length(editor_height)); // Editor area
+        
             let chunks = Layout::default()
                 .constraints(constraints)
                 .split(frame.area());
+        
             let editor_chunk = chunks.len() - 1;
 
             // Status bar
@@ -1801,9 +2026,12 @@ impl InteractiveTui {
             let transcript_block = Block::default()
                 .borders(Borders::NONE)
                 .padding(Padding::horizontal(1));
+            
             let transcript_inner_area = transcript_block.inner(chunks[1]);
             let transcript_width = transcript_inner_area.width;
+            
             let mut selection_line_starts = Vec::new();
+            
             let lines: Vec<Line<'static>> = self
                 .transcript
                 .messages()
@@ -1816,13 +2044,17 @@ impl InteractiveTui {
                         MessageRole::Tool => (Color::LightMagenta, "⚙", "Tool"),
                         MessageRole::System => (Color::DarkGray, "·", "Notice"),
                     };
+            
                     let muted = Style::default().fg(Color::DarkGray);
+            
                     let role_style = Style::default().fg(role_color).add_modifier(Modifier::BOLD);
+            
                     let mut lines = vec![Line::from(vec![
                         Span::styled("╭─ ", muted),
                         Span::styled(icon, role_style),
                         Span::styled(format!(" {}", role_label), role_style),
                     ])];
+            
                     let mut line_starts = vec![None];
 
                     if self.transcript.show_timestamps() {
@@ -1842,6 +2074,7 @@ impl InteractiveTui {
                             .fg(Color::Gray)
                             .bg(Color::Rgb(45, 45, 45))
                             .add_modifier(Modifier::DIM);
+            
                         lines.push(Line::from(vec![
                             Span::styled("│ ", thinking_style),
                             Span::styled(
@@ -1850,10 +2083,12 @@ impl InteractiveTui {
                             ),
                         ]));
                         line_starts.push(None);
+            
                         let mut thinking = markdown_to_lines(&msg.thinking);
                         while thinking.last().is_some_and(line_is_empty) {
                             thinking.pop();
                         }
+            
                         for line in thinking {
                             for line in wrap_line_to_width(line, transcript_width.saturating_sub(2))
                             {
@@ -1867,24 +2102,29 @@ impl InteractiveTui {
                     while body.last().is_some_and(line_is_empty) {
                         body.pop();
                     }
+            
                     if body.is_empty() {
                         let mut empty_line = vec![Span::styled("│ ", muted_for(role_color))];
+            
                         if self.streaming_message_index == Some(message_index) {
                             empty_line.push(Span::styled(
                                 "thinking…",
                                 muted.add_modifier(Modifier::ITALIC),
                             ));
                         }
+            
                         lines.push(Line::from(empty_line));
                         line_starts.push(None);
                     } else {
                         let selectable_start =
                             matches!(msg.role, MessageRole::User | MessageRole::Assistant)
                                 .then_some(2);
+            
                         for line in body {
                             for line in wrap_line_to_width(line, transcript_width.saturating_sub(2))
                             {
                                 lines.push(prefix_message_line(line, role_color));
+            
                                 // The first two cells are the decorative rail;
                                 // only user and assistant message bodies are
                                 // selectable.
@@ -1896,12 +2136,14 @@ impl InteractiveTui {
                     for tool_call in &msg.tool_calls {
                         let previous_len = lines.len();
                         let readable = tool_call.human_readable_with_cwd(&self.project_cwd);
+            
                         append_prefixed_lines(
                             &mut lines,
                             &format!("├─ {}", &readable),
                             "   ",
                             Style::default().fg(Color::LightBlue),
                         );
+            
                         line_starts.extend(vec![None; lines.len() - previous_len]);
                         if let Some(result) = &tool_call.result {
                             let result_style = if result.starts_with("❌") {
@@ -1909,25 +2151,32 @@ impl InteractiveTui {
                             } else {
                                 Style::default().fg(Color::LightGreen)
                             };
+            
                             let previous_len = lines.len();
+            
                             append_prefixed_lines(
                                 &mut lines,
                                 &format!("│  {}", truncate_width(result, 100)),
                                 "   ",
                                 result_style,
                             );
+            
                             line_starts.extend(vec![None; lines.len() - previous_len]);
                         }
                     }
+            
                     lines.push(Line::from(Span::styled("╰─", muted_for(role_color))));
                     line_starts.push(None);
                     lines.push(Line::from(""));
                     line_starts.push(None);
                     selection_line_starts.extend(line_starts);
+            
                     lines
                 })
                 .collect();
+            
             debug_assert_eq!(lines.len(), selection_line_starts.len());
+            
             let selection_mask_lines = lines
                 .iter()
                 .zip(selection_line_starts.iter().copied())
@@ -1944,13 +2193,16 @@ impl InteractiveTui {
             let transcript = Paragraph::new(lines)
                 .wrap(Wrap { trim: false })
                 .block(transcript_block);
+            
             let scroll = self.transcript.scroll_position(
                 transcript.line_count(transcript_width),
                 chunks[1].height as usize,
             );
+            
             let transcript = transcript.scroll((scroll, 0));
 
             frame.render_widget(transcript, chunks[1]);
+            
             rendered_transcript_area = chunks[1];
 
             // Mouse capture normally prevents the terminal emulator from
@@ -1961,7 +2213,9 @@ impl InteractiveTui {
             if let Some(selection) = selection.filter(|selection| selection.has_range()) {
                 let ((start_x, start_y), (end_x, end_y)) = selection.bounds();
                 let area = chunks[1];
+            
                 let selection_style = Style::default().fg(Color::Black).bg(Color::White);
+            
                 let mut mask_buffer = ratatui::buffer::Buffer::empty(area);
                 let mask = Paragraph::new(selection_mask_lines)
                     .wrap(Wrap { trim: false })
@@ -1972,25 +2226,31 @@ impl InteractiveTui {
                 let mut selected_rows = Vec::new();
                 for row in start_y..=end_y {
                     let from = if row == start_y { start_x } else { area.x };
+            
                     let to = if row == end_y {
                         end_x
                     } else {
                         area.x.saturating_add(area.width).saturating_sub(1)
                     };
+            
                     let mut selected_row = String::new();
                     let mut row_has_selectable_text = false;
+            
                     for column in from..=to {
                         let selectable = mask_buffer
                             .cell((column, row))
                             .is_some_and(|cell| cell.fg == SELECTION_MARKER);
+            
                         if selectable {
                             row_has_selectable_text = true;
+            
                             if let Some(cell) = buffer.cell_mut((column, row)) {
                                 selected_row.push_str(cell.symbol());
                                 cell.set_style(selection_style);
                             }
                         }
                     }
+            
                     if row_has_selectable_text {
                         selected_rows.push(selected_row.trim_end().to_string());
                     }
@@ -2013,14 +2273,17 @@ impl InteractiveTui {
                         } else {
                             ' '
                         };
+            
                         let command = format!("{marker} /{}", item.value);
                         let command_width = command
                             .chars()
                             .map(|ch| ch.width().unwrap_or(0))
                             .sum::<usize>();
+            
                         let description_width =
                             popup_inner_width.saturating_sub(command_width + " — ".width());
                         let description = truncate_one_line(&item.description, description_width);
+            
                         Line::from(vec![
                             Span::styled(command, Style::default().fg(Color::Cyan)),
                             Span::styled(
@@ -2030,8 +2293,10 @@ impl InteractiveTui {
                         ])
                     })
                     .collect::<Vec<_>>();
+               
                 let suggestions = Paragraph::new(suggestions)
                     .block(Block::default().borders(Borders::ALL).title(" Commands "));
+               
                 frame.render_widget(suggestions, chunks[2]);
             }
 
@@ -2042,11 +2307,14 @@ impl InteractiveTui {
             // above the transcript, autocomplete popup, and editor.
             if let Some(picker) = self.model_picker {
                 let area = frame.area();
+               
                 let popup_width = area.width.saturating_sub(4).min(90);
+               
                 let popup_height = area
                     .height
                     .saturating_sub(4)
                     .min((self.models.len() + 2).min(18) as u16);
+               
                 if popup_width > 4 && popup_height > 2 {
                     let popup_area = ratatui::layout::Rect::new(
                         area.x + (area.width - popup_width) / 2,
@@ -2054,11 +2322,14 @@ impl InteractiveTui {
                         popup_width,
                         popup_height,
                     );
+                    
                     let visible_rows = usize::from(popup_height.saturating_sub(2));
+                    
                     let start = picker
                         .selected
                         .saturating_sub(visible_rows / 2)
                         .min(self.models.len().saturating_sub(visible_rows));
+                    
                     let rows = self
                         .models
                         .iter()
@@ -2067,6 +2338,7 @@ impl InteractiveTui {
                         .take(visible_rows)
                         .map(|(index, model)| {
                             let marker = if index == picker.selected { "> " } else { "  " };
+                    
                             let metadata = format!(
                                 "context {} · max {} · {}{}",
                                 model.context_window,
@@ -2074,6 +2346,7 @@ impl InteractiveTui {
                                 model.input.join(","),
                                 if model.reasoning { " · reasoning" } else { "" }
                             );
+                    
                             Line::from(vec![
                                 Span::styled(
                                     marker,
@@ -2091,7 +2364,9 @@ impl InteractiveTui {
                             ])
                         })
                         .collect::<Vec<_>>();
+                    
                     frame.render_widget(Clear, popup_area);
+                    
                     // Keep each model on one terminal row. Wrapping made
                     // the index-based scroll window disagree with the number
                     // of visual rows, so the selected model could disappear
@@ -2107,8 +2382,10 @@ impl InteractiveTui {
                 }
             }
         })?;
+
         self.transcript_area = rendered_transcript_area;
         self.selected_text = rendered_selection_text;
+        
         if self.copy_selection_on_render {
             self.copy_selection_on_render = false;
             self.copy_chat_selection();
@@ -2139,6 +2416,7 @@ fn copy_to_clipboard(text: &str) -> io::Result<()> {
             .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "pbcopy stdin unavailable"))?;
         stdin.write_all(text.as_bytes())?;
         drop(stdin);
+        
         let status = child.wait()?;
         if status.success() {
             Ok(())
@@ -2162,23 +2440,28 @@ fn copy_to_clipboard(text: &str) -> io::Result<()> {
 /// human-readable value (for example, `/new "fix auth"`).
 fn command_arguments(arguments: &str) -> Option<String> {
     let arguments = crate::agent::prompt_templates::parse_command_args(arguments);
+    
     (!arguments.is_empty()).then(|| arguments.join(" "))
 }
 
 /// Resolve a complete session ID or an unambiguous ID prefix.
 fn resolve_session_id(input: &str) -> Result<String, anyhow::Error> {
     let input = input.trim();
+    
     if input.is_empty() {
         return Err(anyhow::anyhow!("session id cannot be empty"));
     }
+    
     if crate::session::storage::SessionStorage::new(input).exists() {
         return Ok(input.to_string());
     }
+    
     let matches: Vec<_> = SessionManager::list()?
         .into_iter()
         .filter(|session| session.id.starts_with(input))
         .map(|session| session.id)
         .collect();
+    
     match matches.as_slice() {
         [session_id] => Ok(session_id.clone()),
         [] => Err(anyhow::anyhow!("Session '{}' not found", input)),
@@ -2199,10 +2482,12 @@ pub(crate) fn session_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "state_changed",
             serde_json::json!({ "old_state": old_state.to_string(), "new_state": new_state.to_string() }),
         )),
+    
         AgentEvent::TurnStarted { turn_number } => Some((
             "turn_started",
             serde_json::json!({ "turn_number": turn_number }),
         )),
+    
         AgentEvent::ToolCallDetected {
             tool_call_id,
             tool_name,
@@ -2211,6 +2496,7 @@ pub(crate) fn session_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "tool_call_detected",
             serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name, "arguments": arguments }),
         )),
+    
         AgentEvent::ToolExecutionStarted {
             tool_call_id,
             tool_name,
@@ -2218,6 +2504,7 @@ pub(crate) fn session_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "tool_execution_started",
             serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name }),
         )),
+    
         AgentEvent::ToolExecutionCompleted {
             tool_call_id,
             tool_name,
@@ -2227,6 +2514,7 @@ pub(crate) fn session_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "tool_execution_completed",
             serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name, "result": result, "is_error": is_error }),
         )),
+    
         AgentEvent::ToolExecutionFailed {
             tool_call_id,
             tool_name,
@@ -2235,6 +2523,7 @@ pub(crate) fn session_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "tool_execution_failed",
             serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name, "error": error }),
         )),
+    
         AgentEvent::TurnCompleted {
             turn_number,
             stop_reason,
@@ -2242,7 +2531,9 @@ pub(crate) fn session_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "turn_completed",
             serde_json::json!({ "turn_number": turn_number, "stop_reason": stop_reason.to_string() }),
         )),
+    
         AgentEvent::Error { message } => Some(("error", serde_json::json!({ "message": message }))),
+    
         AgentEvent::CompactionPerformed {
             tokens_before,
             tokens_after,
@@ -2251,7 +2542,9 @@ pub(crate) fn session_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "compaction",
             serde_json::json!({ "tokens_before": tokens_before, "tokens_after": tokens_after, "summaries_added": summaries_added }),
         )),
+    
         AgentEvent::Aborted => Some(("aborted", serde_json::json!({}))),
+    
         AgentEvent::AssistantTextDelta { .. }
         | AgentEvent::AssistantThinkingDelta { .. }
         | AgentEvent::AssistantMessageCompleted { .. } => None,
@@ -2274,12 +2567,15 @@ fn selection_mask_line(
     selectable_start: Option<usize>,
 ) -> ratatui::text::Line<'static> {
     let mut column = 0;
+    
     let spans = line
         .spans
         .iter()
         .map(|span| {
             let selectable = selectable_start.is_some_and(|start| column >= start);
+    
             column += span.content.width();
+    
             ratatui::text::Span::styled(
                 span.content.clone(),
                 ratatui::style::Style::default().fg(if selectable {
@@ -2290,6 +2586,7 @@ fn selection_mask_line(
             )
         })
         .collect();
+    
     ratatui::text::Line {
         style: line.style,
         alignment: line.alignment,
@@ -2318,6 +2615,7 @@ fn wrap_line_to_width(
     let line_count = paragraph.line_count(width).max(1);
     let height = u16::try_from(line_count).unwrap_or(u16::MAX);
     let area = ratatui::layout::Rect::new(0, 0, width, height);
+    
     let mut buffer = ratatui::buffer::Buffer::empty(area);
     ratatui::widgets::Widget::render(paragraph, area, &mut buffer);
 
@@ -2325,31 +2623,38 @@ fn wrap_line_to_width(
         .map(|row| {
             let mut spans = Vec::new();
             let mut column = 0;
+    
             while column < width {
                 let cell = buffer
                     .cell((column, row))
                     .expect("temporary wrapping buffer contains every cell");
+    
                 let symbol = cell.symbol();
                 let symbol_width = UnicodeWidthStr::width(symbol) as u16;
+    
                 if symbol_width == 0 {
                     column += 1;
                     continue;
                 }
+        
                 spans.push(ratatui::text::Span::styled(
                     symbol.to_string(),
                     cell.style(),
                 ));
+        
                 // A wide grapheme occupies more than one buffer cell. Skip
                 // its continuation cells so it is not emitted twice when the
                 // reconstructed line is rendered again.
                 column = column.saturating_add(symbol_width).min(width);
             }
+        
             while spans
                 .last()
                 .is_some_and(|span| span.content.as_ref() == " ")
             {
                 spans.pop();
             }
+        
             ratatui::text::Line {
                 style: line_style,
                 alignment,
@@ -2370,6 +2675,7 @@ fn prefix_message_line(
         ratatui::style::Style::default().fg(accent),
     )];
     spans.extend(line.spans);
+    
     ratatui::text::Line::from(spans)
 }
 
@@ -2380,6 +2686,7 @@ fn muted_thinking_line(
     style: ratatui::style::Style,
 ) -> ratatui::text::Line<'static> {
     let mut spans = vec![ratatui::text::Span::styled("│ ", style)];
+    
     if line.spans.is_empty() {
         spans.push(ratatui::text::Span::styled(" ", style));
     } else {
@@ -2389,6 +2696,7 @@ fn muted_thinking_line(
                 .map(|span| ratatui::text::Span::styled(span.content.into_owned(), style)),
         );
     }
+    
     ratatui::text::Line::from(spans)
 }
 
@@ -2409,11 +2717,13 @@ fn append_prefixed_lines<'a>(
 ) {
     for (index, line) in text.split('\n').enumerate() {
         let line = line.trim_end_matches('\r');
+    
         let content = if index == 0 {
             line.to_string()
         } else {
             format!("{continuation_prefix}{line}")
         };
+    
         lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
             content, style,
         )));
@@ -2423,6 +2733,7 @@ fn append_prefixed_lines<'a>(
 /// Rebuild the visible transcript from persisted conversation history.
 fn transcript_from_messages(messages: &[Message]) -> TranscriptRenderer {
     let mut transcript = TranscriptRenderer::new();
+    
     for message in messages {
         match message {
             Message::User(message) => transcript.add_message(TuiMessage {
@@ -2432,6 +2743,7 @@ fn transcript_from_messages(messages: &[Message]) -> TranscriptRenderer {
                 tool_calls: Vec::new(),
                 timestamp: timestamp_from_millis(message.timestamp),
             }),
+    
             Message::Assistant(message) => {
                 let (content, thinking, tool_calls) = display_assistant_message(message);
                 transcript.add_message(TuiMessage {
@@ -2442,6 +2754,7 @@ fn transcript_from_messages(messages: &[Message]) -> TranscriptRenderer {
                     timestamp: timestamp_from_millis(message.timestamp),
                 });
             },
+    
             Message::ToolResult(message) => {
                 let content = message
                     .content
@@ -2449,6 +2762,7 @@ fn transcript_from_messages(messages: &[Message]) -> TranscriptRenderer {
                     .map(|item| item.text.as_str())
                     .collect::<Vec<_>>()
                     .join("\n");
+    
                 if !transcript.complete_tool_call(
                     &message.tool_call_id,
                     content.clone(),
@@ -2465,6 +2779,7 @@ fn transcript_from_messages(messages: &[Message]) -> TranscriptRenderer {
             },
         }
     }
+    
     transcript
 }
 
@@ -2495,6 +2810,7 @@ fn display_assistant_message(message: &AssistantMessage) -> (String, String, Vec
             _ => None,
         })
         .collect();
+    
     let thinking = message
         .content
         .iter()
@@ -2522,6 +2838,7 @@ fn truncate_one_line(
     max_width: usize,
 ) -> String {
     let single_line = s.replace(['\r', '\n'], " ");
+    
     truncate_width(&single_line, max_width)
 }
 
@@ -2531,9 +2848,11 @@ fn truncate_width(
     max_width: usize,
 ) -> String {
     let total_width: usize = s.chars().map(|ch| ch.width().unwrap_or(0)).sum();
+    
     if total_width <= max_width {
         return s.to_string();
     }
+    
     if max_width == 0 {
         return String::new();
     }
@@ -2543,14 +2862,17 @@ fn truncate_width(
 
     for ch in s.chars() {
         let ch_width = ch.width().unwrap_or(0);
+    
         if current_width + ch_width > max_width - 1 {
             break;
         }
+    
         current_width += ch_width;
         result.push(ch);
     }
 
     result.push('…');
+    
     result
 }
 
@@ -2606,6 +2928,7 @@ mod tests {
             ratatui::style::Color::LightCyan,
         );
         let mask = selection_mask_line(&line, Some(2));
+    
         assert_eq!(mask.spans[0].style.fg, Some(NON_SELECTION_MARKER));
         assert_eq!(mask.spans[1].style.fg, Some(SELECTION_MARKER));
     }
@@ -2618,6 +2941,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(rows.len() > 1);
+    
         for row in rows {
             assert!(row.width() <= 10);
             assert!(String::from(row).starts_with("│ "));
@@ -2628,6 +2952,7 @@ mod tests {
     fn non_message_lines_are_not_selectable() {
         let line = ratatui::text::Line::from("tool output");
         let mask = selection_mask_line(&line, None);
+    
         assert_eq!(mask.spans[0].style.fg, Some(NON_SELECTION_MARKER));
     }
 
@@ -2650,6 +2975,7 @@ mod tests {
         ];
 
         let transcript = transcript_from_messages(&messages);
+    
         assert_eq!(transcript.messages().len(), 2);
         assert_eq!(transcript.messages()[0].role, MessageRole::User);
         assert_eq!(
@@ -2670,6 +2996,7 @@ mod tests {
     #[test]
     fn width_truncation_does_not_split_wide_unicode() {
         let truncated = truncate_width("abc😀def", 5);
+    
         assert!(truncated.is_char_boundary(truncated.len()));
         assert!(truncated.ends_with('…'));
     }
@@ -2677,6 +3004,7 @@ mod tests {
     #[test]
     fn autocomplete_description_truncation_stays_on_one_line() {
         let truncated = truncate_one_line("first line\nsecond line", 12);
+    
         assert_eq!(truncated, "first line …");
         assert!(!truncated.contains('\n'));
     }
@@ -2693,7 +3021,9 @@ mod tests {
             "model",
             StopReason::Stop,
         );
+    
         let (content, thinking, tools) = display_assistant_message(&message);
+    
         assert_eq!(content, "answer");
         assert_eq!(thinking, "plan");
         assert!(tools.is_empty());

@@ -14,6 +14,7 @@ pub fn run(
     cli_api_key: Option<&str>,
 ) -> Result<(), anyhow::Error> {
     let mut settings = settings.clone();
+    
     match command {
         AuthCommand::Set { provider, api_key } => {
             let key = api_key
@@ -30,8 +31,11 @@ pub fn run(
                             .replace(|character: char| !character.is_ascii_alphanumeric(), "_")
                     )
                 })?;
+            
             settings.save_api_key(provider, &key)?;
+            
             let project_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            
             println!(
                 "Saved credentials for provider '{}' in {}.",
                 provider,
@@ -40,6 +44,7 @@ pub fn run(
                     .unwrap_or_else(|| "the settings file".to_string())
             );
         },
+        
         AuthCommand::Remove { provider } => {
             if settings.remove_api_key(provider)? {
                 println!("Removed saved credentials for provider '{}'.", provider);
@@ -47,6 +52,7 @@ pub fn run(
                 println!("No saved credentials found for provider '{}'.", provider);
             }
         },
+        
         AuthCommand::List => {
             let mut providers: Vec<_> = settings.credential_store.provider_ids().collect();
             providers.sort_unstable();
@@ -59,6 +65,7 @@ pub fn run(
             }
         },
     }
+    
     Ok(())
 }
 
@@ -83,6 +90,7 @@ fn environment_api_key(
             })
             .collect::<String>()
     );
+    
     env::var(variable)
         .ok()
         .filter(|key| !key.is_empty())

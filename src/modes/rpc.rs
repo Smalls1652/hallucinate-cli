@@ -38,9 +38,11 @@ pub async fn run(
                     RpcResponse::error(-32700, "Parse error", Value::Null, error.to_string());
                 writeln!(stdout, "{}", serde_json::to_string(&response)?)?;
                 stdout.flush()?;
+
                 continue;
             },
         };
+
         let request = match serde_json::from_value::<RpcRequest>(value) {
             Ok(request) => request,
             Err(error) => {
@@ -48,9 +50,11 @@ pub async fn run(
                     RpcResponse::error(-32600, "Invalid Request", Value::Null, error.to_string());
                 writeln!(stdout, "{}", serde_json::to_string(&response)?)?;
                 stdout.flush()?;
+
                 continue;
             },
         };
+
         // Only a structurally valid request without an id is a notification.
         // Invalid request objects still require an Invalid Request response,
         // even when their decoded representation has no id.
@@ -58,12 +62,15 @@ pub async fn run(
             && request.jsonrpc.as_deref() == Some("2.0")
             && request.method.is_some();
         let response = handle_request(request, cli, settings).await;
+
         // JSON-RPC notifications are processed but do not receive a response.
         if !is_notification {
             writeln!(stdout, "{}", serde_json::to_string(&response)?)?;
+
             stdout.flush()?;
         }
     }
+
     Ok(())
 }
 
@@ -73,6 +80,7 @@ async fn handle_request(
     settings: &Settings,
 ) -> RpcResponse {
     let id = request.id.clone().unwrap_or(Value::Null);
+
     if !valid_id(&id) {
         return RpcResponse::error(
             -32600,
@@ -81,6 +89,7 @@ async fn handle_request(
             "id must be a string, number, or null",
         );
     }
+
     if request.jsonrpc.as_deref() != Some("2.0") || request.method.is_none() {
         return RpcResponse::error(
             -32600,
@@ -112,6 +121,7 @@ fn list_sessions(id: Value) -> RpcResponse {
                 })).collect::<Vec<_>>()
             }),
         ),
+
         Err(error) => RpcResponse::error(-32603, "Could not list sessions", id, error.to_string()),
     }
 }
@@ -124,14 +134,17 @@ fn create_session(
         Ok(params) => params,
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
+
     let title = match optional_string(params, "title") {
         Ok(title) => title,
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
+
     let cwd = match optional_string(params, "cwd") {
         Ok(cwd) => cwd,
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
+
 
     let mut manager = SessionManager::new();
     match manager.create(SessionCreateOptions {
@@ -142,6 +155,7 @@ fn create_session(
         Ok(session) => {
             RpcResponse::result(id, json!({ "session_id": session.id, "cwd": session.cwd }))
         },
+
         Err(error) => RpcResponse::error(-32603, "Could not create session", id, error.to_string()),
     }
 }
@@ -154,6 +168,7 @@ async fn chat(
 ) -> RpcResponse {
     let params = match object_params(params) {
         Ok(Some(params)) => params,
+
         Ok(None) => {
             return RpcResponse::error(
                 -32602,
@@ -164,6 +179,7 @@ async fn chat(
         },
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
+
     let Some(prompt) = params
         .get("message")
         .and_then(Value::as_str)
@@ -176,6 +192,7 @@ async fn chat(
             "message must be a non-empty string",
         );
     };
+
     let show_thinking = match optional_bool(Some(params), "thinking") {
         Ok(value) => value.unwrap_or_else(|| super::resolve_show_thinking(cli, settings)),
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
@@ -187,6 +204,7 @@ async fn chat(
             return RpcResponse::error(-32603, "Model configuration failed", id, error.to_string());
         },
     };
+
     let provider = match super::create_provider_for_model(cli, settings, &model) {
         Ok(provider) => provider,
         Err(error) => {
@@ -203,11 +221,14 @@ async fn chat(
         Ok(session_id) => session_id,
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
+
     let requested_cwd = match optional_string(Some(params), "cwd") {
         Ok(cwd) => cwd,
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
+
     let mut manager = SessionManager::new();
+
     let session = match session_id.as_deref() {
         Some(session_id) => match manager.resume(session_id) {
             Ok(session) => session,
@@ -215,6 +236,7 @@ async fn chat(
                 return RpcResponse::error(-32602, "Invalid session", id, error.to_string());
             },
         },
+
         None => match manager.create(SessionCreateOptions {
             title: Some("RPC session".to_string()),
             parent_session_id: None,
@@ -243,6 +265,7 @@ async fn chat(
         },
     };
     let history_len = history.len();
+
     let mut agent = Agent::with_all_tools_and_image_resize_and_shell(
         provider,
         model.clone(),
@@ -259,15 +282,18 @@ async fn chat(
         super::resolve_shell(cli, settings),
     )
     .with_cwd(session.cwd.clone());
+
     if let Some(system_prompt) = &cli.system_prompt {
         agent = agent.with_system_prompt(system_prompt.clone());
     }
+
     if let Err(error) = agent.load_history(history) {
         return RpcResponse::error(-32603, "Invalid session history", id, error.to_string());
     }
 
     let mut event_rx = agent.subscribe();
     agent.add_user_message(prompt);
+
     if let Some(message) = agent.messages().last()
         && let Err(error) = manager.save_message(message)
     {
@@ -298,6 +324,7 @@ async fn chat(
             return RpcResponse::error(-32603, "Could not persist response", id, error.to_string());
         }
     }
+
     if let Err(error) = run_result {
         return RpcResponse::error(-32603, "Chat failed", id, error.to_string());
     }
@@ -311,6 +338,7 @@ async fn chat(
             _ => None,
         })
         .unwrap_or_default();
+
     RpcResponse::result(id, json!({ "session_id": session.id, "message": answer }))
 }
 
@@ -436,6 +464,7 @@ mod tests {
     #[test]
     fn rpc_response_success_has_a_jsonrpc_id() {
         let response = RpcResponse::result(json!(1), json!({}));
+        
         assert_eq!(response.jsonrpc, "2.0");
         assert_eq!(response.id, json!(1));
         assert!(response.result.is_some());
@@ -454,6 +483,7 @@ mod tests {
             &Settings::default(),
         )
         .await;
+        
         assert_eq!(response.error.unwrap().code, -32600);
     }
 
@@ -469,6 +499,7 @@ mod tests {
     #[tokio::test]
     async fn chat_creates_and_persists_a_session() {
         let mut server = mockito::Server::new_async().await;
+        
         let body = format!(
             "data: {}\n\ndata: [DONE]\n",
             json!({
@@ -478,12 +509,14 @@ mod tests {
                 }]
             })
         );
+        
         let _mock = server
             .mock("POST", "/chat/completions")
             .with_status(200)
             .with_body(body)
             .create_async()
             .await;
+        
         let cli = Cli::try_parse_from([
             "hallucinate",
             "--model",
@@ -494,10 +527,12 @@ mod tests {
             "test-key",
         ])
         .unwrap();
+        
         let mut settings = Settings::default();
         settings
             .providers
             .insert("openai".to_string(), Default::default());
+        
         let response = chat(
             Some(&json!({ "message": "say hello" })),
             json!(7),
@@ -505,16 +540,21 @@ mod tests {
             &settings,
         )
         .await;
+        
         let result = response.result.unwrap();
         assert_eq!(result["message"], "hello");
+        
         let session_id = result["session_id"].as_str().unwrap().to_string();
+        
         let mut manager = SessionManager::new();
         manager.resume(&session_id).unwrap();
+        
         let messages = manager.current_storage().unwrap().load_messages().unwrap();
         assert!(matches!(&messages[0], Message::User(message) if message.content == "say hello"));
         assert!(
             matches!(&messages[1], Message::Assistant(message) if message.content[0].text_content() == Some("hello"))
         );
+        
         SessionManager::delete_session(&session_id).unwrap();
     }
 }

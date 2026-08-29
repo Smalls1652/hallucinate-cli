@@ -20,6 +20,7 @@ impl SessionCwd {
     /// Get the stored working directory, falling back to the current directory.
     pub fn load(session_id: &str) -> Result<String, anyhow::Error> {
         let cwd_path = cwd_file_path(session_id);
+        
         if cwd_path.exists() {
             let content = fs::read_to_string(&cwd_path)?;
             let cwd: SessionCwd = serde_json::from_str(&content)?;
@@ -38,6 +39,7 @@ impl SessionCwd {
         cwd: &str,
     ) -> Result<(), anyhow::Error> {
         let cwd_path = cwd_file_path(session_id);
+        
         if let Some(parent) = cwd_path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -59,9 +61,11 @@ impl SessionCwd {
     /// Delete the stored working directory for a session.
     pub fn delete(session_id: &str) -> Result<(), anyhow::Error> {
         let cwd_path = cwd_file_path(session_id);
+        
         if cwd_path.exists() {
             fs::remove_file(&cwd_path)?;
         }
+        
         Ok(())
     }
 }
@@ -78,6 +82,7 @@ fn cwd_file_path(session_id: &str) -> PathBuf {
             }
         })
         .collect();
+    
     if let Some(sessions_dir) = paths::sessions_dir() {
         sessions_dir.join(format!("{}.cwd.json", safe_id))
     } else {

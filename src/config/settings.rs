@@ -83,54 +83,70 @@ pub struct Settings {
     /// Default model to use.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
+    
     /// Credential namespace for the OpenAI-compatible provider (usually
     /// "openai").
     #[serde(default = "default_provider")]
     pub provider: String,
+    
     /// Default base URL for the provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    
     /// Shell executable used by the bash tool. When unset, the user's SHELL
     /// environment variable (or the platform fallback) is used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shell: Option<String>,
+    
     /// Stored credentials.
     #[serde(default, skip_serializing_if = "CredentialStore::is_empty")]
     pub credential_store: CredentialStore,
+    
     /// Provider-specific headers for the legacy/default provider.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub provider_headers: HashMap<String, String>,
+    
     /// Providers and their models. Models are deliberately nested under a
     /// provider instead of using pi's flat provider/model catalog shape.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub providers: HashMap<String, ProviderSettings>,
+    
     /// Request timeout in milliseconds.
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
+    
     /// Number of retries for transient LLM API failures.
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
+    
     /// Automatically resize image attachments to provider-friendly limits.
     #[serde(default = "default_auto_resize_images")]
     pub auto_resize_images: bool,
+    
     /// Maximum number of turns.
     #[serde(default = "default_max_turns")]
     pub max_turns: u32,
+    
     /// Enable tool use by default.
     #[serde(default = "default_enable_tools")]
     pub enable_tools: bool,
+    
     /// Enable context compaction.
     #[serde(default = "default_enable_compaction")]
     pub enable_compaction: bool,
+    
     /// Show model thinking/reasoning in user-facing output.
     #[serde(default)]
     pub show_thinking: bool,
+    
     /// Default temperature.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
+    
     /// Default max tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    
     /// Whether these settings include a project-local override. This is kept
     /// out of serialization so credential commands can update the global
     /// file without copying project settings into it.
@@ -142,6 +158,7 @@ fn temporary_suffix() -> String {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
+    
     format!("{}-{}", std::process::id(), timestamp)
 }
 
@@ -151,6 +168,7 @@ fn set_owner_only_permissions(path: &Path) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
+
     Ok(())
 }
 
@@ -218,6 +236,7 @@ fn merge_settings_file(
             path.display()
         )
     })?;
+    
     let toml::Value::Table(table) = value else {
         anyhow::bail!(
             "settings file '{}' must contain a TOML table",
@@ -225,6 +244,7 @@ fn merge_settings_file(
         );
     };
     merge_toml_tables(merged, table);
+    
     Ok(())
 }
 
@@ -289,15 +309,18 @@ impl Settings {
                 "No providers configured. Add a provider to settings.toml before starting hallucinate."
             );
         }
+        
         Ok(())
     }
 
     /// Load the global settings without applying a project override.
     pub fn load_global() -> Result<Self, anyhow::Error> {
         let mut merged = toml::Table::new();
+        
         if let Some(path) = paths::settings_file() {
             merge_settings_file(&mut merged, &path)?;
         }
+        
         deserialize_settings(merged)
     }
 
@@ -311,6 +334,7 @@ impl Settings {
     /// their global counterparts.
     pub fn load() -> Result<Self, anyhow::Error> {
         let cwd = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+        
         Self::load_from(cwd)
     }
 
@@ -321,11 +345,13 @@ impl Settings {
         if let Some(path) = paths::settings_file() {
             merge_settings_file(&mut merged, &path)?;
         }
+        
         let project_path = paths::project_settings_file(cwd);
         merge_settings_file(&mut merged, &project_path)?;
 
         let mut settings = deserialize_settings(merged)?;
         settings.project_override_loaded = project_path.exists();
+        
         Ok(settings)
     }
 
@@ -337,6 +363,7 @@ impl Settings {
     pub fn save(&self) -> Result<(), anyhow::Error> {
         let path = paths::settings_file()
             .ok_or_else(|| anyhow::anyhow!("could not determine the settings file path"))?;
+        
         self.save_to(&path)
     }
 
@@ -355,6 +382,7 @@ impl Settings {
         fs::create_dir_all(parent)?;
 
         let content = toml::to_string_pretty(self)?;
+        
         let temporary_path = parent.join(format!(
             ".{}.{}.tmp",
             path.file_name()
@@ -365,10 +393,12 @@ impl Settings {
 
         fs::write(&temporary_path, content)?;
         set_owner_only_permissions(&temporary_path)?;
-        if let Err(error) = fs::rename(&temporary_path, path) {
+       
+       if let Err(error) = fs::rename(&temporary_path, path) {
             let _ = fs::remove_file(&temporary_path);
             return Err(error.into());
         }
+        
         Ok(())
     }
 
@@ -382,6 +412,7 @@ impl Settings {
         if provider.is_empty() {
             anyhow::bail!("provider ID cannot be empty");
         }
+        
         if api_key.trim().is_empty() {
             anyhow::bail!("API key cannot be empty");
         }
@@ -392,9 +423,11 @@ impl Settings {
             global.save()?;
         }
         self.credential_store.set(provider, api_key);
+        
         if !self.project_override_loaded {
             self.save()?;
         }
+        
         Ok(())
     }
 
@@ -406,17 +439,21 @@ impl Settings {
         let removed = if self.project_override_loaded {
             let mut global = Self::load_global()?;
             let removed = global.credential_store.remove(provider);
+            
             if removed {
                 global.save()?;
             }
+            
             removed
         } else {
             self.credential_store.remove(provider)
         };
+        
         self.credential_store.remove(provider);
         if removed && !self.project_override_loaded {
             self.save()?;
         }
+        
         Ok(removed)
     }
 
@@ -435,6 +472,7 @@ impl Settings {
                         default_base_url()
                     }
                 });
+                
                 let mut models: Vec<_> = provider.models.iter().collect();
                 models.sort_by(|left, right| left.0.cmp(right.0));
                 models.into_iter().map(move |(model_id, config)| {
@@ -453,6 +491,7 @@ impl Settings {
                     );
                     model.input = config.input.clone();
                     model.cost = config.cost.clone();
+                    
                     model
                 })
             })
@@ -566,13 +605,17 @@ impl Settings {
         selector: &str,
     ) -> Option<Model> {
         let models = self.configured_models();
+        
         if let Some((provider, model_id)) = selector.split_once('/') {
             return models
                 .into_iter()
                 .find(|model| model.provider == provider && model.id == model_id);
         }
+        
         let mut matches = models.into_iter().filter(|model| model.id == selector);
+        
         let first = matches.next()?;
+        
         matches.next().is_none().then_some(first)
     }
 }
@@ -649,11 +692,13 @@ mod tests {
             std::process::id(),
             temporary_suffix()
         ));
+        
         let mut settings = Settings::default();
         settings.credential_store.set("openrouter", "sk-test");
         settings.save_to(&path).unwrap();
 
         let loaded: Settings = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        
         assert_eq!(
             loaded
                 .credential_store
@@ -661,6 +706,7 @@ mod tests {
                 .map(|credential| credential.api_key.as_str()),
             Some("sk-test")
         );
+        
         let _ = fs::remove_file(path);
     }
 
@@ -671,8 +717,10 @@ mod tests {
             std::process::id(),
             temporary_suffix()
         ));
+        
         let project_directory = directory.join("project");
         fs::create_dir_all(project_directory.join(".hallucinate")).unwrap();
+        
         let global_path = directory.join("global-settings.toml");
         let project_path = project_directory.join(".hallucinate/settings.toml");
         fs::write(
@@ -689,6 +737,7 @@ mod tests {
             "#,
         )
         .unwrap();
+        
         fs::write(
             &project_path,
             r#"
@@ -704,11 +753,14 @@ mod tests {
         let mut merged = toml::Table::new();
         merge_settings_file(&mut merged, &global_path).unwrap();
         merge_settings_file(&mut merged, &project_path).unwrap();
+        
         let settings: Settings = toml::Value::Table(merged).try_into().unwrap();
 
         assert_eq!(settings.default_model.as_deref(), Some("openai/example"));
         assert_eq!(settings.timeout_ms, 5_000);
+        
         let provider = settings.providers.get("openai").unwrap();
+        
         assert_eq!(
             provider.base_url.as_deref(),
             Some("https://example.test/v1")
@@ -746,6 +798,7 @@ mod tests {
         .unwrap();
 
         let model = settings.find_configured_model("local/llama-3").unwrap();
+        
         assert_eq!(model.provider, "local");
         assert_eq!(model.base_url, "http://localhost:1234/v1");
         assert_eq!(model.name, "Llama 3");

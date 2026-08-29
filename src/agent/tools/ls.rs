@@ -34,13 +34,16 @@ pub(crate) fn resolve_path(
     cwd: Option<&str>,
 ) -> std::path::PathBuf {
     let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
+    
     let path = Path::new(expanded.as_ref());
     if path.is_relative() {
         if let Some(cwd) = cwd {
             return Path::new(cwd).join(path);
         }
+        
         return std::env::current_dir().unwrap_or_default().join(path);
     }
+    
     path.to_path_buf()
 }
 
@@ -194,6 +197,7 @@ impl Tool for LsTool {
                 ))
             } else {
                 let result = format!("Directory: {display_path}\n\n{}", entries.join("\n"));
+                
                 Ok(super::types::ToolResult::success("ls", "ls", result))
             }
         })
@@ -219,6 +223,7 @@ mod tests {
     #[tokio::test]
     async fn test_ls_tool_exists() {
         let tool = LsTool::new();
+        
         assert_eq!(tool.name(), "ls");
         assert!(!tool.description().is_empty());
     }
@@ -228,6 +233,7 @@ mod tests {
         let tool = LsTool::new();
         let args = json!({ "path": "/nonexistent/directory" });
         let result = futures::executor::block_on(tool.execute(&args, None)).unwrap();
+        
         assert!(result.is_error);
         assert!(result.content.contains("not found"));
     }
@@ -237,6 +243,7 @@ mod tests {
         let tool = LsTool::new();
         let args = json!({});
         let result = futures::executor::block_on(tool.execute(&args, None)).unwrap();
+        
         assert!(!result.is_error);
         assert!(result.content.contains("Directory:"));
     }

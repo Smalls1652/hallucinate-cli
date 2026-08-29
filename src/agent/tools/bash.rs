@@ -40,6 +40,7 @@ impl BashTool {
         shell: Option<String>,
     ) -> Self {
         self.shell = shell;
+        
         self
     }
 }
@@ -126,10 +127,12 @@ impl Tool for BashTool {
                     if !output.status.success() {
                         let status = output.status;
                         let mut error_msg = format!("Command exited with status: {status}");
+                        
                         if !stderr.is_empty() {
                             error_msg.push_str("\n[stderr:]\n");
                             error_msg.push_str(&stderr);
                         }
+                        
                         return Ok(super::types::ToolResult::error(
                             "bash",
                             "bash",
@@ -139,13 +142,16 @@ impl Tool for BashTool {
 
                     // Truncate very long output
                     let truncated = truncate_output(&result, 10_000);
+                    
                     Ok(super::types::ToolResult::success("bash", "bash", truncated))
                 },
+                
                 Ok(Err(e)) => Ok(super::types::ToolResult::error(
                     "bash",
                     "bash",
                     format!("Failed to execute command: {e}"),
                 )),
+
                 Err(_) => Ok(super::types::ToolResult::error(
                     "bash",
                     "bash",
@@ -171,8 +177,10 @@ fn shell_command(
         .map(std::ffi::OsString::from)
         .or_else(|| std::env::var_os("SHELL"))
         .unwrap_or_else(|| "sh".into());
+    
     let mut cmd = Command::new(shell);
     cmd.arg("-c").arg(command);
+    
     cmd
 }
 
@@ -189,13 +197,17 @@ fn shell_command(
             .file_stem()
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.eq_ignore_ascii_case("cmd"));
+        
         let mut cmd = Command::new(shell);
         cmd.arg(if is_cmd { "/C" } else { "-c" }).arg(command);
+        
         cmd
     } else {
         let shell = std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into());
+        
         let mut cmd = Command::new(shell);
         cmd.arg("/C").arg(command);
+        
         cmd
     }
 }
@@ -207,6 +219,7 @@ fn shell_command(
 ) -> Command {
     let mut cmd = Command::new("sh");
     cmd.arg("-c").arg(command);
+    
     cmd
 }
 
@@ -219,6 +232,7 @@ fn truncate_output(
         output.to_string()
     } else {
         let truncated = &output[..max_len];
+        
         format!(
             "{}\n\n[Output truncated: {} total characters]",
             truncated,
@@ -234,6 +248,7 @@ mod tests {
     #[tokio::test]
     async fn test_bash_tool_exists() {
         let tool = BashTool::new();
+        
         assert_eq!(tool.name(), "bash");
         assert!(!tool.description().is_empty());
     }
@@ -242,6 +257,7 @@ mod tests {
     fn test_echo_command() {
         // Just verify the tool exists with correct name
         let tool = BashTool::new();
+        
         assert_eq!(tool.name(), "bash");
         assert!(!tool.description().is_empty());
     }
@@ -279,6 +295,7 @@ mod tests {
 
         let long = "a".repeat(200);
         let truncated = truncate_output(&long, 100);
+        
         assert!(truncated.len() < long.len());
         assert!(truncated.contains("truncated"));
     }

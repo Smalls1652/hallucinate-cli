@@ -18,11 +18,14 @@ pub struct SlashCommand {
 pub fn parse(input: &str) -> Option<SlashCommand> {
     let input = input.trim_start();
     let input = input.strip_prefix('/')?;
+    
     let end = input.find(char::is_whitespace).unwrap_or(input.len());
     if end == 0 {
         return None;
     }
+    
     let arguments = input[end..].trim().to_string();
+    
     Some(SlashCommand {
         name: input[..end].to_string(),
         arguments,
@@ -73,6 +76,7 @@ pub const BUILTIN_INVOCATIONS: &[(&str, &str)] = &[
 /// than one canonical command is rejected rather than choosing arbitrarily.
 pub fn resolve_builtin_command(name: &str) -> Option<&'static str> {
     let name = name.to_ascii_lowercase();
+    
     if let Some((_, command)) = BUILTIN_INVOCATIONS
         .iter()
         .find(|(invocation, _)| *invocation == name)
@@ -81,17 +85,21 @@ pub fn resolve_builtin_command(name: &str) -> Option<&'static str> {
     }
 
     let mut resolved = None;
+    
     for (invocation, command) in BUILTIN_INVOCATIONS {
         if !invocation.starts_with(&name) {
             continue;
         }
+        
         if let Some(previous) = resolved
             && previous != *command
         {
             return None;
         }
+        
         resolved = Some(*command);
     }
+    
     resolved
 }
 

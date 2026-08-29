@@ -11,6 +11,7 @@ fn rpc_process_handles_requests_and_notifications() {
         .stdout(Stdio::piped())
         .spawn()
         .expect("spawn rpc process");
+    
     let stdin = child.stdin.as_mut().expect("rpc stdin");
     writeln!(stdin, r#"{{"jsonrpc":"2.0","method":"ping","id":1}}"#).unwrap();
     writeln!(stdin, "{{").unwrap();
@@ -21,6 +22,7 @@ fn rpc_process_handles_requests_and_notifications() {
 
     let output = child.wait_with_output().expect("wait for rpc process");
     assert!(output.status.success());
+    
     let responses: Vec<serde_json::Value> = String::from_utf8(output.stdout)
         .unwrap()
         .lines()

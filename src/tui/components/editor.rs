@@ -49,6 +49,7 @@ impl Editor {
         placeholder: impl Into<String>,
     ) -> Self {
         self.placeholder = Some(placeholder.into());
+        
         self
     }
 
@@ -82,11 +83,13 @@ impl Editor {
         area_width: u16,
     ) -> u16 {
         let width = usize::from(area_width.saturating_sub(2));
+        
         let rows = if self.content.is_empty() {
             1
         } else {
             editor_visual_lines(&self.content, width, self.cursor_pos).len()
         };
+        
         (rows as u16 + 2).clamp(3, 8)
     }
 
@@ -98,14 +101,18 @@ impl Editor {
         if text.is_empty() {
             return;
         }
+        
         // Paste sources can use either Unix or Windows line endings. Keep the
         // editor's internal representation predictable.
         let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        
         self.delete_selection();
+        
         let pos = self.cursor_pos.min(self.content.len());
         self.content.insert_str(pos, &text);
         self.cursor_pos += text.len();
         self.vertical_column = None;
+        
         self.undo_stack.push(EditOperation::Insert {
             position: pos,
             text,
@@ -122,28 +129,35 @@ impl Editor {
 
     fn selection_range(&self) -> Option<(usize, usize)> {
         let anchor = self.selection_anchor?;
+        
         let range = if anchor <= self.cursor_pos {
             (anchor, self.cursor_pos)
         } else {
             (self.cursor_pos, anchor)
         };
+        
         (range.0 < range.1).then_some(range)
     }
 
     fn delete_selection(&mut self) -> bool {
         let Some((start, end)) = self.selection_range() else {
             self.selection_anchor = None;
+        
             return false;
         };
+        
         let deleted = self.content.drain(start..end).collect::<String>();
+        
         self.cursor_pos = start;
         self.vertical_column = None;
         self.selection_anchor = None;
+        
         self.undo_stack.push(EditOperation::Delete {
             position: start,
             length: end - start,
             deleted_text: deleted,
         });
+        
         true
     }
 
@@ -162,8 +176,10 @@ impl Editor {
             .unwrap_or((0, 1));
 
         let deleted = self.content.drain(pos.0..pos.0 + pos.1).collect::<String>();
+        
         self.cursor_pos -= pos.1;
         self.vertical_column = None;
+        
         self.undo_stack.push(EditOperation::Delete {
             position: pos.0,
             length: pos.1,
@@ -184,7 +200,9 @@ impl Editor {
             .content
             .drain(self.cursor_pos..self.cursor_pos + len)
             .collect::<String>();
+        
         self.vertical_column = None;
+        
         self.undo_stack.push(EditOperation::Delete {
             position: self.cursor_pos,
             length: len,
@@ -197,11 +215,13 @@ impl Editor {
         extend: bool,
     ) {
         self.vertical_column = None;
+        
         if extend && self.selection_anchor.is_none() {
             self.selection_anchor = Some(self.cursor_pos);
         } else if !extend {
             self.selection_anchor = None;
         }
+        
         if self.cursor_pos > 0 {
             self.cursor_pos = self
                 .content
@@ -218,11 +238,13 @@ impl Editor {
         extend: bool,
     ) {
         self.vertical_column = None;
+        
         if extend && self.selection_anchor.is_none() {
             self.selection_anchor = Some(self.cursor_pos);
         } else if !extend {
             self.selection_anchor = None;
         }
+        
         if self.cursor_pos < self.content.len() {
             self.cursor_pos = self
                 .content
@@ -239,9 +261,11 @@ impl Editor {
         extend: bool,
     ) {
         let (line_start, line_end) = line_bounds(&self.content, self.cursor_pos);
+        
         let column = self
             .vertical_column
             .get_or_insert_with(|| display_width(&self.content[line_start..self.cursor_pos]));
+        
         let target = if direction < 0 {
             if line_start == 0 {
                 None
@@ -251,6 +275,7 @@ impl Editor {
                     .rfind('\n')
                     .map(|index| index + 1)
                     .unwrap_or(0);
+        
                 Some((previous_start, previous_end))
             }
         } else if line_end == self.content.len() {
@@ -261,17 +286,20 @@ impl Editor {
                 .find('\n')
                 .map(|index| next_start + index)
                 .unwrap_or(self.content.len());
+        
             Some((next_start, next_end))
         };
 
         let Some((target_start, target_end)) = target else {
             return;
         };
+        
         if extend && self.selection_anchor.is_none() {
             self.selection_anchor = Some(self.cursor_pos);
         } else if !extend {
             self.selection_anchor = None;
         }
+        
         self.cursor_pos = byte_at_display_column(&self.content, target_start, target_end, *column);
     }
 
@@ -293,10 +321,13 @@ impl Editor {
         if start >= end || end > self.content.len() {
             return;
         }
+        
         let deleted = self.content.drain(start..end).collect::<String>();
+        
         self.cursor_pos = start;
         self.vertical_column = None;
         self.selection_anchor = None;
+        
         self.undo_stack.push(EditOperation::Delete {
             position: start,
             length: end - start,
@@ -306,26 +337,35 @@ impl Editor {
 
     fn delete_word_back(&mut self) {
         let mut start = self.cursor_pos;
+        
         while start > 0 {
             let previous = self.content[..start].char_indices().next_back();
+        
             let Some((index, character)) = previous else {
                 break;
             };
+        
             if !character.is_whitespace() {
                 break;
             }
+        
             start = index;
         }
+        
         while start > 0 {
             let previous = self.content[..start].char_indices().next_back();
+        
             let Some((index, character)) = previous else {
                 break;
             };
+        
             if character.is_whitespace() {
                 break;
             }
+        
             start = index;
         }
+        
         self.delete_range(start, self.cursor_pos);
     }
 
@@ -362,6 +402,7 @@ impl Editor {
                     ..
                 } => position + deleted_text.len(),
             };
+        
             self.normalize_cursor();
         }
     }
@@ -373,6 +414,7 @@ impl Editor {
                 EditOperation::Insert { position, text } => position + text.len(),
                 EditOperation::Delete { position, .. } => position,
             };
+        
             self.normalize_cursor();
         }
     }
@@ -380,6 +422,7 @@ impl Editor {
     fn normalize_cursor(&mut self) {
         self.vertical_column = None;
         self.cursor_pos = self.cursor_pos.min(self.content.len());
+        
         while self.cursor_pos > 0 && !self.content.is_char_boundary(self.cursor_pos) {
             self.cursor_pos -= 1;
         }
@@ -439,58 +482,74 @@ impl Editor {
                 'u' => self.delete_to_beginning(),
                 _ => {},
             },
+        
             KeyCode::Char(c) => {
                 self.insert_char(c);
             },
+        
             KeyCode::Backspace => {
                 self.delete_char_back();
             },
+        
             KeyCode::Delete => {
                 self.delete_char();
             },
+        
             KeyCode::Left => {
                 self.move_left(key.shift);
             },
+        
             KeyCode::Right => {
                 self.move_right(key.shift);
             },
+        
             KeyCode::Up => {
                 self.move_vertical(-1, key.shift);
             },
+        
             KeyCode::Down => {
                 self.move_vertical(1, key.shift);
             },
+        
             KeyCode::Home => {
                 if key.shift && self.selection_anchor.is_none() {
                     self.selection_anchor = Some(self.cursor_pos);
                 } else if !key.shift {
                     self.selection_anchor = None;
                 }
+        
                 self.vertical_column = None;
                 self.cursor_pos = line_bounds(&self.content, self.cursor_pos).0;
             },
+        
             KeyCode::End => {
                 if key.shift && self.selection_anchor.is_none() {
                     self.selection_anchor = Some(self.cursor_pos);
                 } else if !key.shift {
                     self.selection_anchor = None;
                 }
+        
                 self.vertical_column = None;
                 self.cursor_pos = line_bounds(&self.content, self.cursor_pos).1;
             },
+        
             KeyCode::Enter if key.shift || key.alt => {
                 // Some Ghostty configurations emit ESC+Return for
                 // Shift+Enter, which crossterm reports as Alt+Enter.
                 self.insert_char('\n');
             },
+        
             KeyCode::Enter => {
                 return true; // Submit
             },
+        
             KeyCode::Esc => {
                 return true; // Cancel
             },
+        
             _ => {},
         }
+        
         false
     }
 
@@ -503,6 +562,7 @@ impl Editor {
         area: Rect,
     ) {
         let inner_width = usize::from(area.width.saturating_sub(2));
+        
         let (lines, cursor_row, cursor_column) = if self.content.is_empty() {
             (
                 vec![Line::from(Span::styled(
@@ -515,30 +575,37 @@ impl Editor {
         } else {
             let visual = editor_visual_lines(&self.content, inner_width, self.cursor_pos);
             let (row, column) = cursor_position(&visual, self.cursor_pos);
+        
             let lines = visual
                 .iter()
                 .map(|line| Line::from(Span::styled(line.text.clone(), self.style)))
                 .collect();
+        
             (lines, row, column)
         };
 
         let total_rows = lines.len();
+        
         let (scroll, cursor_y) = if area.height > 2 {
             let visible_rows = usize::from(area.height.saturating_sub(2));
             let max_scroll = cursor_row.saturating_sub(visible_rows.saturating_sub(1));
             let scroll = max_scroll.min(total_rows.saturating_sub(visible_rows));
+        
             (scroll, cursor_row.saturating_sub(scroll))
         } else {
             (0, 0)
         };
+        
         let paragraph = Paragraph::new(lines)
             .block(Block::default().borders(Borders::ALL).title(" Input "))
             .scroll((scroll as u16, 0));
+        
         f.render_widget(paragraph, area);
 
         if area.width > 2 && area.height > 2 {
             let x = area.x + 1 + cursor_column.min(inner_width) as u16;
             let y = area.y + 1 + cursor_y as u16;
+        
             f.set_cursor_position((
                 x.min(area.x + area.width - 2),
                 y.min(area.y + area.height - 2),
@@ -561,13 +628,17 @@ fn visual_lines(
 ) -> Vec<VisualLine> {
     let mut lines = Vec::new();
     let mut line_start = 0;
+    
     for (offset, character) in content.char_indices() {
         if character == '\n' {
             append_wrapped_line(&mut lines, content, line_start, offset, width);
+    
             line_start = offset + character.len_utf8();
         }
     }
+    
     append_wrapped_line(&mut lines, content, line_start, content.len(), width);
+    
     lines
 }
 
@@ -584,25 +655,31 @@ fn append_wrapped_line(
             start,
             end,
         });
+    
         return;
     }
 
     let mut segment_start = start;
     let mut segment_width = 0;
+    
     for (offset, character) in content[start..end].char_indices() {
         let position = start + offset;
         let character_width = character.width().unwrap_or(0);
+    
         if segment_width > 0 && segment_width + character_width > width {
             lines.push(VisualLine {
                 text: content[segment_start..position].to_string(),
                 start: segment_start,
                 end: position,
             });
+    
             segment_start = position;
             segment_width = 0;
         }
+    
         segment_width += character_width;
     }
+    
     lines.push(VisualLine {
         text: content[segment_start..end].to_string(),
         start: segment_start,
@@ -616,8 +693,10 @@ fn editor_visual_lines(
     cursor: usize,
 ) -> Vec<VisualLine> {
     let mut lines = visual_lines(content, width);
+    
     if width > 0 {
         let (row, column) = cursor_position(&lines, cursor);
+    
         if column >= width && row + 1 == lines.len() {
             lines.push(VisualLine {
                 text: String::new(),
@@ -626,6 +705,7 @@ fn editor_visual_lines(
             });
         }
     }
+    
     lines
 }
 
@@ -637,13 +717,16 @@ fn cursor_position(
         if cursor < line.end {
             return (row, display_width(&line.text[..cursor - line.start]));
         }
+    
         if cursor == line.end {
             if lines.get(row + 1).is_some_and(|next| next.start == cursor) {
                 return (row + 1, 0);
             }
+    
             return (row, display_width(&line.text));
         }
     }
+    
     (lines.len().saturating_sub(1), 0)
 }
 
@@ -658,6 +741,7 @@ fn line_bounds(
     cursor: usize,
 ) -> (usize, usize) {
     let cursor = cursor.min(content.len());
+    
     let start = content[..cursor]
         .rfind('\n')
         .map(|index| index + 1)
@@ -666,6 +750,7 @@ fn line_bounds(
         .find('\n')
         .map(|index| cursor + index)
         .unwrap_or(content.len());
+    
     (start, end)
 }
 
@@ -676,14 +761,18 @@ fn byte_at_display_column(
     column: usize,
 ) -> usize {
     let mut current_column = 0;
+    
     for (offset, character) in content[start..end].char_indices() {
         let position = start + offset;
         let character_width = character.width().unwrap_or(0);
+    
         if current_column + character_width > column {
             return position;
         }
+    
         current_column += character_width;
     }
+    
     end
 }
 
@@ -698,10 +787,13 @@ mod tests {
         let mut editor = Editor::new("");
         editor.set_content("a😀b");
         editor.cursor_beginning();
+        
         editor.cursor_right();
         assert_eq!(editor.cursor_pos, 1);
+        
         editor.cursor_right();
         assert_eq!(editor.cursor_pos, 5);
+        
         editor.cursor_right();
         assert_eq!(editor.cursor_pos, 6);
     }
@@ -709,12 +801,14 @@ mod tests {
     #[test]
     fn control_word_and_line_deletions_are_supported() {
         let mut editor = Editor::new("");
+        
         editor.set_content("one two three");
         editor.handle_key(Key::with_modifiers(
             KeyCode::Char('w'),
             KeyModifiers::CONTROL,
         ));
         assert_eq!(editor.content(), "one two ");
+        
         editor.handle_key(Key::with_modifiers(
             KeyCode::Char('u'),
             KeyModifiers::CONTROL,
@@ -725,15 +819,19 @@ mod tests {
     #[test]
     fn shift_movement_selects_text_and_undo_restores_cursor() {
         let mut editor = Editor::new("");
+        
         editor.set_content("one two three");
         for _ in 0..3 {
             editor.handle_key(Key::with_modifiers(KeyCode::Left, KeyModifiers::SHIFT));
         }
         editor.handle_key(Key::new(KeyCode::Delete));
         assert_eq!(editor.content(), "one two th");
+        
         editor.undo();
+        
         assert_eq!(editor.content(), "one two three");
         assert_eq!(editor.cursor_pos, editor.content.len());
+        
         editor.redo();
         assert_eq!(editor.content(), "one two th");
         assert_eq!(editor.cursor_pos, 10);
@@ -742,11 +840,13 @@ mod tests {
     #[test]
     fn long_unicode_input_wraps_without_splitting_characters() {
         let lines = editor_visual_lines("012😀3456789", 6, 7);
+        
         assert!(
             lines
                 .iter()
                 .all(|line| line.text.is_char_boundary(line.text.len()))
         );
+        
         assert!(lines.iter().any(|line| line.text.contains('😀')));
     }
 
@@ -764,8 +864,10 @@ mod tests {
     #[test]
     fn shift_enter_inserts_a_newline_while_enter_submits() {
         let mut editor = Editor::new("");
+        
         editor.insert_text("first");
         assert!(!editor.handle_key(Key::with_modifiers(KeyCode::Enter, KeyModifiers::SHIFT)));
+        
         editor.insert_text("second");
         assert_eq!(editor.content(), "first\nsecond");
         assert!(editor.handle_key(Key::new(KeyCode::Enter)));
@@ -774,6 +876,7 @@ mod tests {
     #[test]
     fn ghostty_alt_return_sequence_inserts_a_newline() {
         let mut editor = Editor::new("");
+        
         editor.insert_text("first");
         assert!(!editor.handle_key(Key::with_modifiers(KeyCode::Enter, KeyModifiers::ALT)));
         assert_eq!(editor.content(), "first\n");
@@ -782,13 +885,17 @@ mod tests {
     #[test]
     fn vertical_movement_preserves_the_preferred_column() {
         let mut editor = Editor::new("");
+        
         editor.set_content("abcd\nxy\n1234");
         editor.handle_key(Key::new(KeyCode::Up));
         assert_eq!(editor.cursor_pos, 7); // column four clamps to "xy"
+        
         editor.handle_key(Key::new(KeyCode::Up));
         assert_eq!(editor.cursor_pos, 4); // column four is restored on "abcd"
+        
         editor.handle_key(Key::new(KeyCode::Down));
         assert_eq!(editor.cursor_pos, 7);
+        
         editor.handle_key(Key::new(KeyCode::Down));
         assert_eq!(editor.cursor_pos, editor.content.len());
     }
@@ -796,6 +903,7 @@ mod tests {
     #[test]
     fn pasted_line_endings_become_editor_newlines() {
         let mut editor = Editor::new("");
+        
         assert!(!editor.handle_event(InputEvent::Paste("one\r\ntwo\rthree".to_string())));
         assert_eq!(editor.content(), "one\ntwo\nthree");
     }
