@@ -2201,6 +2201,9 @@ impl InteractiveTui {
                                 line_starts.push(None);
                             }
                         }
+
+                        lines.push(Line::from(vec![Span::styled("│ ", role_color)]));
+                        line_starts.push(None);
                     }
 
                     let mut body = markdown_to_lines(&msg.content);
@@ -2209,7 +2212,7 @@ impl InteractiveTui {
                     }
             
                     if body.is_empty() {
-                        let mut empty_line = vec![Span::styled("│ ", muted_for(role_color))];
+                        let mut empty_line = vec![Span::styled("│ ", role_color)];
             
                         if self.streaming_message_index == Some(message_index) {
                             empty_line.push(Span::styled(
@@ -2268,6 +2271,9 @@ impl InteractiveTui {
             
                             line_starts.extend(vec![None; lines.len() - previous_len]);
                         }
+
+                        lines.push(Line::from(vec![Span::styled("│ ", role_color)]));
+                        line_starts.push(None);
                     }
             
                     lines.push(Line::from(Span::styled("╰─", muted_for(role_color))));
