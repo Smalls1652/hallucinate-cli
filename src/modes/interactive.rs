@@ -259,6 +259,7 @@ struct InteractiveTui {
     model: crate::ai::types::Model,
     models: Vec<crate::ai::types::Model>,
     model_picker: Option<ModelPicker>,
+    session_picker: Option<SessionPicker>,
     autocomplete_items: Vec<AutocompleteItem>,
     autocomplete_index: usize,
 }
@@ -280,6 +281,12 @@ struct AutocompleteItem {
 /// State for the keyboard-driven model picker overlay.
 #[derive(Debug, Clone, Copy)]
 struct ModelPicker {
+    selected: usize,
+}
+
+/// State for the keyboard-driven session picker overlay.
+#[derive(Debug, Clone, Copy)]
+struct SessionPicker {
     selected: usize,
 }
 
@@ -412,6 +419,7 @@ impl InteractiveTui {
             model,
             models,
             model_picker: None,
+            session_picker: None,
             autocomplete_items: Vec::new(),
             autocomplete_index: 0
         };
@@ -1031,35 +1039,11 @@ impl InteractiveTui {
         
             "sessions" | "list" => {
                 let sessions = SessionManager::list()?;
+                
                 if sessions.is_empty() {
                     self.add_system_message("No sessions found.");
                 } else {
-                    let current = self.session_manager.current_id().map(str::to_owned);
-                    let mut lines = Vec::with_capacity(sessions.len());
-        
-                    for session in sessions {
-                        let marker = if current.as_deref() == Some(session.id.as_str()) {
-                            '*'
-                        } else {
-                            ' '
-                        };
-        
-                        let title = crate::session::storage::SessionStorage::new(&session.id)
-                            .load_metadata()?
-                            .and_then(|metadata| metadata.0)
-                            .unwrap_or_else(|| "untitled".to_string());
-        
-                        lines.push(format!(
-                            "{} {} — {} — {} ({})",
-                            marker,
-                            short_session_id(&session.id),
-                            title,
-                            session.modified_str(),
-                            crate::config::paths::display_path(&session.path, &self.project_cwd)
-                        ));
-                    }
-        
-                    self.add_system_messages(lines);
+                    self.open_session_picker();
                 }
             },
         
@@ -1280,6 +1264,103 @@ impl InteractiveTui {
             .unwrap_or(0);
         
         self.model_picker = Some(ModelPicker { selected });
+    }
+
+    /// Open the session picker with the current session selected.
+    fn open_session_picker(&mut self) {
+        let sessions = match SessionManager::list() {
+            Ok(sessions) => sessions,
+            Err(error) => {
+                self.show_notice(format!("Failed to list sessions: {error}"));
+                return;
+            },
+        };
+
+        if sessions.is_empty() {
+            self.show_notice("No sessions found.");
+            return;
+        }
+
+        let current_id = self.session_manager.current_id();
+        let selected = sessions
+            .iter()
+            .position(|session| {
+                current_id.map_or(false, |id| session.id == id)
+            })
+            .unwrap_or(0);
+
+        self.session_picker = Some(SessionPicker { selected });
+    }
+
+    /// Handle a key while the session picker owns the input focus.
+    fn handle_session_picker_key(
+        &mut self,
+        key: Key,
+    ) -> Result<(), anyhow::Error> {
+        let Some(picker) = self.session_picker.as_mut() else {
+            return Ok(());
+        };
+
+        let sessions = SessionManager::list()?;
+        let session_count = sessions.len();
+
+        match key.code {
+            crossterm::event::KeyCode::Char('c') if key.ctrl => {
+                // Ctrl+C is intentionally not a quit shortcut. It can still
+                // interrupt an active response, matching the Esc/stop path.
+                if let Some(cancellation) = &self.agent_cancellation {
+                    cancellation.cancel();
+                }
+            },
+
+            crossterm::event::KeyCode::Up => {
+                picker.selected = picker.selected.saturating_sub(1);
+            }
+
+            crossterm::event::KeyCode::Down => {
+                picker.selected = (picker.selected + 1).min(session_count - 1);
+            }
+
+            crossterm::event::KeyCode::PageUp => {
+                picker.selected = picker.selected.saturating_sub(8);
+            }
+
+            crossterm::event::KeyCode::PageDown => {
+                picker.selected = (picker.selected + 8).min(session_count - 1);
+            }
+
+            crossterm::event::KeyCode::Home => {
+                picker.selected = 0;
+            }
+
+            crossterm::event::KeyCode::End => {
+                picker.selected = session_count - 1;
+            }
+
+            crossterm::event::KeyCode::Esc => {
+                self.session_picker = None;
+            }
+
+            crossterm::event::KeyCode::Enter => {
+                let selected = picker.selected;
+                self.session_picker = None;
+
+                if let Some(session) = sessions.get(selected) {
+                    if !self.ensure_idle("resuming a session") {
+                        return Ok(());
+                    }
+
+                    let session_id = session.id.clone();
+                    if let Err(error) = self.load_selected_session(&session_id) {
+                        self.show_notice(format!("Failed to resume session: {error}"));
+                    }
+                }
+            }
+
+            _ => {},
+        }
+
+        Ok(())
     }
 
     /// Handle a key while the model picker owns the input focus.
@@ -1552,6 +1633,26 @@ impl InteractiveTui {
                         return Ok(false);
                     }
 
+                    if let Some(picker) = self.session_picker.as_mut() {
+                        match mouse.kind {
+                            crossterm::event::MouseEventKind::ScrollUp => {
+                                picker.selected = picker.selected.saturating_sub(3);
+                            },
+        
+                            crossterm::event::MouseEventKind::ScrollDown => {
+                                let sessions = match SessionManager::list() {
+                                    Ok(sessions) => sessions,
+                                    Err(_) => return Ok(false),
+                                };
+                                picker.selected = (picker.selected + 3).min(sessions.len() - 1);
+                            },
+        
+                            _ => {},
+                        }
+        
+                        return Ok(false);
+                    }
+
                     use crossterm::event::{MouseButton, MouseEventKind};
         
                     match mouse.kind {
@@ -1622,9 +1723,13 @@ impl InteractiveTui {
 
             // The model picker owns keyboard input while it is open. This
             // prevents arrows and Enter from moving/submitting the editor.
-            if self.model_picker.is_some() {
+            if self.model_picker.is_some() || self.session_picker.is_some() {
                 if let crate::tui::input::InputEvent::Key(key) = input_event {
-                    self.handle_model_picker_key(key)?;
+                    if self.model_picker.is_some() {
+                        self.handle_model_picker_key(key)?;
+                    } else {
+                        self.handle_session_picker_key(key)?;
+                    }
                 }
         
                 return Ok(false);
@@ -2379,6 +2484,88 @@ impl InteractiveTui {
                         ),
                         popup_area,
                     );
+                }
+            }
+
+            // Session picker overlay. Rendered after the model picker so the
+            // model picker takes visual precedence when both could appear.
+            if let Some(picker) = self.session_picker {
+                let area = frame.area();
+               
+                let popup_width = area.width.saturating_sub(4).min(140);
+               
+                if let Ok(sessions) = SessionManager::list() {
+                    let popup_height = area
+                        .height
+                        .saturating_sub(4)
+                        .min((sessions.len() + 2).min(18) as u16);
+                   
+                    if popup_width > 4 && popup_height > 2 {
+                        let popup_area = ratatui::layout::Rect::new(
+                            area.x + (area.width - popup_width) / 2,
+                            area.y + (area.height - popup_height) / 2,
+                            popup_width,
+                            popup_height,
+                        );
+                        
+                        let visible_rows = usize::from(popup_height.saturating_sub(2));
+                        
+                        let start = picker
+                            .selected
+                            .saturating_sub(visible_rows / 2)
+                            .min(sessions.len().saturating_sub(visible_rows));
+                        
+                        let rows = sessions
+                            .iter()
+                            .enumerate()
+                            .skip(start)
+                            .take(visible_rows)
+                            .map(|(index, session)| {
+                                let marker = if index == picker.selected { "> " } else { "  " };
+                        
+                                let title = crate::session::storage::SessionStorage::new(&session.id)
+                                    .load_metadata()
+                                    .ok()
+                                    .flatten()
+                                    .and_then(|(t, _, _)| t)
+                                    .unwrap_or_else(|| "untitled".to_string());
+                        
+                                let metadata = format!(
+                                    "{} · {} · {}",
+                                    session.modified_str(),
+                                    crate::config::paths::display_path(&session.path, &self.project_cwd),
+                                    title
+                                );
+                        
+                                Line::from(vec![
+                                    Span::styled(
+                                        marker,
+                                        Style::default().fg(if index == picker.selected {
+                                            Color::Yellow
+                                        } else {
+                                            Color::DarkGray
+                                        }),
+                                    ),
+                                    Span::styled(
+                                        format!("{} — ", short_session_id(&session.id)),
+                                        Style::default().fg(Color::Cyan),
+                                    ),
+                                    Span::styled(metadata, Style::default().fg(Color::DarkGray)),
+                                ])
+                            })
+                            .collect::<Vec<_>>();
+                        
+                        frame.render_widget(Clear, popup_area);
+                        
+                        frame.render_widget(
+                            Paragraph::new(rows).block(
+                                Block::default()
+                                    .borders(Borders::ALL)
+                                    .title(" Select session · ↑↓ PgUp/PgDn Home/End Enter Esc "),
+                            ),
+                            popup_area,
+                        );
+                    }
                 }
             }
         })?;
