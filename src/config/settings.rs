@@ -210,7 +210,7 @@ fn default_auto_resize_images() -> bool {
 }
 
 fn default_max_turns() -> u32 {
-    20
+    120
 }
 
 fn default_enable_tools() -> bool {
