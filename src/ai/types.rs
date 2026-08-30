@@ -13,7 +13,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Api {
+    /// OpenAI Chat Completions-compatible API.
     OpenaiCompletions,
+    /// OpenAI Responses-compatible API.
+    OpenaiResponses,
 }
 
 /// Provider identifier.

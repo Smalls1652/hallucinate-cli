@@ -1,12 +1,17 @@
 //! OpenAI API-compatible provider.
 //!
-//! Supports any OpenAI-compatible endpoint including:
+//! Supports both the Chat Completions and Responses wire formats. Any
+//! OpenAI-compatible endpoint can be used, including:
 //! - OpenAI (api.openai.com)
 //! - Azure OpenAI
 //! - Local servers (Ollama, vLLM, LM Studio, llama.cpp, etc.)
 //! - Proxy services (OpenRouter, etc.)
 
-use std::{collections::HashMap, pin::Pin, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    pin::Pin,
+    time::Duration,
+};
 
 use futures::{Future, StreamExt};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
@@ -19,6 +24,7 @@ use crate::ai::{
         create_assistant_message_event_stream,
     },
     types::{
+        Api,
         AssistantContent,
         Context,
         ImageContent,
@@ -95,6 +101,11 @@ fn openai_image_part(image: &ImageContent) -> serde_json::Value {
     })
 }
 
+fn split_response_tool_call_id(id: &str) -> (&str, Option<&str>) {
+    id.split_once('|')
+        .map_or((id, None), |(call_id, item_id)| (call_id, Some(item_id)))
+}
+
 fn tool_result_messages(result: &ToolResultMessage) -> Vec<serde_json::Value> {
     let text = result
         .content
@@ -113,7 +124,7 @@ fn tool_result_messages(result: &ToolResultMessage) -> Vec<serde_json::Value> {
     
     let mut messages = vec![serde_json::json!({
         "role": "tool",
-        "tool_call_id": result.tool_call_id,
+        "tool_call_id": split_response_tool_call_id(&result.tool_call_id).0,
         "content": tool_content
     })];
     
@@ -135,31 +146,46 @@ fn tool_result_messages(result: &ToolResultMessage) -> Vec<serde_json::Value> {
 }
 
 fn parse_usage(chunk: &serde_json::Value) -> Option<Usage> {
-    let usage = chunk.get("usage")?;
-    
+    let usage = chunk
+        .get("usage")
+        .or_else(|| chunk.get("response").and_then(|response| response.get("usage")))?;
+
     Some(Usage {
         input: usage
             .get("prompt_tokens")
+            .or_else(|| usage.get("input_tokens"))
             .and_then(|value| value.as_u64())
             .unwrap_or(0),
         output: usage
             .get("completion_tokens")
+            .or_else(|| usage.get("output_tokens"))
             .and_then(|value| value.as_u64())
             .unwrap_or(0),
         cache_read: usage
             .get("prompt_tokens_details")
+            .or_else(|| usage.get("input_tokens_details"))
             .and_then(|value| value.get("cached_tokens"))
             .and_then(|value| value.as_u64())
             .unwrap_or(0),
         cache_write: 0,
         cache_write_1h: None,
-        reasoning: None,
+        reasoning: usage
+            .get("completion_tokens_details")
+            .or_else(|| usage.get("output_tokens_details"))
+            .and_then(|value| value.get("reasoning_tokens"))
+            .and_then(|value| value.as_u64()),
         total_tokens: usage
             .get("total_tokens")
             .and_then(|value| value.as_u64())
             .unwrap_or(0),
         cost: crate::ai::types::Cost::default(),
     })
+}
+
+fn parse_responses_usage(chunk: &serde_json::Value) -> Option<Usage> {
+    let mut usage = parse_usage(chunk)?;
+    usage.input = usage.input.saturating_sub(usage.cache_read);
+    Some(usage)
 }
 
 /// Apply an OpenAI chat-completions chunk to the accumulated message.
@@ -262,6 +288,456 @@ async fn process_chunk(
     Ok(None)
 }
 
+#[derive(Default)]
+struct ResponsesStreamState {
+    tool_indices: HashMap<String, usize>,
+    tool_call_ids: HashMap<usize, String>,
+    tool_item_ids: HashMap<usize, String>,
+    next_tool_index: usize,
+    emitted_tool_arguments: HashSet<usize>,
+    has_tool_calls: bool,
+    has_text_output: bool,
+    has_thinking_output: bool,
+}
+
+impl ResponsesStreamState {
+    fn tool_index(
+        &mut self,
+        output_index: Option<usize>,
+        item_id: Option<&str>,
+    ) -> usize {
+        if let Some(item_id) = item_id
+            && let Some(index) = self.tool_indices.get(item_id)
+        {
+            return *index;
+        }
+
+        let index = output_index.unwrap_or_else(|| {
+            let index = self.next_tool_index;
+            self.next_tool_index = self.next_tool_index.saturating_add(1);
+            index
+        });
+        self.next_tool_index = self.next_tool_index.max(index.saturating_add(1));
+
+        if let Some(item_id) = item_id.filter(|item_id| !item_id.is_empty()) {
+            self.tool_indices.insert(item_id.to_string(), index);
+        }
+
+        index
+    }
+
+    fn set_tool_identity(
+        &mut self,
+        index: usize,
+        item_id: Option<&str>,
+        call_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(item_id) = item_id.filter(|item_id| !item_id.is_empty()) {
+            self.tool_item_ids.insert(index, item_id.to_string());
+        }
+        if let Some(call_id) = call_id.filter(|call_id| !call_id.is_empty()) {
+            self.tool_call_ids.insert(index, call_id.to_string());
+        }
+
+        match (
+            self.tool_call_ids.get(&index),
+            self.tool_item_ids.get(&index),
+        ) {
+            (Some(call_id), Some(item_id)) => Some(format!("{call_id}|{item_id}")),
+            (Some(call_id), None) => Some(call_id.clone()),
+            (None, Some(item_id)) => Some(item_id.clone()),
+            (None, None) => None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ResponsesSseResult {
+    Continue,
+    Done,
+    Failed(String),
+}
+
+fn response_index(
+    value: &serde_json::Value,
+    field: &str,
+) -> Option<usize> {
+    value
+        .get(field)
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+}
+
+fn response_content_index(
+    output_index: Option<usize>,
+    content_index: Option<usize>,
+) -> usize {
+    match (output_index, content_index) {
+        (Some(output_index), Some(content_index)) => output_index
+            .saturating_mul(1_000_000)
+            .saturating_add(content_index),
+        (Some(output_index), None) => output_index,
+        (None, Some(content_index)) => content_index,
+        (None, None) => 0,
+    }
+}
+
+fn event_content_index(event: &serde_json::Value) -> usize {
+    response_content_index(
+        response_index(event, "output_index"),
+        response_index(event, "content_index"),
+    )
+}
+
+fn response_object(value: &serde_json::Value) -> &serde_json::Value {
+    match value.get("response") {
+        Some(response) if response.is_object() => response,
+        _ => value,
+    }
+}
+
+fn apply_response_metadata(
+    event: &serde_json::Value,
+    builder: &mut AssistantMessageBuilder,
+) {
+    let response = response_object(event);
+
+    if let Some(id) = response.get("id").and_then(|value| value.as_str()) {
+        builder.message.response_id = Some(id.to_string());
+    }
+
+    if let Some(model) = response.get("model").and_then(|value| value.as_str()) {
+        builder.message.response_model = Some(model.to_string());
+    }
+}
+
+fn response_stream_error(event: &serde_json::Value) -> String {
+    let response = response_object(event);
+    let error = event.get("error").or_else(|| response.get("error"));
+
+    let message = error
+        .and_then(|error| error.get("message"))
+        .and_then(|message| message.as_str())
+        .or_else(|| error.and_then(|error| error.as_str()))
+        .unwrap_or("unknown Responses API error");
+
+    format!("OpenAI Responses API stream error: {message}")
+}
+
+async fn process_response_output_item(
+    item: &serde_json::Value,
+    output_index: Option<usize>,
+    builder: &mut AssistantMessageBuilder,
+    state: &mut ResponsesStreamState,
+) {
+    let Some(item_type) = item.get("type").and_then(|value| value.as_str()) else {
+        return;
+    };
+
+    if item_type == "function_call" {
+        let item_id = item.get("id").and_then(|value| value.as_str());
+        let index = state.tool_index(output_index, item_id);
+        let call_id = item.get("call_id").and_then(|value| value.as_str());
+        let tool_call_id = state.set_tool_identity(index, item_id, call_id);
+        let name = item.get("name").and_then(|value| value.as_str());
+
+        state.has_tool_calls = true;
+        builder
+            .append_tool_call(index, tool_call_id.as_deref(), name, None)
+            .await;
+
+        if let Some(arguments) = item
+            .get("arguments")
+            .and_then(|value| value.as_str())
+            .filter(|arguments| !arguments.is_empty())
+            && !state.emitted_tool_arguments.contains(&index)
+        {
+            builder
+                .append_tool_call(index, None, None, Some(arguments))
+                .await;
+            state.emitted_tool_arguments.insert(index);
+        }
+
+        return;
+    }
+
+    if item_type == "message" && !state.has_text_output {
+        let Some(content) = item.get("content").and_then(|value| value.as_array()) else {
+            return;
+        };
+
+        for (content_index, part) in content.iter().enumerate() {
+            let part_type = part.get("type").and_then(|value| value.as_str());
+            
+            let Some(text) = part
+                .get("text")
+                .or_else(|| part.get("refusal"))
+                .and_then(|value| value.as_str())
+                .filter(|text| !text.is_empty())
+            else {
+                continue;
+            };
+
+            if matches!(
+                part_type,
+                Some("output_text") | Some("text") | Some("refusal")
+            ) {
+                state.has_text_output = true;
+                builder
+                    .append_text(
+                        response_content_index(output_index, Some(content_index)),
+                        text,
+                    )
+                    .await;
+            }
+        }
+    }
+}
+
+async fn process_responses_event(
+    event: &serde_json::Value,
+    builder: &mut AssistantMessageBuilder,
+    state: &mut ResponsesStreamState,
+    terminal_reason: &mut Option<StopReason>,
+) -> Result<ResponsesSseResult, ProviderError> {
+    apply_response_metadata(event, builder);
+
+    if let Some(usage) = parse_responses_usage(event) {
+        builder.set_usage(usage);
+    }
+
+    let Some(event_type) = event.get("type").and_then(|value| value.as_str()) else {
+        return Ok(ResponsesSseResult::Continue);
+    };
+
+    match event_type {
+        "response.output_text.delta" => {
+            if let Some(delta) = event
+                .get("delta")
+                .and_then(|value| value.as_str())
+                .filter(|delta| !delta.is_empty())
+            {
+                state.has_text_output = true;
+                builder
+                    .append_text(event_content_index(event), delta)
+                    .await;
+            }
+        },
+        "response.output_text.done" => {
+            if !state.has_text_output
+                && let Some(text) = event
+                    .get("text")
+                    .and_then(|value| value.as_str())
+                    .filter(|text| !text.is_empty())
+            {
+                state.has_text_output = true;
+                builder
+                    .append_text(event_content_index(event), text)
+                    .await;
+            }
+        },
+        "response.reasoning_summary_text.delta"
+        | "response.reasoning_text.delta"
+        | "response.reasoning_summary.delta" => {
+            if let Some(delta) = event
+                .get("delta")
+                .and_then(|value| value.as_str())
+                .filter(|delta| !delta.is_empty())
+            {
+                state.has_thinking_output = true;
+                builder
+                    .append_thinking(event_content_index(event), delta)
+                    .await;
+            }
+        },
+        "response.reasoning_summary_text.done" => {
+            if !state.has_thinking_output
+                && let Some(text) = event
+                    .get("text")
+                    .and_then(|value| value.as_str())
+                    .filter(|text| !text.is_empty())
+            {
+                state.has_thinking_output = true;
+                builder
+                    .append_thinking(event_content_index(event), text)
+                    .await;
+            }
+        },
+        "response.refusal.delta" => {
+            if let Some(delta) = event
+                .get("delta")
+                .and_then(|value| value.as_str())
+                .filter(|delta| !delta.is_empty())
+            {
+                state.has_text_output = true;
+                builder
+                    .append_text(event_content_index(event), delta)
+                    .await;
+            }
+        },
+        "response.output_item.added" | "response.output_item.done" => {
+            if let Some(item) = event.get("item") {
+                process_response_output_item(
+                    item,
+                    response_index(event, "output_index"),
+                    builder,
+                    state,
+                )
+                .await;
+            }
+        },
+        "response.function_call_arguments.delta" => {
+            let item_id = event.get("item_id").and_then(|value| value.as_str());
+            let index = state.tool_index(response_index(event, "output_index"), item_id);
+            let call_id = event.get("call_id").and_then(|value| value.as_str());
+            let name = event.get("name").and_then(|value| value.as_str());
+            let tool_call_id = state.set_tool_identity(index, item_id, call_id);
+
+            state.has_tool_calls = true;
+            builder
+                .append_tool_call(index, tool_call_id.as_deref(), name, None)
+                .await;
+
+            if let Some(delta) = event
+                .get("delta")
+                .and_then(|value| value.as_str())
+                .filter(|delta| !delta.is_empty())
+            {
+                builder
+                    .append_tool_call(index, None, None, Some(delta))
+                    .await;
+                state.emitted_tool_arguments.insert(index);
+            }
+        },
+        "response.function_call_arguments.done" => {
+            let item_id = event.get("item_id").and_then(|value| value.as_str());
+            let index = state.tool_index(response_index(event, "output_index"), item_id);
+            let call_id = event.get("call_id").and_then(|value| value.as_str());
+            let name = event.get("name").and_then(|value| value.as_str());
+            let tool_call_id = state.set_tool_identity(index, item_id, call_id);
+
+            state.has_tool_calls = true;
+            builder
+                .append_tool_call(index, tool_call_id.as_deref(), name, None)
+                .await;
+
+            if let Some(arguments) = event
+                .get("arguments")
+                .and_then(|value| value.as_str())
+                .filter(|arguments| !arguments.is_empty())
+                && !state.emitted_tool_arguments.contains(&index)
+            {
+                builder
+                    .append_tool_call(index, None, None, Some(arguments))
+                    .await;
+                state.emitted_tool_arguments.insert(index);
+            }
+        },
+        "response.completed" => {
+            // Normally all output items have already arrived through their
+            // item events. Processing the completed response as a fallback
+            // also supports compatible servers that omit those events.
+            let response = response_object(event);
+            if let Some(output) = response.get("output").and_then(|value| value.as_array()) {
+                for (output_index, item) in output.iter().enumerate() {
+                    process_response_output_item(
+                        item,
+                        Some(output_index),
+                        builder,
+                        state,
+                    )
+                    .await;
+                }
+            }
+
+            match response.get("status").and_then(|value| value.as_str()) {
+                Some("incomplete") => *terminal_reason = Some(StopReason::Length),
+                Some("failed") | Some("cancelled") => {
+                    return Ok(ResponsesSseResult::Failed(response_stream_error(event)));
+                },
+                _ => {
+                    *terminal_reason = Some(if state.has_tool_calls {
+                        StopReason::ToolUse
+                    } else {
+                        StopReason::Stop
+                    });
+                },
+            }
+            return Ok(ResponsesSseResult::Done);
+        },
+        "response.incomplete" => {
+            *terminal_reason = Some(StopReason::Length);
+            return Ok(ResponsesSseResult::Done);
+        },
+        "response.failed" | "response.error" | "error" => {
+            return Ok(ResponsesSseResult::Failed(response_stream_error(event)));
+        },
+        _ => {},
+    }
+
+    Ok(ResponsesSseResult::Continue)
+}
+
+async fn process_responses_sse_line(
+    line: &[u8],
+    builder: &mut AssistantMessageBuilder,
+    state: &mut ResponsesStreamState,
+    terminal_reason: &mut Option<StopReason>,
+) -> Result<ResponsesSseResult, ProviderError> {
+    let line = std::str::from_utf8(line)
+        .map_err(|_| ProviderError::Stream("SSE stream contained invalid UTF-8".into()))?;
+    let line = line.strip_suffix('\n').unwrap_or(line);
+    let line = line.strip_suffix('\r').unwrap_or(line);
+
+    let Some(data) = line.strip_prefix("data:") else {
+        // `event:` and SSE comments carry no JSON payload. The event type is
+        // also present in each Responses API data object, so these fields are
+        // not needed by the decoder.
+        return Ok(ResponsesSseResult::Continue);
+    };
+
+    let data = data.trim_start();
+    if data == "[DONE]" || data.is_empty() {
+        return Ok(if data == "[DONE]" {
+            ResponsesSseResult::Done
+        } else {
+            ResponsesSseResult::Continue
+        });
+    }
+
+    let value = serde_json::from_str::<serde_json::Value>(data)
+        .map_err(|error| ProviderError::Stream(format!("Malformed SSE JSON: {error}")))?;
+
+    process_responses_event(&value, builder, state, terminal_reason).await
+}
+
+async fn process_responses_sse_bytes(
+    bytes: &[u8],
+    buffer: &mut Vec<u8>,
+    builder: &mut AssistantMessageBuilder,
+    state: &mut ResponsesStreamState,
+    terminal_reason: &mut Option<StopReason>,
+) -> Result<ResponsesSseResult, ProviderError> {
+    buffer.extend_from_slice(bytes);
+
+    while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
+        let line: Vec<u8> = buffer.drain(..=newline).collect();
+        let result = process_responses_sse_line(
+            &line,
+            builder,
+            state,
+            terminal_reason,
+        )
+        .await?;
+
+        if result != ResponsesSseResult::Continue {
+            return Ok(result);
+        }
+    }
+
+    Ok(ResponsesSseResult::Continue)
+}
+
 async fn process_sse_line(
     line: &[u8],
     builder: &mut AssistantMessageBuilder,
@@ -324,6 +800,129 @@ async fn process_sse_bytes(
     }
     
     Ok(())
+}
+
+async fn consume_chat_stream(
+    response: reqwest::Response,
+    builder: &mut AssistantMessageBuilder,
+) -> (Option<StopReason>, Option<String>) {
+    let mut reader = response.bytes_stream();
+    let mut buffer = Vec::new();
+    let mut terminal_reason = None;
+    let mut failure = None;
+    let mut done_seen = false;
+
+    while !done_seen {
+        let Some(chunk) = reader.next().await else {
+            break;
+        };
+
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                failure = Some(format!("SSE transport error: {error}"));
+                break;
+            },
+        };
+
+        if let Err(error) = process_sse_bytes(
+            &chunk,
+            &mut buffer,
+            builder,
+            &mut terminal_reason,
+            &mut done_seen,
+        )
+        .await
+        {
+            failure = Some(error.to_string());
+            break;
+        }
+    }
+
+    // A final SSE field may not be newline-terminated. Process it so a valid
+    // response is not lost, while malformed trailing bytes still become a
+    // structured stream error.
+    if failure.is_none()
+        && !done_seen
+        && !buffer.is_empty()
+        && let Err(error) = process_sse_line(&buffer, builder, &mut terminal_reason).await
+    {
+        failure = Some(error.to_string());
+    }
+
+    if failure.is_none() && terminal_reason.is_none() {
+        failure = Some("SSE stream ended without a terminal completion chunk".to_string());
+    }
+
+    (terminal_reason, failure)
+}
+
+async fn consume_responses_stream(
+    response: reqwest::Response,
+    builder: &mut AssistantMessageBuilder,
+) -> (Option<StopReason>, Option<String>) {
+    let mut reader = response.bytes_stream();
+    let mut buffer = Vec::new();
+    let mut state = ResponsesStreamState::default();
+    let mut terminal_reason = None;
+    let mut failure = None;
+    let mut done_seen = false;
+
+    while !done_seen {
+        let Some(chunk) = reader.next().await else {
+            break;
+        };
+
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                failure = Some(format!("SSE transport error: {error}"));
+                break;
+            },
+        };
+
+        match process_responses_sse_bytes(
+            &chunk,
+            &mut buffer,
+            builder,
+            &mut state,
+            &mut terminal_reason,
+        )
+        .await
+        {
+            Ok(ResponsesSseResult::Continue) => {},
+            Ok(ResponsesSseResult::Done) => done_seen = true,
+            Ok(ResponsesSseResult::Failed(error)) => {
+                failure = Some(error);
+                done_seen = true;
+            },
+            Err(error) => {
+                failure = Some(error.to_string());
+                break;
+            },
+        }
+    }
+
+    if failure.is_none() && !done_seen && !buffer.is_empty() {
+        match process_responses_sse_line(
+            &buffer,
+            builder,
+            &mut state,
+            &mut terminal_reason,
+        )
+        .await
+        {
+            Ok(ResponsesSseResult::Continue | ResponsesSseResult::Done) => {},
+            Ok(ResponsesSseResult::Failed(error)) => failure = Some(error),
+            Err(error) => failure = Some(error.to_string()),
+        }
+    }
+
+    if failure.is_none() && terminal_reason.is_none() {
+        failure = Some("SSE stream ended without a terminal Responses API event".to_string());
+    }
+
+    (terminal_reason, failure)
 }
 
 impl OpenaiCompatProvider {
@@ -444,7 +1043,7 @@ impl OpenaiCompatProvider {
                             .filter_map(|block| {
                                 if let AssistantContent::ToolCall(tc) = block {
                                     Some(serde_json::json!({
-                                        "id": tc.id,
+                                        "id": split_response_tool_call_id(&tc.id).0,
                                         "type": "function",
                                         "function": {
                                             "name": tc.name,
@@ -482,7 +1081,136 @@ impl OpenaiCompatProvider {
             .collect()
     }
 
-    /// Convert tools to OpenAI function format.
+    /// Convert messages to the OpenAI Responses input format.
+    fn convert_responses_input(
+        &self,
+        model: &Model,
+        messages: &[Message],
+    ) -> Vec<serde_json::Value> {
+        let mut input = Vec::new();
+
+        for (message_index, message) in messages.iter().enumerate() {
+            match message {
+                Message::User(user) => {
+                    let mut content = vec![serde_json::json!({
+                        "type": "input_text",
+                        "text": user.content
+                    })];
+
+                    content.extend(user.images.iter().map(|image| {
+                        serde_json::json!({
+                            "type": "input_image",
+                            "detail": "auto",
+                            "image_url": format!(
+                                "data:{};base64,{}",
+                                image.mime_type,
+                                image.data
+                            )
+                        })
+                    }));
+
+                    input.push(serde_json::json!({
+                        "role": "user",
+                        "content": content
+                    }));
+                },
+                Message::Assistant(assistant) => {
+                    for content in &assistant.content {
+                        match content {
+                            AssistantContent::Thinking(thinking) => {
+                                if let Some(signature) = &thinking.thinking_signature
+                                    && let Ok(reasoning) = serde_json::from_str(signature)
+                                {
+                                    input.push(reasoning);
+                                }
+                            },
+                            AssistantContent::Text(text) if !text.text.is_empty() => {
+                                input.push(serde_json::json!({
+                                    "type": "message",
+                                    "role": "assistant",
+                                    "content": [{
+                                        "type": "output_text",
+                                        "text": text.text,
+                                        "annotations": []
+                                    }],
+                                    "status": "completed",
+                                    "id": format!("msg_{message_index}")
+                                }));
+                            },
+                            AssistantContent::ToolCall(tool_call) => {
+                                let (call_id, item_id) =
+                                    split_response_tool_call_id(&tool_call.id);
+                                let mut function_call = serde_json::json!({
+                                    "type": "function_call",
+                                    "call_id": call_id,
+                                    "name": tool_call.name,
+                                    "arguments": tool_call.arguments.to_string()
+                                });
+                                if let Some(item_id) = item_id {
+                                    function_call["id"] = serde_json::json!(item_id);
+                                }
+                                input.push(function_call);
+                            },
+                            AssistantContent::Text(_) => {},
+                        }
+                    }
+                },
+                Message::ToolResult(result) => {
+                    let text = result
+                        .content
+                        .iter()
+                        .map(|item| item.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let (call_id, _) = split_response_tool_call_id(&result.tool_call_id);
+                    let output = if result.images.is_empty()
+                        || !model.input.iter().any(|input| input == "image")
+                    {
+                        serde_json::json!(if text.is_empty() {
+                            if result.images.is_empty() {
+                                "(no tool output)"
+                            } else {
+                                "(see attached image)"
+                            }
+                        } else {
+                            &text
+                        })
+                    } else {
+                        let mut content = if text.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![serde_json::json!({
+                                "type": "input_text",
+                                "text": text
+                            })]
+                        };
+                        content.extend(result.images.iter().map(|image| {
+                            serde_json::json!({
+                                "type": "input_image",
+                                "detail": "auto",
+                                "image_url": format!(
+                                    "data:{};base64,{}",
+                                    image.mime_type,
+                                    image.data
+                                )
+                            })
+                        }));
+                        serde_json::Value::Array(content)
+                    };
+
+                    input.push(serde_json::json!({
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": output
+                    }));
+                },
+            }
+        }
+
+        input
+    }
+
+    /// Convert tools to OpenAI Chat Completions function format.
     fn convert_tools(
         &self,
         tools: &[crate::ai::types::Tool],
@@ -502,7 +1230,7 @@ impl OpenaiCompatProvider {
             .collect()
     }
 
-    /// Build the chat completions request body.
+    /// Build the Chat Completions request body.
     fn build_request_body(
         &self,
         model: &Model,
@@ -562,6 +1290,77 @@ impl OpenaiCompatProvider {
 
         serde_json::Value::Object(body)
     }
+
+    /// Convert tools to the flat function format used by the Responses API.
+    fn convert_responses_tools(
+        &self,
+        tools: &[crate::ai::types::Tool],
+    ) -> Vec<serde_json::Value> {
+        tools
+            .iter()
+            .map(|tool| {
+                serde_json::json!({
+                    "type": "function",
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                    "strict": false
+                })
+            })
+            .collect()
+    }
+
+    /// Build the OpenAI Responses request body.
+    fn build_responses_request_body(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: &StreamOptions,
+    ) -> serde_json::Value {
+        let mut body = serde_json::Map::new();
+
+        body.insert("model".into(), model.id.clone().into());
+
+        let mut input = Vec::new();
+        if let Some(system_prompt) = &context.system_prompt {
+            let role = if model.reasoning { "developer" } else { "system" };
+            input.push(serde_json::json!({
+                "role": role,
+                "content": system_prompt
+            }));
+        }
+        input.extend(self.convert_responses_input(model, &context.messages));
+        body.insert("input".into(), input.into());
+
+        if let Some(tools) = &context.tools
+            && !tools.is_empty()
+        {
+            body.insert(
+                "tools".into(),
+                self.convert_responses_tools(tools).into(),
+            );
+
+            if let Some(tool_choice) = &options.tool_choice {
+                let value = match tool_choice {
+                    crate::ai::types::ToolChoice::Auto => "auto",
+                    crate::ai::types::ToolChoice::None => "none",
+                };
+                body.insert("tool_choice".into(), value.into());
+            }
+        }
+
+        if let Some(temp) = options.temperature {
+            body.insert("temperature".into(), temp.into());
+        }
+        if let Some(max_tokens) = options.max_tokens {
+            body.insert("max_output_tokens".into(), max_tokens.into());
+        }
+
+        body.insert("stream".into(), true.into());
+        body.insert("store".into(), false.into());
+
+        serde_json::Value::Object(body)
+    }
 }
 
 impl Provider for OpenaiCompatProvider {
@@ -578,7 +1377,16 @@ impl Provider for OpenaiCompatProvider {
             .as_deref()
             .unwrap_or(&self.config.api_key)
             .to_owned();
-        let body = self.build_request_body(model, context, options);
+        let (endpoint, body) = match &model.api {
+            Api::OpenaiCompletions => (
+                "chat/completions",
+                self.build_request_body(model, context, options),
+            ),
+            Api::OpenaiResponses => (
+                "responses",
+                self.build_responses_request_body(model, context, options),
+            ),
+        };
         let model_id = model.id.clone();
         let model_api = model.api.clone();
         let model_provider = model.provider.clone();
@@ -587,7 +1395,11 @@ impl Provider for OpenaiCompatProvider {
 
         Box::pin(async move {
             let headers = self.request_headers(&api_key)?;
-            let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+            let url = format!(
+                "{}/{}",
+                base_url.trim_end_matches('/'),
+                endpoint
+            );
             let mut attempt = 0;
             
             let response = loop {
@@ -636,64 +1448,24 @@ impl Provider for OpenaiCompatProvider {
             let stream = create_assistant_message_event_stream();
             let producer_stream = stream.clone();
             tokio::spawn(async move {
-                let mut builder =
-                    AssistantMessageBuilder::new(producer_stream, model_api, model_id);
-                
+                let mut builder = AssistantMessageBuilder::new(
+                    producer_stream,
+                    model_api.clone(),
+                    model_id,
+                );
+
                 // The shared builder uses a generic provider label. Preserve
                 // the configured provider in persisted assistant messages so
                 // model switching remains visible in session history.
                 builder.message.provider = model_provider;
                 builder.emit_start().await;
-                
-                let mut reader = response.bytes_stream();
-                let mut buffer = Vec::new();
-                let mut terminal_reason = None;
-                let mut failure = None;
 
-                let mut done_seen = false;
-
-                while !done_seen {
-                    let Some(chunk) = reader.next().await else {
-                        break;
-                    };
-                    
-                    let chunk = match chunk {
-                        Ok(chunk) => chunk,
-                        Err(error) => {
-                            failure = Some(format!("SSE transport error: {error}"));
-                            break;
-                        },
-                    };
-                    
-                    if let Err(error) = process_sse_bytes(
-                        &chunk,
-                        &mut buffer,
-                        &mut builder,
-                        &mut terminal_reason,
-                        &mut done_seen,
-                    )
-                    .await
-                    {
-                        failure = Some(error.to_string());
-                        break;
-                    }
-                    
-                    if failure.is_some() {
-                        break;
-                    }
-                }
-
-                // A final SSE field may not be newline-terminated. Process it
-                // so a valid response is not lost, while malformed trailing
-                // bytes still become a structured stream error.
-                if failure.is_none()
-                    && !done_seen
-                    && !buffer.is_empty()
-                    && let Err(error) =
-                        process_sse_line(&buffer, &mut builder, &mut terminal_reason).await
-                {
-                    failure = Some(error.to_string());
-                }
+                let (terminal_reason, failure) = match model_api {
+                    Api::OpenaiCompletions => consume_chat_stream(response, &mut builder).await,
+                    Api::OpenaiResponses => {
+                        consume_responses_stream(response, &mut builder).await
+                    },
+                };
 
                 match failure {
                     Some(error) => builder.fail(error).await,
@@ -705,7 +1477,7 @@ impl Provider for OpenaiCompatProvider {
                         },
                         None => {
                             builder
-                                .fail("SSE stream ended without a terminal completion chunk")
+                                .fail("SSE stream ended without a terminal completion event")
                                 .await
                         },
                     },
@@ -1100,6 +1872,216 @@ mod tests {
             content,
             AssistantContent::Thinking(thinking) if thinking.thinking == "considering"
         )));
+    }
+
+    #[test]
+    fn builds_responses_request_body() {
+        let provider = OpenaiCompatProvider::new(OpenaiCompatConfig {
+            api_key: "test-key".to_string(),
+            ..Default::default()
+        });
+        let context = Context::new(vec![Message::User(UserMessage::new("Hello"))])
+            .with_system_prompt("Be concise")
+            .with_tools(vec![crate::ai::types::Tool::new(
+                "lookup",
+                "Look something up",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "query": { "type": "string" } }
+                }),
+            )]);
+        let mut options = StreamOptions::new()
+            .with_temperature(0.2)
+            .with_max_tokens(42);
+        options.tool_choice = Some(crate::ai::types::ToolChoice::Auto);
+
+        let body = provider.build_responses_request_body(
+            &Model::new(
+                "gpt-5",
+                "GPT-5",
+                Api::OpenaiResponses,
+                "openai",
+                "http://localhost/v1",
+                true,
+                128_000,
+                16_384,
+            ),
+            &context,
+            &options,
+        );
+
+        assert_eq!(body["model"], "gpt-5");
+        assert_eq!(body["input"][0]["role"], "developer");
+        assert_eq!(body["input"][0]["content"], "Be concise");
+        assert_eq!(body["input"][1]["role"], "user");
+        assert_eq!(body["input"][1]["content"][0]["type"], "input_text");
+        assert_eq!(body["input"][1]["content"][0]["text"], "Hello");
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["name"], "lookup");
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["max_output_tokens"], 42);
+        assert_eq!(body["stream"], true);
+    }
+
+    #[tokio::test]
+    async fn streamed_responses_accumulate_text_and_usage() {
+        let mut server = mockito::Server::new_async().await;
+        let body = [
+            serde_json::json!({
+                "type": "response.created",
+                "response": { "id": "resp_1", "model": "gpt-5" }
+            }),
+            serde_json::json!({
+                "type": "response.output_text.delta",
+                "output_index": 0,
+                "content_index": 0,
+                "delta": "Hello"
+            }),
+            serde_json::json!({
+                "type": "response.output_text.delta",
+                "output_index": 0,
+                "content_index": 0,
+                "delta": " world"
+            }),
+            serde_json::json!({
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_1",
+                    "model": "gpt-5",
+                    "usage": {
+                        "input_tokens": 3,
+                        "output_tokens": 2,
+                        "input_tokens_details": { "cached_tokens": 1 },
+                        "output_tokens_details": { "reasoning_tokens": 0 },
+                        "total_tokens": 5
+                    }
+                }
+            }),
+        ]
+        .into_iter()
+        .map(|event| format!("data: {event}\n\n"))
+        .collect::<String>();
+
+        let _mock = server
+            .mock("POST", "/responses")
+            .with_status(200)
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let provider = OpenaiCompatProvider::new(OpenaiCompatConfig {
+            base_url: server.url(),
+            api_key: "test".to_string(),
+            ..Default::default()
+        });
+        let model = Model::new(
+            "gpt-5",
+            "GPT-5",
+            Api::OpenaiResponses,
+            "openai",
+            server.url(),
+            true,
+            128_000,
+            16_384,
+        );
+
+        let mut stream = provider
+            .stream(&model, &Context::default(), &StreamOptions::new())
+            .await
+            .unwrap();
+        let events: Vec<_> = stream.by_ref().collect().await;
+        let message = events
+            .into_iter()
+            .find_map(|event| match event {
+                AssistantMessageEventStreamEvent::Done { message, .. } => Some(message),
+                _ => None,
+            })
+            .unwrap();
+
+        assert_eq!(message.content[0].text_content(), Some("Hello world"));
+        assert_eq!(message.api, Api::OpenaiResponses);
+        assert_eq!(message.response_id.as_deref(), Some("resp_1"));
+        assert_eq!(message.response_model.as_deref(), Some("gpt-5"));
+        assert_eq!(message.usage.input, 2);
+        assert_eq!(message.usage.output, 2);
+        assert_eq!(message.usage.cache_read, 1);
+        assert_eq!(message.usage.total_tokens, 5);
+    }
+
+    #[tokio::test]
+    async fn streamed_responses_accumulate_function_call_arguments() {
+        let stream = crate::ai::streaming::create_assistant_message_event_stream();
+        let mut builder = AssistantMessageBuilder::new(
+            stream.clone(),
+            Api::OpenaiResponses,
+            "gpt-5",
+        );
+        let mut state = ResponsesStreamState::default();
+        let mut terminal_reason = None;
+
+        for event in [
+            serde_json::json!({
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {
+                    "id": "fc_item_1",
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "lookup",
+                    "arguments": ""
+                }
+            }),
+            serde_json::json!({
+                "type": "response.function_call_arguments.delta",
+                "output_index": 0,
+                "item_id": "fc_item_1",
+                "delta": r#"{"query":"#
+            }),
+            serde_json::json!({
+                "type": "response.function_call_arguments.delta",
+                "output_index": 0,
+                "item_id": "fc_item_1",
+                "delta": r#""rust"}"#
+            }),
+            serde_json::json!({
+                "type": "response.completed",
+                "response": { "output": [] }
+            }),
+        ] {
+            assert_eq!(
+                process_responses_event(
+                    &event,
+                    &mut builder,
+                    &mut state,
+                    &mut terminal_reason,
+                )
+                .await
+                .unwrap(),
+                if event["type"] == "response.completed" {
+                    ResponsesSseResult::Done
+                } else {
+                    ResponsesSseResult::Continue
+                }
+            );
+        }
+
+        builder
+            .finish(terminal_reason.clone().unwrap())
+            .await
+            .unwrap();
+        let events: Vec<_> = stream.collect().await;
+        let tool_call = events
+            .into_iter()
+            .find_map(|event| match event {
+                AssistantMessageEventStreamEvent::ToolcallEnd { tool_call, .. } => Some(tool_call),
+                _ => None,
+            })
+            .unwrap();
+
+        assert_eq!(tool_call.id, "call_1|fc_item_1");
+        assert_eq!(tool_call.name, "lookup");
+        assert_eq!(tool_call.arguments, serde_json::json!({"query": "rust"}));
+        assert_eq!(terminal_reason, Some(StopReason::ToolUse));
     }
 
     #[tokio::test]

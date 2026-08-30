@@ -64,7 +64,8 @@ impl Default for ModelSettings {
 /// A user-defined provider and the models belonging to it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderSettings {
-    /// OpenAI Chat Completions-compatible endpoint.
+    /// OpenAI-compatible endpoint. The model's `api` selects Chat
+    /// Completions or Responses wire format.
     #[serde(default)]
     pub base_url: Option<String>,
     /// Optional inline key. Prefer the credential store or environment
@@ -785,6 +786,7 @@ mod tests {
 
             [providers.local.models.llama-3]
             name = "Llama 3"
+            api = "openai-responses"
             reasoning = true
             input = ["text", "image"]
             context_window = 32768
@@ -802,6 +804,7 @@ mod tests {
         assert_eq!(model.provider, "local");
         assert_eq!(model.base_url, "http://localhost:1234/v1");
         assert_eq!(model.name, "Llama 3");
+        assert_eq!(model.api, Api::OpenaiResponses);
         assert!(model.reasoning);
         assert_eq!(model.input, vec!["text", "image"]);
         assert_eq!(model.context_window, 32_768);

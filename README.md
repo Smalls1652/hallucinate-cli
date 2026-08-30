@@ -54,6 +54,8 @@ base_url = "http://localhost:1234/v1"
 
 [providers.local.models.llama-3]
 name = "Llama 3"
+# Use `openai-responses` for providers exposing /responses.
+# api = "openai-responses"
 ```
 
 The settings file is stored in the application's configuration directory. Provider model IDs and metadata are user-configurable, so the same structure works for any OpenAI-compatible endpoint.
