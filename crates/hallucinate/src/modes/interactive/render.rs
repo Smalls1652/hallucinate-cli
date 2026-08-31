@@ -284,7 +284,7 @@ impl InteractiveTui {
                         line_starts.push(None);
                     }
 
-                    lines.push(Line::from(Span::styled("╰─", muted_for(role_color))));
+                    lines.push(Line::from(Span::styled("╰─", role_color)));
                     line_starts.push(None);
                     lines.push(Line::from(""));
                     line_starts.push(None);
@@ -746,13 +746,6 @@ fn muted_thinking_line(
     }
 
     ratatui::text::Line::from(spans)
-}
-
-/// Use a dim version of a message's accent for structural card elements.
-fn muted_for(accent: ratatui::style::Color) -> ratatui::style::Style {
-    ratatui::style::Style::default()
-        .fg(accent)
-        .add_modifier(ratatui::style::Modifier::DIM)
 }
 
 /// Append text that may contain newlines, using the supplied visual prefix on
