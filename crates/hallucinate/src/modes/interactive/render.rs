@@ -163,7 +163,7 @@ impl InteractiveTui {
                     let role_style = Style::default().fg(role_color).add_modifier(Modifier::BOLD);
 
                     let mut lines = vec![Line::from(vec![
-                        Span::styled("╭─ ", muted),
+                        Span::styled("╭─ ", role_color),
                         Span::styled(icon, role_style),
                         Span::styled(format!(" {}", role_label), role_style),
                     ])];
