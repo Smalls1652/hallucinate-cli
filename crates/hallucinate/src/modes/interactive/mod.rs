@@ -387,7 +387,7 @@ impl InteractiveTui {
                 transcript
             },
             editor: Editor::new("").placeholder(
-                "Type a message... (Shift+Enter/Ctrl+J newline, Enter send, drag chat to select, Ctrl/Cmd+C copy)"
+                "Type a message..."
             ),
             transcript_area: Rect::default(),
             chat_selection: None,
