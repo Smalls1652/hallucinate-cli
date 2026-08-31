@@ -256,7 +256,7 @@ impl InteractiveTui {
                         append_prefixed_lines(
                             &mut lines,
                             &format!("├─ {}", &readable),
-                            "   ",
+                            "│  ",
                             Style::default().fg(Color::LightBlue),
                         );
 
@@ -273,7 +273,7 @@ impl InteractiveTui {
                             append_prefixed_lines(
                                 &mut lines,
                                 &format!("│  {}", truncate_width(result, 100)),
-                                "   ",
+                                "│  ",
                                 result_style,
                             );
 
