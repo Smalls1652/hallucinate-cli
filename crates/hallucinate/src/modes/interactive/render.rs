@@ -2,15 +2,13 @@
 
 use hallucinate_agent::agent::types::AgentState;
 use hallucinate_tui::{alt_screen::MessageRole, components::markdown_to_lines};
-
-use crate::session::manager::SessionManager;
-
 use ratatui::layout::Rect;
 #[cfg(test)]
 use ratatui::{style::Color, text::Line};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{InteractiveTui, short_session_id};
+use crate::session::manager::SessionManager;
 
 impl InteractiveTui {
     /// Render the current state.
@@ -129,8 +127,9 @@ impl InteractiveTui {
             //
             // Messages use a light-weight chat-card treatment instead of a
             // stream of bracketed labels. The rounded header and accent rail
-            // give each turn a clear visual boundary while leaving the
+            // give each speaker a clear visual boundary while leaving the
             // Markdown renderer in charge of the actual message content.
+            // Consecutive assistant turns deliberately share a card.
             //
             // Paragraph's word wrapper does not repeat a line's prefix on
             // continuation rows. Wrap message content before adding the
@@ -144,10 +143,9 @@ impl InteractiveTui {
             let transcript_width = transcript_inner_area.width;
 
             let mut selection_line_starts = Vec::new();
+            let messages = self.transcript.messages();
 
-            let lines: Vec<Line<'static>> = self
-                .transcript
-                .messages()
+            let lines: Vec<Line<'static>> = messages
                 .iter()
                 .enumerate()
                 .flat_map(|(message_index, msg)| {
@@ -159,23 +157,37 @@ impl InteractiveTui {
                     };
 
                     let muted = Style::default().fg(Color::DarkGray);
+                    let starts_card = starts_transcript_card(
+                        message_index
+                            .checked_sub(1)
+                            .and_then(|index| messages.get(index))
+                            .map(|message| message.role),
+                        msg.role,
+                    );
+                    let ends_card = ends_transcript_card(
+                        msg.role,
+                        messages.get(message_index + 1).map(|message| message.role),
+                    );
 
                     let role_style = Style::default().fg(role_color).add_modifier(Modifier::BOLD);
+                    let mut lines = Vec::new();
+                    let mut line_starts = Vec::new();
 
-                    let mut lines = vec![Line::from(vec![
-                        Span::styled("╭─ ", role_color),
-                        Span::styled(icon, role_style),
-                        Span::styled(format!(" {}", role_label), role_style),
-                    ])];
+                    if starts_card {
+                        lines.push(Line::from(vec![
+                            Span::styled("╭─ ", role_color),
+                            Span::styled(icon, role_style),
+                            Span::styled(format!(" {}", role_label), role_style),
+                        ]));
+                        line_starts.push(None);
 
-                    let mut line_starts = vec![None];
-
-                    if self.transcript.show_timestamps() {
-                        lines[0].spans.push(Span::styled("  · ", muted));
-                        lines[0].spans.push(Span::styled(
-                            msg.timestamp.format("%H:%M:%S").to_string(),
-                            muted.add_modifier(Modifier::ITALIC),
-                        ));
+                        if self.transcript.show_timestamps() {
+                            lines[0].spans.push(Span::styled("  · ", muted));
+                            lines[0].spans.push(Span::styled(
+                                msg.timestamp.format("%H:%M:%S").to_string(),
+                                muted.add_modifier(Modifier::ITALIC),
+                            ));
+                        }
                     }
 
                     if self.show_thinking && !msg.thinking.is_empty() {
@@ -284,10 +296,18 @@ impl InteractiveTui {
                         line_starts.push(None);
                     }
 
-                    lines.push(Line::from(Span::styled("╰─", role_color)));
-                    line_starts.push(None);
-                    lines.push(Line::from(""));
-                    line_starts.push(None);
+                    if ends_card {
+                        lines.push(Line::from(Span::styled("╰─", role_color)));
+                        line_starts.push(None);
+                        lines.push(Line::from(""));
+                        line_starts.push(None);
+                    } else {
+                        // Consecutive assistant turns share this card; leave
+                        // a quiet in-card divider between their content.
+                        lines.push(Line::from(Span::styled("│ ", role_color)));
+                        line_starts.push(None);
+                    }
+
                     selection_line_starts.extend(line_starts);
 
                     lines
@@ -600,6 +620,32 @@ impl InteractiveTui {
     }
 }
 
+/// Return whether `role` begins a new visual transcript card.
+///
+/// Tool-result messages are attached to their originating assistant message,
+/// so adjacent assistant messages represent consecutive agent turns and share
+/// one card.
+fn starts_transcript_card(
+    previous_role: Option<MessageRole>,
+    role: MessageRole,
+) -> bool {
+    !matches!(
+        (previous_role, role),
+        (Some(MessageRole::Assistant), MessageRole::Assistant)
+    )
+}
+
+/// Return whether `role` closes its visual transcript card.
+fn ends_transcript_card(
+    role: MessageRole,
+    next_role: Option<MessageRole>,
+) -> bool {
+    !matches!(
+        (role, next_role),
+        (MessageRole::Assistant, Some(MessageRole::Assistant))
+    )
+}
+
 /// Check whether a ratatui `Line` has no visible content.
 fn line_is_empty(line: &ratatui::text::Line<'_>) -> bool {
     line.spans.iter().all(|span| span.content.is_empty())
@@ -821,6 +867,19 @@ fn truncate_width(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consecutive_assistant_turns_share_a_transcript_card() {
+        assert!(!starts_transcript_card(
+            Some(MessageRole::Assistant),
+            MessageRole::Assistant,
+        ));
+        assert!(!ends_transcript_card(
+            MessageRole::Assistant,
+            Some(MessageRole::Assistant),
+        ));
+        assert!(ends_transcript_card(MessageRole::Assistant, None));
+    }
 
     #[test]
     fn selection_mask_excludes_the_message_rail() {
