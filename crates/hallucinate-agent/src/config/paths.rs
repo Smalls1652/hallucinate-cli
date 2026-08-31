@@ -101,10 +101,12 @@ pub fn display_path(
     path.display().to_string()
 }
 
+/// Expand a path that may contain a tilde (`~`) to the user's home directory.
 fn expand_tilde(path: &Path) -> PathBuf {
     PathBuf::from(shellexpand::tilde(&path.to_string_lossy()).into_owned())
 }
 
+/// Resolve a path to an absolute path and normalize it (removing `.` and `..` components).
 fn absolute_normalized(path: &Path) -> PathBuf {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
@@ -128,6 +130,7 @@ fn absolute_normalized(path: &Path) -> PathBuf {
     normalized
 }
 
+/// Convert a path (typically relative to a project dir) to a display string.
 fn relative_path_string(path: &Path) -> String {
     if path.as_os_str().is_empty() {
         ".".to_string()

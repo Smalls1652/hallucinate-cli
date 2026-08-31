@@ -588,6 +588,8 @@ impl Agent {
         result
     }
 
+    /// Run the agent loop, processing turns until the assistant responds
+    /// without tool calls, max turns is reached, or an error occurs.
     async fn run_loop(&mut self) -> Result<StopReason, anyhow::Error> {
         let mut turn_number = 1;
 
@@ -662,6 +664,8 @@ impl Agent {
         self.compact_context()
     }
 
+    /// Compact the message context by summarizing older messages when the
+    /// token budget is exceeded.
     fn compact_context(&mut self) -> Result<(), anyhow::Error> {
         let before_tokens = crate::agent::types::estimate_context_tokens(&self.build_context());
 
@@ -728,6 +732,7 @@ mod tests {
         types::{Api, Model, StopReason},
     };
 
+    /// Return a small test model for use in unit tests.
     fn test_model() -> Model {
         Model::new(
             "test-model",

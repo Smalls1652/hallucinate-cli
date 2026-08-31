@@ -180,6 +180,7 @@ impl Tool for ReadTool {
     }
 }
 
+/// Truncate output to a maximum size, adding a truncation message if needed.
 fn truncate_output(
     content: &str,
     max_size: usize,

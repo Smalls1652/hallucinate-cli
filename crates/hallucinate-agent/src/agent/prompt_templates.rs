@@ -29,28 +29,38 @@ pub struct PromptTemplate {
 /// A non-fatal error from prompt-template discovery.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptTemplateDiagnostic {
+    /// Human-readable error message.
     pub message: String,
+    /// Path to the file that caused the diagnostic.
     pub path: PathBuf,
 }
 
 /// The templates and diagnostics returned by discovery.
 #[derive(Debug, Default)]
 pub struct PromptTemplateLoadResult {
+    /// Successfully loaded prompt templates.
     pub templates: Vec<PromptTemplate>,
+    /// Non-fatal diagnostics encountered during discovery.
     pub diagnostics: Vec<PromptTemplateDiagnostic>,
 }
 
 /// Options controlling prompt-template discovery.
 #[derive(Debug, Clone)]
 pub struct PromptTemplateLoadOptions {
+    /// Current working directory for resolving relative paths.
     pub cwd: PathBuf,
+    /// Explicit file or directory paths to load templates from.
     pub prompt_paths: Vec<PathBuf>,
+    /// Whether to include default templates from standard locations.
     pub include_defaults: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
+/// Parsed YAML frontmatter from a prompt template Markdown file.
 struct PromptFrontmatter {
+    /// Short description of the template's purpose.
     description: Option<String>,
+    /// Optional usage hint shown to the user.
     #[serde(rename = "argument-hint")]
     argument_hint: Option<String>,
 }
@@ -201,6 +211,7 @@ pub fn substitute_args(
         .into_owned()
 }
 
+/// Recursively load prompt templates from a directory.
 fn load_directory(
     directory: &Path,
     result: &mut PromptTemplateLoadResult,
@@ -223,6 +234,7 @@ fn load_directory(
     }
 }
 
+/// Load a single prompt template from a Markdown file.
 fn load_file(
     path: &Path,
     result: &mut PromptTemplateLoadResult,
@@ -293,6 +305,7 @@ fn load_file(
     });
 }
 
+/// Split YAML frontmatter from the template body.
 fn split_frontmatter(raw: &str) -> Result<(PromptFrontmatter, String), String> {
     let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
 
@@ -320,6 +333,7 @@ fn split_frontmatter(raw: &str) -> Result<(PromptFrontmatter, String), String> {
     Ok((frontmatter, rest[body_start..].to_string()))
 }
 
+/// Resolve a single argument token to its string value.
 fn argument_value<'a>(
     target: &str,
     arguments: &'a [String],
@@ -337,6 +351,7 @@ fn argument_value<'a>(
         .map_or("", String::as_str)
 }
 
+/// Extract a short description from the first non-empty line of content.
 fn first_line_description(content: &str) -> String {
     let line = content
         .lines()
@@ -350,11 +365,13 @@ fn first_line_description(content: &str) -> String {
     }
 }
 
+/// Check whether a path points to a Markdown file.
 fn is_markdown_file(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
 }
 
+/// Expand a path, resolving tildes and making it absolute relative to `cwd`.
 fn expand_path(
     path: &Path,
     cwd: &Path,
@@ -373,6 +390,7 @@ fn expand_path(
 mod tests {
     use super::*;
 
+    /// Create a test `PromptTemplate` with the given name and content.
     fn template(
         name: &str,
         content: &str,

@@ -26,22 +26,35 @@ use crate::{
 /// Model IDs are map keys rather than fields, which keeps the configuration
 /// grouped by provider and makes it possible to use IDs containing characters
 /// such as `/` when they are quoted in TOML.
+/// A model defined under a user provider in `settings.toml`.
+///
+/// Model IDs are map keys rather than fields, which keeps the configuration
+/// grouped by provider and makes it possible to use IDs containing characters
+/// such as `/` when they are quoted in TOML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelSettings {
+    /// Human-readable name for the model.
     #[serde(default)]
     pub name: Option<String>,
+    /// API variant used by the provider (e.g., OpenAI Chat Completions or Responses).
     #[serde(default = "default_api")]
     pub api: Api,
+    /// Override the base URL for this specific model.
     #[serde(default)]
     pub base_url: Option<String>,
+    /// Whether this model supports reasoning/thinking output.
     #[serde(default)]
     pub reasoning: bool,
+    /// Supported input modalities (e.g., "text", "image").
     #[serde(default = "default_input")]
     pub input: Vec<String>,
+    /// Maximum context window size in tokens.
     #[serde(default = "default_context_window")]
     pub context_window: u32,
+    /// Maximum number of tokens the model can output.
     #[serde(default = "default_model_max_tokens")]
     pub max_tokens: u32,
+    /// Cost rates per million tokens for input and output.
     #[serde(default)]
     pub cost: ModelCostRates,
 }
@@ -72,8 +85,10 @@ pub struct ProviderSettings {
     /// variables for secrets; this is accepted for convenient local setups.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// Additional HTTP headers to send with every request.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub headers: HashMap<String, String>,
+    /// Models provided by this provider, keyed by model ID.
     #[serde(default)]
     pub models: HashMap<String, ModelSettings>,
 }
@@ -86,7 +101,7 @@ pub struct Settings {
     pub default_model: Option<String>,
 
     /// Credential namespace for the OpenAI-compatible provider (usually
-    /// "openai").
+    /// "openai"). Defaults to `"openai"`.
     #[serde(default = "default_provider")]
     pub provider: String,
 
@@ -155,6 +170,7 @@ pub struct Settings {
     project_override_loaded: bool,
 }
 
+/// Generate a unique temporary file suffix using PID and nanosecond timestamp.
 fn temporary_suffix() -> String {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -163,6 +179,9 @@ fn temporary_suffix() -> String {
     format!("{}-{}", std::process::id(), timestamp)
 }
 
+/// Set file permissions to owner-only (0o600) on Unix systems.
+///
+/// On non-Unix platforms this is a no-op.
 fn set_owner_only_permissions(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -173,50 +192,62 @@ fn set_owner_only_permissions(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Default credential provider namespace.
 fn default_provider() -> String {
     "openai".to_string()
 }
 
+/// Default API variant for models.
 fn default_api() -> Api {
     Api::OpenaiCompletions
 }
 
+/// Default input modalities for a model.
 fn default_input() -> Vec<String> {
     vec!["text".to_string()]
 }
 
+/// Default context window size in tokens.
 fn default_context_window() -> u32 {
     128_000
 }
 
+/// Default OpenAI-compatible base URL.
 fn default_base_url() -> String {
     "https://api.openai.com/v1".to_string()
 }
 
+/// Default maximum output tokens for a model.
 fn default_model_max_tokens() -> u32 {
     16_384
 }
 
+/// Default request timeout in milliseconds.
 fn default_timeout_ms() -> u64 {
     600_000
 }
 
+/// Default number of retries for transient LLM API failures.
 fn default_max_retries() -> u32 {
     3
 }
 
+/// Whether to automatically resize image attachments by default.
 fn default_auto_resize_images() -> bool {
     true
 }
 
+/// Default maximum number of conversation turns.
 fn default_max_turns() -> u32 {
     120
 }
 
+/// Whether to enable tool use by default.
 fn default_enable_tools() -> bool {
     true
 }
 
+/// Whether to enable context compaction by default.
 fn default_enable_compaction() -> bool {
     true
 }
@@ -249,6 +280,10 @@ fn merge_settings_file(
     Ok(())
 }
 
+/// Recursively merge TOML tables, overlaying values from `overlay` into `base`.
+///
+/// Nested tables are merged recursively while scalar values and arrays are
+/// replaced entirely.
 fn merge_toml_tables(
     base: &mut toml::Table,
     overlay: toml::Table,

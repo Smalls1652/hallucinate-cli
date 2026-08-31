@@ -6,9 +6,16 @@ use serde_json::json;
 
 use super::types::Tool;
 
-/// Intelligent edit tool.
+/// Intelligent edit tool for modifying file contents.
 ///
-/// Performs text replacements in files with verification.
+/// This tool performs targeted text replacements in files with verification.
+/// It finds the exact text to replace and replaces it with new content using
+/// Rust's `replace` function which replaces all occurrences by default.
+///
+/// # Usage
+///
+/// Provide the path to a file, the exact text to find (old_text), and the replacement text.
+/// The tool verifies that old_text exists in the file before performing the replacement.
 #[derive(Debug, Clone)]
 pub struct EditTool;
 
@@ -25,7 +32,17 @@ impl EditTool {
     }
 }
 
-/// Resolve a file path, handling tilde expansion and relative paths.
+/// Resolve a file path with tilde expansion and relative path handling.
+///
+/// Expands the provided path string using shell-like tilde expansion, then resolves
+/// relative paths against the current working directory if no explicit cwd is given.
+///
+/// # Parameters
+/// - `path_str`: The path to resolve, which may contain tilde (`~`) or be relative/absolute
+/// - `cwd`: Optional explicit working directory for resolving relative paths
+///
+/// # Returns
+/// A resolved absolute `PathBuf` for the given path.
 pub(crate) fn resolve_path(
     path_str: &str,
     cwd: Option<&str>,
@@ -73,6 +90,24 @@ impl Tool for EditTool {
         })
     }
 
+    /// Execute the edit tool with given arguments.
+    ///
+    /// # Parameters
+    /// - `arguments`: JSON-serialized tool arguments containing:
+    ///   - `path`: Path to the file to edit (string)
+    ///   - `old_text`: Exact text to find and replace (string)
+    ///   - `new_text`: New text to replace with (string)
+    /// - `cwd`: Optional explicit working directory for path resolution
+    ///
+    /// # Returns
+    /// - `ToolResult::success` if the replacement was successful, including the message
+    /// - `ToolResult::error` if:
+    ///   - Required arguments are missing
+    ///   - The text to replace is not found in the file
+    ///   - The file cannot be read or written
+    ///
+    /// # Errors
+    /// Returns an error if any step fails (reading file, creating directories, writing file).
     fn execute<'a>(
         &'a self,
         arguments: &'a serde_json::Value,

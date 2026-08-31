@@ -204,6 +204,7 @@ impl Tool for LsTool {
     }
 }
 
+/// Format a byte count as a human-readable size string.
 fn format_size(bytes: u64) -> String {
     if bytes < 1024 {
         format!("{}B", bytes)

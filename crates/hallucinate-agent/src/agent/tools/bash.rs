@@ -22,8 +22,8 @@ pub struct BashTool {
 impl Default for BashTool {
     fn default() -> Self {
         Self {
-            timeout_ms: 60_000,
-            shell: None,
+            timeout_ms: 60_000, // Default timeout of 60 seconds
+            shell: None, // Use user's environment default shell
         }
     }
 }
@@ -35,6 +35,8 @@ impl BashTool {
     }
 
     /// Configure the shell executable used for commands.
+    ///
+    /// If `None`, the tool uses the user's environment default shell.
     pub fn with_shell(
         mut self,
         shell: Option<String>,
@@ -162,12 +164,10 @@ impl Tool for BashTool {
     }
 }
 
-/// Build a command that evaluates the input as a shell script.
+/// Build a command that evaluates the input as a shell script on Unix.
 ///
-/// `SHELL` is the conventional Unix environment variable for the user's
-/// preferred shell. Falling back to `sh` keeps the tool usable in processes
-/// that do not provide it. On Windows, use `SHELL` when available (for
-/// example, Git Bash); otherwise use `COMSPEC` and its `/C` switch.
+/// Uses the conventional Unix environment variable `SHELL` to determine
+/// which shell to use, falling back to `sh` if not available.
 #[cfg(unix)]
 fn shell_command(
     command: &str,
@@ -184,9 +184,15 @@ fn shell_command(
     cmd
 }
 
+/// Build a command that evaluates the input as a shell script on Windows.
+///
+/// Uses `SHELL` (e.g. Git Bash) when available; falls back to `COMSPEC` with
+/// the `/C` switch for native CMD.
 #[cfg(windows)]
 fn shell_command(
+    /// The shell command or script to execute
     command: &str,
+    /// Optional configured shell executable
     configured_shell: Option<&str>,
 ) -> Command {
     if let Some(shell) = configured_shell
@@ -212,9 +218,15 @@ fn shell_command(
     }
 }
 
+/// Build a command that evaluates the input as a shell script on unsupported
+/// platforms.
+///
+/// Falls back to `sh` as a best-effort default.
 #[cfg(not(any(unix, windows)))]
 fn shell_command(
+    /// The shell command or script to execute
     command: &str,
+    /// Optional configured shell executable (currently unused on non-Unix/Windows platforms)
     _configured_shell: Option<&str>,
 ) -> Command {
     let mut cmd = Command::new("sh");
@@ -224,6 +236,10 @@ fn shell_command(
 }
 
 /// Truncate output to a maximum length, adding a note if truncated.
+///
+/// Returns the original string if it is within `max_len`. Otherwise returns
+/// the first `max_len` characters followed by a truncation notice showing the
+/// total number of characters.
 fn truncate_output(
     output: &str,
     max_len: usize,

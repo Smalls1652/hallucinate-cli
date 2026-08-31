@@ -20,6 +20,7 @@ pub struct FindTool {
 }
 
 impl Default for FindTool {
+    /// Returns a `FindTool` with the default max_results of 100.
     fn default() -> Self {
         Self { max_results: 100 }
     }
@@ -120,6 +121,7 @@ impl Tool for FindTool {
     }
 }
 
+/// Resolves a potentially relative path against a working directory, expanding tilde and env vars.
 fn resolve_path(
     path_str: &str,
     cwd: &str,
