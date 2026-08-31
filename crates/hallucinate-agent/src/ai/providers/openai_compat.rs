@@ -53,6 +53,7 @@ pub struct OpenaiCompatConfig {
 }
 
 impl Default for OpenaiCompatConfig {
+    /// Return the default configuration with OpenAI's base URL and sensible defaults.
     fn default() -> Self {
         Self {
             base_url: "https://api.openai.com/v1".to_string(),
@@ -66,23 +67,28 @@ impl Default for OpenaiCompatConfig {
 
 /// OpenAI API-compatible provider.
 pub struct OpenaiCompatProvider {
+    /// Provider configuration (base URL, API key, timeout, etc.).
     config: OpenaiCompatConfig,
+    /// HTTP client for making API requests.
     client: reqwest::Client,
 }
 
-/// Return whether an HTTP status represents a transient API failure.
+/// Check whether an HTTP status code indicates a transient failure worth retrying.
 fn should_retry_status(status: u16) -> bool {
     matches!(status, 408 | 429 | 500 | 502 | 503 | 504)
 }
 
+/// Check whether a reqwest error is caused by a timeout or connection failure.
 fn is_retryable_transport_error(error: &reqwest::Error) -> bool {
     error.is_timeout() || error.is_connect()
 }
 
+/// Compute an exponential-backoff delay with jitter, capped at 8 seconds.
 fn retry_delay(attempt: u32) -> Duration {
     Duration::from_millis(500_u64.saturating_mul(1_u64 << attempt.min(4)))
 }
 
+/// Parse the `Retry-After` header and return a delay capped at 60 seconds.
 fn retry_after_delay(response: &reqwest::Response) -> Option<Duration> {
     response
         .headers()
@@ -92,6 +98,7 @@ fn retry_after_delay(response: &reqwest::Response) -> Option<Duration> {
         .map(|seconds| Duration::from_secs(seconds.min(60)))
 }
 
+/// Convert an image content item into an OpenAI `image_url` JSON object.
 fn openai_image_part(image: &ImageContent) -> serde_json::Value {
     serde_json::json!({
         "type": "image_url",
@@ -101,11 +108,13 @@ fn openai_image_part(image: &ImageContent) -> serde_json::Value {
     })
 }
 
+/// Split a combined tool-call ID into its call ID and optional item ID parts.
 fn split_response_tool_call_id(id: &str) -> (&str, Option<&str>) {
     id.split_once('|')
         .map_or((id, None), |(call_id, item_id)| (call_id, Some(item_id)))
 }
 
+/// Convert a tool result message into OpenAI chat-format JSON messages.
 fn tool_result_messages(result: &ToolResultMessage) -> Vec<serde_json::Value> {
     let text = result
         .content
@@ -145,6 +154,7 @@ fn tool_result_messages(result: &ToolResultMessage) -> Vec<serde_json::Value> {
     messages
 }
 
+/// Extract token usage from a chat-completions SSE chunk.
 fn parse_usage(chunk: &serde_json::Value) -> Option<Usage> {
     let usage = chunk.get("usage").or_else(|| {
         chunk
@@ -184,6 +194,7 @@ fn parse_usage(chunk: &serde_json::Value) -> Option<Usage> {
     })
 }
 
+/// Extract token usage from a Responses API SSE chunk, subtracting cached tokens from input.
 fn parse_responses_usage(chunk: &serde_json::Value) -> Option<Usage> {
     let mut usage = parse_usage(chunk)?;
     usage.input = usage.input.saturating_sub(usage.cache_read);
@@ -290,19 +301,29 @@ async fn process_chunk(
     Ok(None)
 }
 
+/// Streaming state for the OpenAI Responses API SSE decoder.
 #[derive(Default)]
 struct ResponsesStreamState {
+    /// Maps item IDs to their tool-call index for deduplication.
     tool_indices: HashMap<String, usize>,
+    /// Maps tool-call index to the OpenAI call ID.
     tool_call_ids: HashMap<usize, String>,
+    /// Maps tool-call index to the OpenAI item ID.
     tool_item_ids: HashMap<usize, String>,
+    /// Next available tool-call index when deduplication doesn't match.
     next_tool_index: usize,
+    /// Indices of tool calls whose arguments have already been emitted.
     emitted_tool_arguments: HashSet<usize>,
+    /// Whether the response has produced any tool call output.
     has_tool_calls: bool,
+    /// Whether the response has produced any text output.
     has_text_output: bool,
+    /// Whether the response has produced any reasoning/thinking output.
     has_thinking_output: bool,
 }
 
 impl ResponsesStreamState {
+    /// Resolve the tool-call index for a function call, deduplicating by item ID.
     fn tool_index(
         &mut self,
         output_index: Option<usize>,
@@ -328,6 +349,7 @@ impl ResponsesStreamState {
         index
     }
 
+    /// Register the call ID and item ID for a tool-call index and return the combined ID.
     fn set_tool_identity(
         &mut self,
         index: usize,
@@ -353,6 +375,7 @@ impl ResponsesStreamState {
     }
 }
 
+/// Result of processing a single SSE event in the Responses API stream.
 #[derive(Debug, PartialEq, Eq)]
 enum ResponsesSseResult {
     Continue,
@@ -360,6 +383,7 @@ enum ResponsesSseResult {
     Failed(String),
 }
 
+/// Extract a numeric index field from a JSON value.
 fn response_index(
     value: &serde_json::Value,
     field: &str,
@@ -370,6 +394,7 @@ fn response_index(
         .map(|value| value as usize)
 }
 
+/// Compute a flat content index from output and content indices.
 fn response_content_index(
     output_index: Option<usize>,
     content_index: Option<usize>,
@@ -384,6 +409,7 @@ fn response_content_index(
     }
 }
 
+/// Compute the flat content index for an SSE event.
 fn event_content_index(event: &serde_json::Value) -> usize {
     response_content_index(
         response_index(event, "output_index"),
@@ -391,6 +417,7 @@ fn event_content_index(event: &serde_json::Value) -> usize {
     )
 }
 
+/// Return the `response` object if present, otherwise the value itself.
 fn response_object(value: &serde_json::Value) -> &serde_json::Value {
     match value.get("response") {
         Some(response) if response.is_object() => response,
@@ -398,6 +425,7 @@ fn response_object(value: &serde_json::Value) -> &serde_json::Value {
     }
 }
 
+/// Apply response-level metadata (id, model) from an SSE event to the builder.
 fn apply_response_metadata(
     event: &serde_json::Value,
     builder: &mut AssistantMessageBuilder,
@@ -413,6 +441,7 @@ fn apply_response_metadata(
     }
 }
 
+/// Extract a human-readable error message from a Responses API error event.
 fn response_stream_error(event: &serde_json::Value) -> String {
     let response = response_object(event);
     let error = event.get("error").or_else(|| response.get("error"));
@@ -426,6 +455,7 @@ fn response_stream_error(event: &serde_json::Value) -> String {
     format!("OpenAI Responses API stream error: {message}")
 }
 
+/// Process a Responses API output item (function call or message) and append to the builder.
 async fn process_response_output_item(
     item: &serde_json::Value,
     output_index: Option<usize>,
@@ -496,6 +526,7 @@ async fn process_response_output_item(
     }
 }
 
+/// Process a single Responses API SSE event and update the builder state.
 async fn process_responses_event(
     event: &serde_json::Value,
     builder: &mut AssistantMessageBuilder,
@@ -668,6 +699,7 @@ async fn process_responses_event(
     Ok(ResponsesSseResult::Continue)
 }
 
+/// Parse and process a single SSE line from the Responses API stream.
 async fn process_responses_sse_line(
     line: &[u8],
     builder: &mut AssistantMessageBuilder,
@@ -701,6 +733,7 @@ async fn process_responses_sse_line(
     process_responses_event(&value, builder, state, terminal_reason).await
 }
 
+/// Feed byte fragments into the Responses API SSE decoder with buffering.
 async fn process_responses_sse_bytes(
     bytes: &[u8],
     buffer: &mut Vec<u8>,
@@ -722,6 +755,7 @@ async fn process_responses_sse_bytes(
     Ok(ResponsesSseResult::Continue)
 }
 
+/// Parse and process a single SSE line from a chat-completions stream.
 async fn process_sse_line(
     line: &[u8],
     builder: &mut AssistantMessageBuilder,
@@ -786,6 +820,7 @@ async fn process_sse_bytes(
     Ok(())
 }
 
+/// Consume a chat-completions SSE stream and return the terminal reason and any failure.
 async fn consume_chat_stream(
     response: reqwest::Response,
     builder: &mut AssistantMessageBuilder,
@@ -841,6 +876,7 @@ async fn consume_chat_stream(
     (terminal_reason, failure)
 }
 
+/// Consume a Responses API SSE stream and return the terminal reason and any failure.
 async fn consume_responses_stream(
     response: reqwest::Response,
     builder: &mut AssistantMessageBuilder,

@@ -106,6 +106,7 @@ pub fn process_image_bytes(
     Ok(ImageContent::new(STANDARD.encode(encoded), "image/png"))
 }
 
+/// Resize an image to fit within the given maximum dimension, preserving aspect ratio.
 fn resize_to_fit(
     image: DynamicImage,
     max_dimension: u32,
@@ -117,6 +118,7 @@ fn resize_to_fit(
     }
 }
 
+/// Encode a `DynamicImage` as a PNG byte buffer.
 fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, anyhow::Error> {
     let mut output = Cursor::new(Vec::new());
 
@@ -127,6 +129,7 @@ fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, anyhow::Error> {
     Ok(output.into_inner())
 }
 
+/// Return the MIME type string for a supported image format.
 fn mime_type_for_format(format: ImageFormat) -> Option<&'static str> {
     match format {
         ImageFormat::Png => Some("image/png"),

@@ -103,6 +103,7 @@ pub enum AssistantMessageEvent {
     },
 }
 
+/// Extract the partial/final [`AssistantMessage`] from an event.
 pub(crate) fn event_partial(event: &AssistantMessageEvent) -> &AssistantMessage {
     match event {
         AssistantMessageEvent::Start { partial }
@@ -200,8 +201,13 @@ impl fmt::Display for AssistantMessageEvent {
 /// by the producer and consumed via async iteration or the [`Stream`] trait.
 #[derive(Clone)]
 pub struct AssistantMessageEventStream {
+    /// Channel sender for pushing events into the stream.
     sender: mpsc::Sender<AssistantMessageEvent>,
+
+    /// Arc-wrapped channel receiver for polling events.
     receiver: Arc<Mutex<mpsc::Receiver<AssistantMessageEvent>>>,
+
+    /// Arc-wrapped mutex holding the final message after stream completion.
     pub final_message: Arc<Mutex<Option<AssistantMessage>>>,
 }
 
@@ -273,16 +279,27 @@ pub fn create_assistant_message_event_stream() -> AssistantMessageEventStream {
 /// This helper accumulates content blocks and emits appropriate events
 /// as content is added.
 pub struct AssistantMessageBuilder {
+    /// The accumulated assistant message being built.
     pub message: AssistantMessage,
+
+    /// The event stream to emit events into.
     pub stream: AssistantMessageEventStream,
 
+    /// Maps provider text delta indices to stable content-block indices.
     text_indices: HashMap<usize, usize>,
+
+    /// Maps provider reasoning delta indices to stable content-block indices.
     thinking_indices: HashMap<usize, usize>,
+
+    /// Maps provider tool call indices to stable content-block indices.
     tool_indices: HashMap<usize, usize>,
+
+    /// Buffers raw argument JSON fragments per provider until completion.
     tool_arguments: HashMap<usize, String>,
 }
 
 impl AssistantMessageBuilder {
+    /// Create a new builder with the given stream and model info.
     pub fn new(
         stream: AssistantMessageEventStream,
         api: crate::ai::types::Api,
@@ -304,6 +321,7 @@ impl AssistantMessageBuilder {
         }
     }
 
+    /// Emit the initial [`Start`](AssistantMessageEvent::Start) event.
     pub async fn emit_start(&mut self) {
         let _ = self
             .stream
@@ -468,6 +486,7 @@ impl AssistantMessageBuilder {
         }
     }
 
+    /// Set the token usage information on the built message.
     pub fn set_usage(
         &mut self,
         usage: crate::ai::types::Usage,
@@ -475,6 +494,7 @@ impl AssistantMessageBuilder {
         self.message.usage = usage;
     }
 
+    /// Close all open content blocks and emit their terminal events.
     async fn close_content_blocks(&mut self) -> Result<(), String> {
         let mut text_blocks: Vec<_> = self.text_indices.values().copied().collect();
         text_blocks.sort_unstable();
@@ -582,6 +602,7 @@ impl AssistantMessageBuilder {
         Ok(())
     }
 
+    /// Terminate the stream with an error event.
     pub async fn fail(
         &mut self,
         error: impl Into<String>,
@@ -607,6 +628,7 @@ impl AssistantMessageBuilder {
 // ── Helper Extension ─────────────────────────────────────────────────────────
 
 impl AssistantContent {
+    /// Return the text content if this is a text block, otherwise `None`.
     pub fn text_content(&self) -> Option<&str> {
         match self {
             AssistantContent::Text(t) => Some(&t.text),

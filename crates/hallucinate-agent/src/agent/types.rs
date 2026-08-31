@@ -12,11 +12,14 @@ use crate::ai::types::{AssistantMessage, Context, Message, StopReason};
 /// cancellation (for example, the interactive UI while a task owns `Agent`).
 #[derive(Clone, Debug)]
 pub struct AgentCancellation {
+    /// Notification handle to wake the waiting task on cancellation.
     notify: Arc<Notify>,
+    /// Atomic flag indicating whether cancellation has been requested.
     cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AgentCancellation {
+    /// Create a new `AgentCancellation` with the given notification handle.
     pub(crate) fn new(notify: Arc<Notify>) -> Self {
         Self {
             notify,
@@ -33,14 +36,19 @@ impl AgentCancellation {
         self.notify.notify_one();
     }
 
+    /// Return whether cancellation has been requested.
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancelled.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Create a fresh `AgentCancellation` with a new notification handle.
     pub(crate) fn fresh() -> Self {
         Self::new(Arc::new(Notify::new()))
     }
 
+    /// Wait until cancellation has been requested.
+    ///
+    /// Returns immediately if already cancelled.
     pub(crate) async fn cancelled(&self) {
         if !self.is_cancelled() {
             self.notify.notified().await;
@@ -265,6 +273,7 @@ pub struct TurnContext {
 }
 
 impl TurnContext {
+    /// Create a new `TurnContext` with empty pending tool calls and results.
     pub fn new(_turn_number: u32) -> Self {
         Self {
             pending_tool_calls: Vec::new(),
@@ -272,6 +281,7 @@ impl TurnContext {
         }
     }
 
+    /// Add a tool call to the pending list for later execution.
     pub fn add_pending_tool_call(
         &mut self,
         tool_call_id: String,
@@ -285,6 +295,7 @@ impl TurnContext {
         });
     }
 
+    /// Remove a completed tool call from the pending list by its ID.
     pub fn remove_completed_tool_call(
         &mut self,
         tool_call_id: &str,
@@ -297,8 +308,11 @@ impl TurnContext {
 /// A tool call that is pending execution.
 #[derive(Debug, Clone)]
 pub struct PendingToolCall {
+    /// Unique identifier for the tool call.
     pub tool_call_id: String,
+    /// Name of the tool to execute.
     pub tool_name: String,
+    /// JSON arguments passed to the tool.
     pub arguments: serde_json::Value,
 }
 
@@ -365,7 +379,7 @@ fn estimate_text_tokens(text: &str) -> u64 {
     (text.chars().count() as u64).div_ceil(4)
 }
 
-/// Estimate tokens from JSON value.
+/// Estimate tokens from a JSON value by serializing it to a string first.
 fn estimate_json_tokens(value: &serde_json::Value) -> u64 {
     estimate_text_tokens(&value.to_string())
 }

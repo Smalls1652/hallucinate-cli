@@ -15,10 +15,17 @@ pub fn all_models() -> Vec<Model> {
     Vec::new()
 }
 
+/// Find a model by its ID.
+///
+/// Returns `None` if no model with the given ID is registered.
 pub fn find_model(model_id: &str) -> Option<Model> {
     all_models().into_iter().find(|model| model.id == model_id)
 }
 
+/// Find a model by provider/model string (e.g. `"openai/gpt-4o"`).
+///
+/// If the string contains a `/`, it is split into provider and model ID.
+/// Otherwise, it is treated as a bare model ID.
 pub fn find_model_by_provider(provider_model: &str) -> Option<Model> {
     if let Some((provider, model_id)) = provider_model.split_once('/') {
         all_models()
@@ -29,6 +36,9 @@ pub fn find_model_by_provider(provider_model: &str) -> Option<Model> {
     }
 }
 
+/// Resolve a model string to a `Model`.
+///
+/// Delegates to [`find_model_by_provider`].
 pub fn resolve_model(model_str: &str) -> Option<Model> {
     find_model_by_provider(model_str)
 }

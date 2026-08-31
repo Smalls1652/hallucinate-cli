@@ -12,8 +12,11 @@ use std::{
 /// A stored API key credential.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Credential {
+    /// The provider identifier this credential belongs to.
     pub provider_id: String,
+    /// The API key value.
     pub api_key: String,
+    /// Unix timestamp (seconds) when this credential was stored.
     pub stored_at: u64,
 }
 
@@ -21,15 +24,18 @@ pub struct Credential {
 /// file.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct CredentialStore {
+    /// Provider ID to credential mapping.
     #[serde(default)]
     credentials: HashMap<String, Credential>,
 }
 
 impl CredentialStore {
+    /// Create a new, empty credential store.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Look up the credential for a provider by its ID.
     pub fn get(
         &self,
         provider_id: &str,
@@ -68,11 +74,13 @@ impl CredentialStore {
         self.credentials.keys().map(String::as_str)
     }
 
+    /// Return `true` if no credentials are stored.
     pub fn is_empty(&self) -> bool {
         self.credentials.is_empty()
     }
 }
 
+/// Return the current time as a Unix timestamp in seconds.
 fn unix_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

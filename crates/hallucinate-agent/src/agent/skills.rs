@@ -36,14 +36,18 @@ pub struct Skill {
 /// A non-fatal problem encountered while loading a skill.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkillDiagnostic {
+    /// Human-readable diagnostic message.
     pub message: String,
+    /// Path to the skill file that caused the diagnostic.
     pub path: PathBuf,
 }
 
 /// The result of skill discovery.
 #[derive(Debug, Default)]
 pub struct SkillLoadResult {
+    /// Successfully loaded skills.
     pub skills: Vec<Skill>,
+    /// Non-fatal problems encountered during loading.
     pub diagnostics: Vec<SkillDiagnostic>,
 }
 
@@ -61,8 +65,11 @@ pub struct SkillLoadOptions {
 
 #[derive(Debug, Deserialize)]
 struct SkillFrontmatter {
+    /// Machine-readable skill name.
     name: Option<String>,
+    /// Brief explanation of when to use the skill.
     description: Option<String>,
+    /// Whether the skill may only be invoked explicitly.
     #[serde(rename = "disable-model-invocation", default)]
     disable_model_invocation: bool,
 }
@@ -215,6 +222,7 @@ When a skill file references a relative path, resolve it against the skill direc
     output
 }
 
+/// Recursively load skills from a directory, treating root files as skills.
 fn load_skills_from_dir(
     directory: &Path,
     result: &mut SkillLoadResult,
@@ -224,6 +232,7 @@ fn load_skills_from_dir(
     load_skills_from_dir_with_root_files(directory, true, result, seen_paths, seen_names);
 }
 
+/// Recursively load skills from a directory, with optional root file handling.
 fn load_skills_from_dir_with_root_files(
     directory: &Path,
     include_root_files: bool,
@@ -273,6 +282,7 @@ fn load_skills_from_dir_with_root_files(
     }
 }
 
+/// Load a single skill Markdown file and add it to the result.
 fn load_skill_file(
     path: &Path,
     result: &mut SkillLoadResult,
@@ -356,6 +366,7 @@ fn load_skill_file(
     });
 }
 
+/// Parse YAML frontmatter from a skill Markdown file.
 fn parse_frontmatter(content: &str) -> Result<SkillFrontmatter, String> {
     let content = content.strip_prefix('\u{feff}').unwrap_or(content);
 
@@ -374,6 +385,7 @@ fn parse_frontmatter(content: &str) -> Result<SkillFrontmatter, String> {
         .map_err(|error| format!("invalid skill frontmatter: {error}"))
 }
 
+/// Extract the skill body (content after YAML frontmatter).
 fn skill_body(content: &str) -> &str {
     let content = content.strip_prefix('\u{feff}').unwrap_or(content);
 
@@ -398,6 +410,7 @@ fn skill_body(content: &str) -> &str {
     &rest[body_start..]
 }
 
+/// Validate a skill's name and description, returning any validation errors.
 fn validate_skill(
     name: &str,
     description: &str,
@@ -430,11 +443,13 @@ fn validate_skill(
     messages
 }
 
+/// Check whether a path has a Markdown file extension.
 fn is_markdown_file(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
 }
 
+/// Collect `.agents/skills` directories from cwd up to the git root.
 fn project_agents_skills_dirs(cwd: &Path) -> Vec<PathBuf> {
     let mut directories = Vec::new();
     let mut directory = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
@@ -462,6 +477,7 @@ fn project_agents_skills_dirs(cwd: &Path) -> Vec<PathBuf> {
     directories
 }
 
+/// Find the git root directory starting from the given path.
 fn find_git_root(start: &Path) -> Option<PathBuf> {
     let mut directory = start.to_path_buf();
 
@@ -479,6 +495,7 @@ fn find_git_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Expand a path by resolving tilde and joining relative paths to cwd.
 fn expand_path(
     path: &Path,
     cwd: &Path,
@@ -494,6 +511,7 @@ fn expand_path(
     }
 }
 
+/// Escape XML special characters in a string.
 fn escape_xml(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -507,6 +525,7 @@ fn escape_xml(value: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Create a temporary directory with a unique name for skill tests.
     fn temp_dir(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "hallucinate-skills-{name}-{}",
@@ -518,6 +537,7 @@ mod tests {
         path
     }
 
+    /// Write a skill file to disk, creating parent directories as needed.
     fn write_skill(
         path: &Path,
         content: &str,

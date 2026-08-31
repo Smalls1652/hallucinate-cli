@@ -40,13 +40,17 @@ pub enum FauxResponse {
 /// State for the faux provider.
 #[derive(Debug, Default)]
 pub struct FauxProviderState {
+    /// Number of times the provider has been called.
     pub call_count: std::sync::atomic::AtomicU32,
+    /// Queued responses to return in order.
     pub responses: Arc<Mutex<Vec<FauxResponse>>>,
 }
 
 /// Faux provider for testing.
 pub struct FauxProvider {
+    /// The model configured for this provider.
     configured_model: Model,
+    /// Shared state holding call count and response queue.
     state: FauxProviderState,
 }
 

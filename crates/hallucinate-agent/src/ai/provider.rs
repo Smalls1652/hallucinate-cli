@@ -18,18 +18,23 @@ pub type ProviderResult<T> = Result<T, ProviderError>;
 /// Error type for provider operations.
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
+    /// API error from the LLM provider with status code.
     #[error("API error: {0} (status {1})")]
     Api(String, u16),
 
+    /// HTTP error from the underlying client.
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 
+    /// JSON serialization/deserialization error.
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
+    /// Invalid provider configuration.
     #[error("Provider configuration error: {0}")]
     Configuration(String),
 
+    /// Error while reading or processing the response stream.
     #[error("Stream error: {0}")]
     Stream(String),
 }
