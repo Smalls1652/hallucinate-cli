@@ -2,12 +2,22 @@
 
 ## Project Overview
 
-**hallucinate-cli** is a Rust CLI application implementing the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search), session management, and multiple run modes (interactive, print, RPC).
+**hallucinate-cli** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search), session management, and multiple run modes (interactive, print, RPC).
 
-This is a single-binary Rust crate (not a Cargo workspace), organized into modules that mirror the TypeScript/JavaScript source from the `pi` project. Key features:
+This is a **Cargo workspace** with three crates:
+
+| Crate | Path | Description | Publish |
+| --- | --- | --- | --- |
+| `hallucinate` | `crates/hallucinate` | CLI binary — entry point, argument parsing, run modes, session management, logging | `smalls-personal` |
+| `hallucinate-agent` | `crates/hallucinate-agent` | Agent core library — LLM provider abstraction, agent runtime, tools, config, skills | `smalls-personal` |
+| `hallucinate-tui` | `crates/hallucinate-tui` | Terminal UI library — ratatui-based rendering, editor, keyboard input, undo, markdown | `smalls-personal` |
+
+**Dependency graph**: `hallucinate-tui` → `hallucinate-agent` · `hallucinate` → `hallucinate-agent` + `hallucinate-tui`
+
+Key features:
 
 - **LLM Provider Abstraction**: OpenAI API-compatible provider supporting any compatible endpoint (OpenAI, Azure, Ollama, vLLM, LM Studio, etc.) with multi-provider model support via `providers` config section
-- **Agent Runtime**: Single `Agent` struct in `agent::runtime` owns the production turn-loop, builds context, executes tool calls, and emits lifecycle events
+- **Agent Runtime**: Single `Agent` struct in `hallucinate-agent::agent::runtime` owns the production turn-loop, builds context, executes tool calls, and emits lifecycle events
 - **Terminal UI**: Built on `ratatui` with alternate screen, multi-line editor with keyboard enhancements, undo support, model picker overlay, and markdown rendering
 - **Multiple Modes**: Interactive (TUI), print (`-p "prompt"`), and RPC (newline-delimited JSON-RPC 2.0 over stdin/stdout)
 - **Session Management**: JSONL-based session storage with CRUD operations
@@ -23,6 +33,7 @@ This is a single-binary Rust crate (not a Cargo workspace), organized into modul
 | Layer | Technology |
 | --- | --- |
 | Language | Rust (edition 2024) |
+| Workspace resolver | `"3"` (edition 2024) |
 | Async Runtime | `tokio` (full features) |
 | CLI Parsing | `clap` (derive, env, string features) |
 | Terminal UI | `ratatui` 0.30 + `crossterm` 0.29 |
@@ -41,13 +52,13 @@ This is a single-binary Rust crate (not a Cargo workspace), organized into modul
 # Install Rust (if not installed)
 # Use rustup: https://rustup.rs/
 
-# Build debug
+# Build all workspace crates (debug)
 cargo build
 
 # Build release
 make build-release
 # or
-cargo build --release
+cargo build --release --package hallucinate
 
 # Run the binary
 cargo run
@@ -55,72 +66,94 @@ cargo run --release
 
 # Cross-compile (Makefile detects platform automatically)
 make build
+
+# Run checks without building
+make check
 ```
 
 ## Development Workflow
 
-### Module Structure
+### Workspace Structure
 
 ```plain
-src/
-├── main.rs              # CLI entry point
-├── cli/                 # CLI commands (args, mod)
-│   ├── args.rs          # Argument parsing (clap derive, subcommands)
-│   └── mod.rs
-├── ai/                  # LLM provider abstraction (pi-ai)
-│   ├── types.rs         # Message, Tool, Model, event types
-│   ├── provider.rs      # Provider trait + dispatch
-│   ├── providers/       # Provider implementations
-│   │   ├── mod.rs
-│   │   ├── openai_compat.rs  # OpenAI API-compatible provider
-│   │   └── faux.rs          # Test provider (no real API calls)
-│   ├── auth.rs          # OAuth, credential store (multi-provider)
-│   ├── model_catalog.rs # Model registry
-│   ├── streaming.rs     # Event stream protocol
-│   └── images.rs        # Image support (base64, auto-resize)
-├── agent/               # Agent runtime (agent-core)
-│   ├── runtime.rs       # Agent struct, turn-loop, tool execution, events
-│   ├── tools/           # Tool implementations
-│   │   ├── mod.rs
-│   │   ├── bash.rs      # Shell execution (configurable shell, full syntax)
-│   │   ├── read.rs      # File read
-│   │   ├── write.rs     # File write
-│   │   ├── edit.rs      # Intelligent edit
-│   │   ├── find.rs      # File search (glob)
-│   │   ├── grep.rs      # Pattern-based search
-│   │   ├── ls.rs        # Directory listing
-│   │   └── types.rs     # Tool trait, results
-│   ├── compaction.rs    # Context window management
-│   ├── system_prompt.rs # System prompt assembly
-│   ├── prompt_templates.rs # Prompt template system
-│   ├── skills.rs        # Skills loading and execution (.agents protocol)
-│   └── types.rs         # Agent-specific types
-├── tui/                 # Terminal UI (pi-tui)
-│   ├── alt_screen.rs    # Alternate screen renderer
-│   ├── components/      # UI components
-│   │   ├── mod.rs
-│   │   └── editor.rs    # Multi-line editor with cursor, undo, keyboard enhancements
-│   ├── input.rs         # Keyboard/mouse input
-│   ├── keys.rs          # Key parsing
-│   ├── mod.rs
-│   └── undo.rs          # Undo stack
-├── session/             # Session management
-│   ├── mod.rs
-│   ├── manager.rs       # Session CRUD, listing
-│   ├── storage.rs       # JSONL session storage
-│   └── cwd.rs           # Session working directory
-├── config/              # Settings and paths
-│   ├── mod.rs
-│   ├── paths.rs         # Config directory paths (.agents protocol support)
-│   └── settings.rs      # TOML settings manager with multi-provider config
-├── modes/               # Run modes
-│   ├── mod.rs           # Model resolution, provider creation, shell resolution
-│   ├── interactive.rs   # Interactive mode (main UI, model picker, bracketed paste)
-│   ├── print.rs         # Print mode (-p "prompt")
-│   ├── rpc.rs           # RPC mode (JSON-RPC)
-│   ├── auth.rs          # Auth CLI subcommand handler
-│   └── commands.rs      # Slash command dispatch
-└── logging.rs           # Tracing/logging setup
+crates/
+├── hallucinate/             # CLI binary crate
+│   ├── src/
+│   │   ├── main.rs          # CLI entry point
+│   │   ├── cli/             # CLI commands (args, mod)
+│   │   │   ├── args.rs      # Argument parsing (clap derive, subcommands)
+│   │   │   └── mod.rs
+│   │   ├── modes/           # Run modes
+│   │   │   ├── mod.rs       # Model resolution, provider creation, shell resolution
+│   │   │   ├── print.rs     # Print mode (-p "prompt")
+│   │   │   ├── rpc.rs       # RPC mode (JSON-RPC)
+│   │   │   ├── auth.rs      # Auth CLI subcommand handler
+│   │   │   ├── commands.rs  # Slash command dispatch
+│   │   │   └── interactive/ # Interactive mode (subdirectory)
+│   │   │       ├── mod.rs       # Main UI, model picker, bracketed paste
+│   │   │       ├── commands.rs  # Interactive slash commands
+│   │   │       ├── input.rs     # Keyboard/mouse input handling
+│   │   │       ├── render.rs    # TUI rendering logic
+│   │   │       └── session.rs   # Session management in interactive mode
+│   │   ├── session/         # Session management
+│   │   │   ├── mod.rs
+│   │   │   ├── manager.rs   # Session CRUD, listing
+│   │   │   ├── storage.rs   # JSONL session storage
+│   │   │   └── cwd.rs       # Session working directory
+│   │   ├── logging.rs       # Tracing/logging setup
+│   │   └── tests/
+│   │       └── rpc.rs       # RPC integration tests
+│   └── Cargo.toml
+├── hallucinate-agent/       # Agent core library crate
+│   ├── src/
+│   │   ├── lib.rs           # Crate root, re-exports
+│   │   ├── ai/              # LLM provider abstraction
+│   │   │   ├── mod.rs
+│   │   │   ├── types.rs     # Message, Tool, Model, event types
+│   │   │   ├── provider.rs  # Provider trait + dispatch
+│   │   │   ├── streaming.rs # Event stream protocol
+│   │   │   ├── images.rs    # Image support (base64, auto-resize)
+│   │   │   ├── auth.rs      # OAuth, credential store (multi-provider)
+│   │   │   ├── model_catalog.rs # Model registry
+│   │   │   └── providers/
+│   │   │       ├── mod.rs
+│   │   │       ├── openai_compat.rs  # OpenAI API-compatible provider
+│   │   │       └── faux.rs          # Test provider (no real API calls)
+│   │   ├── agent/           # Agent runtime
+│   │   │   ├── mod.rs
+│   │   │   ├── runtime.rs   # Agent struct, turn-loop, tool execution, events
+│   │   │   ├── types.rs     # Agent-specific types
+│   │   │   ├── compaction.rs    # Context window management
+│   │   │   ├── system_prompt.rs # System prompt assembly
+│   │   │   ├── prompt_templates.rs # Prompt template system
+│   │   │   ├── skills.rs        # Skills loading and execution (.agents protocol)
+│   │   │   └── tools/
+│   │   │       ├── mod.rs
+│   │   │       ├── types.rs     # Tool trait, results
+│   │   │       ├── bash.rs      # Shell execution (configurable shell, full syntax)
+│   │   │       ├── edit.rs      # Intelligent edit
+│   │   │       ├── find.rs      # File search (glob)
+│   │   │       ├── grep.rs      # Pattern-based search
+│   │   │       ├── ls.rs        # Directory listing
+│   │   │       ├── read.rs      # File read
+│   │   │       └── write.rs     # File write
+│   │   └── config/          # Settings and paths
+│   │       ├── mod.rs
+│   │       ├── paths.rs     # Config directory paths (.agents protocol support)
+│   │       └── settings.rs  # TOML settings manager with multi-provider config
+│   └── Cargo.toml
+└── hallucinate-tui/         # Terminal UI library crate
+    ├── src/
+    │   ├── lib.rs           # Crate root, re-exports
+    │   ├── alt_screen.rs    # Alternate screen renderer
+    │   ├── components/      # UI components
+    │   │   ├── mod.rs
+    │   │   ├── editor.rs    # Multi-line editor with cursor, undo, keyboard enhancements
+    │   │   └── markdown.rs  # Markdown rendering
+    │   ├── input.rs         # Keyboard/mouse input
+    │   ├── keys.rs          # Key parsing
+    │   └── undo.rs          # Undo stack
+    └── Cargo.toml
 ```
 
 ### File Organization Conventions
@@ -129,21 +162,22 @@ src/
 - Modules are organized by domain (ai, agent, tui, session, etc.)
 - Sub-modules live in subdirectories (e.g., `tools/`, `providers/`, `components/`)
 - Use `mod.rs` for module declarations within subdirectories
+- Workspace-level dependencies are declared in root `Cargo.toml` under `[workspace.dependencies]`
 
 ### Note on Removed Modules
 
-The `protocol/` directory (CBOR protocol implementation) has been removed. The RPC mode now uses newline-delimited JSON-RPC 2.0 instead. The `agent::runtime::Agent` consolidates the former `agent.rs` and `agent_loop.rs` into a single runtime module.
+The `protocol/` directory (CBOR protocol implementation) has been removed. The RPC mode now uses newline-delimited JSON-RPC 2.0 instead. The `hallucinate-agent::agent::runtime::Agent` consolidates the former `agent.rs` and `agent_loop.rs` into a single runtime module.
 
 ### Adding Dependencies
 
-Update `Cargo.toml` and run `cargo build` to verify. The project uses Renovate for automated dependency updates (configured in `renovate.json`).
+Update the root `Cargo.toml` under `[workspace.dependencies]` and reference via `.workspace = true` in the target crate's `Cargo.toml`. Run `cargo build` to verify. The project uses Renovate for automated dependency updates (configured in `renovate.json`).
 
 ## Code Style
 
 The project uses `rustfmt` with a custom configuration (`rustfmt.toml`):
 
 ```bash
-# Format all code
+# Format all code in the workspace
 make format
 # or
 cargo +nightly fmt -- --emit files
@@ -162,7 +196,7 @@ cargo +nightly fmt -- --emit files
 
 ### Test Strategy
 
-- **Unit tests**: Inline `#[cfg(test)]` modules in source files for AI providers (mock HTTP), agent loop (faux provider), TUI components (headless), JSON/TOML serialization, tools, and protocol
+- **Unit tests**: Inline `#[cfg(test)]` modules in source files for AI providers (mock HTTP), agent loop (faux provider), TUI components (headless), JSON/TOML serialization, tools
 - **HTTP mocking**: Use `mockito::Server` for provider tests
 - **Async tests**: Use `#[tokio::test]`
 - **Test utilities**: `tokio-test` for async stream testing
@@ -172,14 +206,16 @@ cargo +nightly fmt -- --emit files
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all tests across the workspace
 cargo test
 
-# Run tests in a specific module
-cargo test -p hallucinate-cli module_name
+# Run tests in a specific crate
+cargo test -p hallucinate
+cargo test -p hallucinate-agent
+cargo test -p hallucinate-tui
 
 # Run a specific test
-cargo test -p hallucinate-cli specific_test_name
+cargo test -p hallucinate specific_test_name
 
 # Run tests with output
 cargo test -- --nocapture
@@ -190,6 +226,7 @@ cargo test -- --nocapture
 - Place tests in the same file as the code using `#[cfg(test)]` modules
 - Use `#[tokio::test]` for async test functions
 - Use `mockito::Server` for mocking HTTP responses in provider tests
+- Integration tests go in the crate's `tests/` directory
 
 ## Build and Deployment
 
@@ -201,14 +238,20 @@ The Makefile supports cross-compilation for Linux (amd64/arm64), macOS (amd64/ar
 # Show detected platform config
 make show-config
 
-# Build for current platform
+# Build for current platform (debug)
 make build
 
-# Build release
+# Build release for current platform
 make build-release
+
+# Build release and copy to artifacts/
+make build-release-artifacts
 
 # Build with nightly toolchain
 make build-nightly
+
+# Build with nightly + backtrace
+make build-nightly-backtrace
 
 # Build with verbose output
 make build-verbose
@@ -218,23 +261,27 @@ make clean
 
 # Check for errors
 make check
+
+# Check with nightly
+make check-nightly
 ```
 
 ### Artifacts
 
-- Debug builds: `target/<target-triple>/debug/hallucinate-cli`
-- Release builds: `target/<target-triple>/release/hallucinate-cli`
+- Debug builds: `target/<target-triple>/debug/hallucinate`
+- Release builds: `target/<target-triple>/release/hallucinate`
+- Cross-compiled artifacts: `artifacts/<os>_<arch>/hallucinate`
 
 ### CI/CD
 
-GitHub Actions workflow (`.forgejo/workflows/build.yml`) runs `make build` on push to `main` and on PRs.
+Forgejo CI workflow (`.forgejo/workflows/build.yml`) runs `make build` on push to `main` and on PRs.
 
 ## Pull Request Guidelines
 
 - **Title format**: `[component] Brief description` (e.g., `[agent] Add tool execution loop`)
 - **Branch workflow**: Uses Git Town (configured in `.git-branches.toml`)
 - **Merge strategy**: Feature branches use merge strategy (`sync.feature-strategy = "merge"`)
-- **CI**: GitHub Actions workflow runs `make build` on PRs and pushes to `main`
+- **CI**: Forgejo CI workflow runs `make build` on PRs and pushes to `main`
 - **PR template**: Defined in `.forgejo/pull_request_template.md`
 
 ## Debugging and Troubleshooting

@@ -1,5 +1,5 @@
 # Define package variables
-PACKAGE_NAME := hallucinate-cli
+PACKAGE_NAME := hallucinate
 PACKAGE_BINARY := hallucinate
 
 # Define project directory variables
@@ -115,23 +115,23 @@ show-config:
 
 # Perform a build.
 build:
-	@cargo build --target=$(RUST_TARGET)
+	@cargo build
 
 # Perform a nightly Rust build.
 build-nightly:
-	@cargo +nightly build --target=$(RUST_TARGET)
+	@cargo +nightly build
 
 # Perform a nightly Rust build.
 build-nightly-backtrace:
-	@RUSTFLAGS="-Zmacro-backtrace" cargo +nightly build --target=$(RUST_TARGET)
+	@RUSTFLAGS="-Zmacro-backtrace" cargo +nightly build
 
 # Perform a build with verbose output.
 build-verbose:
-	@cargo build --target=$(RUST_TARGET) -vv
+	@cargo build -vv
 
 # Perform a release build.
 build-release:
-	@cargo build --target=$(RUST_TARGET) --release --locked
+	@cargo build --target=$(RUST_TARGET) --release --package=${PACKAGE_NAME} --locked
 
 # Build a release build and copy it to the artifacts directory.
 build-release-artifacts:
@@ -147,6 +147,10 @@ build-release-artifacts:
 	@echo "target/$(RUST_TARGET)/release/$(PACKAGE_BINARY) -> artifacts/$(PLATFORM_OS)_$(PLATFORM_ARCH)/"
 	@cp $(RUST_TARGET_DIR)/$(RUST_TARGET)/release/$(PACKAGE_BINARY) $(ARTIFACTS_DIR)/$(PLATFORM_OS)_$(PLATFORM_ARCH)/
 
+# Perform a release install from the repo.
+install:
+	@cargo install --path "./crates/hallucinate" --locked
+
 # Clean the Rust target directory.
 clean:
 	@echo "Cleaning target directory -> $(RUST_TARGET_DIR)/"
@@ -158,8 +162,8 @@ format:
 
 # Check for errors.
 check:
-	@cargo check --target=$(RUST_TARGET)
+	@cargo check
 
 # Check for errors (Nightly).
 check-nightly:
-	@cargo +nightly check --target=$(RUST_TARGET)
+	@cargo +nightly check
