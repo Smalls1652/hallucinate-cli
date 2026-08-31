@@ -5,10 +5,14 @@ use std::path::PathBuf;
 use hallucinate_agent::ai::types::Message;
 use hallucinate_tui::{alt_screen::TranscriptRenderer, keys::Key};
 
+use super::{
+    InteractiveTui,
+    ModelPicker,
+    SessionPicker,
+    session::transcript_from_messages,
+    short_session_id,
+};
 use crate::session::manager::SessionManager;
-
-use super::session::transcript_from_messages;
-use super::{InteractiveTui, ModelPicker, SessionPicker, short_session_id};
 
 impl InteractiveTui {
     /// Load a selected session into both the agent and the visible transcript.

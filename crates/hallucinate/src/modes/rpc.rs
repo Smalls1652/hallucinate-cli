@@ -132,7 +132,8 @@ fn list_sessions(id: Value) -> RpcResponse {
     }
 }
 
-/// Create a new session from the given parameters and return it as an RPC result.
+/// Create a new session from the given parameters and return it as an RPC
+/// result.
 fn create_session(
     params: Option<&Value>,
     id: Value,
@@ -166,7 +167,8 @@ fn create_session(
     }
 }
 
-/// Handle a chat request: create or resume a session, run the agent, and return the result.
+/// Handle a chat request: create or resume a session, run the agent, and return
+/// the result.
 async fn chat(
     params: Option<&Value>,
     id: Value,
@@ -349,7 +351,8 @@ async fn chat(
     RpcResponse::result(id, json!({ "session_id": session.id, "message": answer }))
 }
 
-/// Extract the JSON object from params, returning None if params is null/absent.
+/// Extract the JSON object from params, returning None if params is
+/// null/absent.
 fn object_params(params: Option<&Value>) -> Result<Option<&Map<String, Value>>, String> {
     match params {
         None | Some(Value::Null) => Ok(None),
@@ -382,7 +385,8 @@ fn optional_bool(
     }
 }
 
-/// Extract the text content from an assistant message, optionally including thinking blocks.
+/// Extract the text content from an assistant message, optionally including
+/// thinking blocks.
 fn assistant_output(
     message: &hallucinate_agent::ai::types::AssistantMessage,
     show_thinking: bool,
@@ -463,7 +467,8 @@ impl RpcResponse {
         }
     }
 
-    /// Construct an error RPC response with the given code, message, id, and detail.
+    /// Construct an error RPC response with the given code, message, id, and
+    /// detail.
     fn error(
         code: i32,
         message: impl Into<String>,

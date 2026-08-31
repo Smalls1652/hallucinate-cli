@@ -106,7 +106,8 @@ pub fn process_image_bytes(
     Ok(ImageContent::new(STANDARD.encode(encoded), "image/png"))
 }
 
-/// Resize an image to fit within the given maximum dimension, preserving aspect ratio.
+/// Resize an image to fit within the given maximum dimension, preserving aspect
+/// ratio.
 fn resize_to_fit(
     image: DynamicImage,
     max_dimension: u32,

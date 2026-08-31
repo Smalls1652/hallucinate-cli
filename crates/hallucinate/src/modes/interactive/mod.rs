@@ -403,9 +403,7 @@ impl InteractiveTui {
                 transcript.set_show_thinking(show_thinking);
                 transcript
             },
-            editor: Editor::new("").placeholder(
-                "Type a message..."
-            ),
+            editor: Editor::new("").placeholder("Type a message..."),
             transcript_area: Rect::default(),
             chat_selection: None,
             selected_text: String::new(),
@@ -435,7 +433,7 @@ impl InteractiveTui {
             model_picker: None,
             session_picker: None,
             autocomplete_items: Vec::new(),
-            autocomplete_index: 0
+            autocomplete_index: 0,
         };
 
         tui.add_new_session_message();

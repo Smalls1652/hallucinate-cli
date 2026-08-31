@@ -5,7 +5,10 @@ use hallucinate_agent::{
     ai::types::{AssistantContent, AssistantMessage, Message},
 };
 use hallucinate_tui::alt_screen::{
-    Message as TuiMessage, MessageRole, ToolCall as TuiToolCall, TranscriptRenderer,
+    Message as TuiMessage,
+    MessageRole,
+    ToolCall as TuiToolCall,
+    TranscriptRenderer,
 };
 
 use super::InteractiveTui;

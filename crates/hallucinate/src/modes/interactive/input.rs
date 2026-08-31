@@ -11,9 +11,8 @@ use hallucinate_tui::{
     keys::Key,
 };
 
-use crate::session::manager::SessionManager;
-
 use super::{AgentRunCompletion, AutocompleteItem, ChatSelection, InteractiveTui};
+use crate::session::manager::SessionManager;
 
 impl InteractiveTui {
     /// Clear the current chat selection state.

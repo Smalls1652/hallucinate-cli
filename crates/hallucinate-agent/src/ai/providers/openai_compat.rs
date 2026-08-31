@@ -53,7 +53,8 @@ pub struct OpenaiCompatConfig {
 }
 
 impl Default for OpenaiCompatConfig {
-    /// Return the default configuration with OpenAI's base URL and sensible defaults.
+    /// Return the default configuration with OpenAI's base URL and sensible
+    /// defaults.
     fn default() -> Self {
         Self {
             base_url: "https://api.openai.com/v1".to_string(),
@@ -73,7 +74,8 @@ pub struct OpenaiCompatProvider {
     client: reqwest::Client,
 }
 
-/// Check whether an HTTP status code indicates a transient failure worth retrying.
+/// Check whether an HTTP status code indicates a transient failure worth
+/// retrying.
 fn should_retry_status(status: u16) -> bool {
     matches!(status, 408 | 429 | 500 | 502 | 503 | 504)
 }
@@ -194,7 +196,8 @@ fn parse_usage(chunk: &serde_json::Value) -> Option<Usage> {
     })
 }
 
-/// Extract token usage from a Responses API SSE chunk, subtracting cached tokens from input.
+/// Extract token usage from a Responses API SSE chunk, subtracting cached
+/// tokens from input.
 fn parse_responses_usage(chunk: &serde_json::Value) -> Option<Usage> {
     let mut usage = parse_usage(chunk)?;
     usage.input = usage.input.saturating_sub(usage.cache_read);
@@ -323,7 +326,8 @@ struct ResponsesStreamState {
 }
 
 impl ResponsesStreamState {
-    /// Resolve the tool-call index for a function call, deduplicating by item ID.
+    /// Resolve the tool-call index for a function call, deduplicating by item
+    /// ID.
     fn tool_index(
         &mut self,
         output_index: Option<usize>,
@@ -349,7 +353,8 @@ impl ResponsesStreamState {
         index
     }
 
-    /// Register the call ID and item ID for a tool-call index and return the combined ID.
+    /// Register the call ID and item ID for a tool-call index and return the
+    /// combined ID.
     fn set_tool_identity(
         &mut self,
         index: usize,
@@ -455,7 +460,8 @@ fn response_stream_error(event: &serde_json::Value) -> String {
     format!("OpenAI Responses API stream error: {message}")
 }
 
-/// Process a Responses API output item (function call or message) and append to the builder.
+/// Process a Responses API output item (function call or message) and append to
+/// the builder.
 async fn process_response_output_item(
     item: &serde_json::Value,
     output_index: Option<usize>,
@@ -820,7 +826,8 @@ async fn process_sse_bytes(
     Ok(())
 }
 
-/// Consume a chat-completions SSE stream and return the terminal reason and any failure.
+/// Consume a chat-completions SSE stream and return the terminal reason and any
+/// failure.
 async fn consume_chat_stream(
     response: reqwest::Response,
     builder: &mut AssistantMessageBuilder,
@@ -876,7 +883,8 @@ async fn consume_chat_stream(
     (terminal_reason, failure)
 }
 
-/// Consume a Responses API SSE stream and return the terminal reason and any failure.
+/// Consume a Responses API SSE stream and return the terminal reason and any
+/// failure.
 async fn consume_responses_stream(
     response: reqwest::Response,
     builder: &mut AssistantMessageBuilder,
