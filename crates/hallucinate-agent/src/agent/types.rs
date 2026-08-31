@@ -250,7 +250,7 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            max_turns: 20,
+            max_turns: 120,
             max_context_tokens: 128_000,
             enable_compaction: true,
             enable_tools: true,
