@@ -15,7 +15,10 @@ pub enum InputEvent {
     Paste(String),
 }
 
-/// Convert a crossterm event into the application's input representation.
+/// Convert a crossterm terminal event into the application's input representation.
+///
+/// Handles special cases for macOS Terminal.app Shift+Enter, Kitty protocol
+/// alternate key codes, and release/repeat key events.
 pub fn parse_event(event: Event) -> InputEvent {
     match event {
         Event::Key(mut key_event) => {
@@ -92,6 +95,10 @@ fn apple_terminal_shift_pressed() -> bool {
     }
 }
 
+/// Convert a crossterm [`KeyEvent`] into the application's [`Key`] representation.
+///
+/// Preserves the key code and applies modifier information (Shift, Ctrl, Alt, Super)
+/// to produce a fully qualified key event.
 fn key_to_key_event(key_event: KeyEvent) -> Key {
     let modifiers = match key_event.modifiers {
         KeyModifiers::NONE => KeyModifiers::NONE,

@@ -6,19 +6,30 @@ use std::collections::VecDeque;
 /// character boundaries, so replaying them cannot split a character.
 #[derive(Debug, Clone)]
 pub enum EditOperation {
+    /// An insertion operation.
     Insert {
+        /// Byte position in the text where the text was inserted.
         position: usize,
+
+        /// The text that was inserted.
         text: String,
     },
 
+    /// A deletion operation.
     Delete {
+        /// Byte position in the text where the deletion started.
         position: usize,
+
+        /// Number of bytes removed.
         length: usize,
+
+        /// The text that was deleted.
         deleted_text: String,
     },
 }
 
 impl EditOperation {
+    /// Apply this operation in reverse (i.e., undo it) against `text`.
     fn apply(
         &self,
         text: &mut String,
@@ -49,12 +60,18 @@ impl EditOperation {
 /// Bounded undo history. It returns the replayed operation so the editor can
 /// restore the cursor position as well as the text.
 pub struct UndoStack {
+    /// Stack of operations available to undo, front is oldest.
     undo_stack: VecDeque<EditOperation>,
+
+    /// Stack of operations available to redo, front is oldest.
     redo_stack: VecDeque<EditOperation>,
+
+    /// Maximum number of entries in the undo stack.
     max_size: usize,
 }
 
 impl UndoStack {
+    /// Create a new undo stack with the given maximum size.
     pub fn new(max_size: usize) -> Self {
         Self {
             undo_stack: VecDeque::with_capacity(max_size),
@@ -63,6 +80,7 @@ impl UndoStack {
         }
     }
 
+    /// Push an operation onto the undo stack, clearing the redo stack.
     pub fn push(
         &mut self,
         operation: EditOperation,
@@ -75,6 +93,7 @@ impl UndoStack {
         }
     }
 
+    /// Undo the most recent operation and return it for cursor restoration.
     pub fn undo(
         &mut self,
         text: &mut String,
@@ -112,6 +131,7 @@ impl UndoStack {
         Some(operation)
     }
 
+    /// Redo the most recent undone operation.
     pub fn redo(
         &mut self,
         text: &mut String,
@@ -124,6 +144,7 @@ impl UndoStack {
         Some(operation)
     }
 
+    /// Clear both the undo and redo stacks.
     pub fn clear(&mut self) {
         self.undo_stack.clear();
         self.redo_stack.clear();

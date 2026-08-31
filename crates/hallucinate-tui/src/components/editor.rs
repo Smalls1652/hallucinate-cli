@@ -18,14 +18,20 @@ use super::super::{
 
 /// An editor component for text input.
 pub struct Editor {
+    /// The current text content.
     content: String,
+    /// Byte offset of the cursor within `content`.
     cursor_pos: usize,
     /// The preferred display column used when moving through lines of
     /// different lengths.
     vertical_column: Option<usize>,
+    /// Placeholder text shown when the editor is empty.
     placeholder: Option<String>,
+    /// Style applied to the rendered text.
     style: Style,
+    /// Stack for undo/redo operations.
     undo_stack: UndoStack,
+    /// Byte offset of the selection anchor (None when no selection is active).
     selection_anchor: Option<usize>,
 }
 
@@ -127,6 +133,7 @@ impl Editor {
         self.insert_text(&ch.to_string());
     }
 
+    /// Return the active selection range as byte offsets, or None if no selection.
     fn selection_range(&self) -> Option<(usize, usize)> {
         let anchor = self.selection_anchor?;
 
@@ -139,6 +146,7 @@ impl Editor {
         (range.0 < range.1).then_some(range)
     }
 
+    /// Delete the active selection and return true if one existed.
     fn delete_selection(&mut self) -> bool {
         let Some((start, end)) = self.selection_range() else {
             self.selection_anchor = None;
@@ -161,7 +169,7 @@ impl Editor {
         true
     }
 
-    /// Delete the character before the cursor.
+    /// Delete the character before the cursor (or current selection).
     pub fn delete_char_back(&mut self) {
         if self.delete_selection() || self.cursor_pos == 0 {
             return;
@@ -210,6 +218,7 @@ impl Editor {
         });
     }
 
+    /// Move the cursor left by one character, optionally extending the selection.
     fn move_left(
         &mut self,
         extend: bool,
@@ -233,6 +242,7 @@ impl Editor {
         }
     }
 
+    /// Move the cursor right by one character, optionally extending the selection.
     fn move_right(
         &mut self,
         extend: bool,
@@ -255,6 +265,7 @@ impl Editor {
         }
     }
 
+    /// Move the cursor vertically by one line, optionally extending the selection.
     fn move_vertical(
         &mut self,
         direction: i8,
@@ -313,6 +324,7 @@ impl Editor {
         self.move_right(false);
     }
 
+    /// Delete the byte range from `start` to `end`, recording the operation.
     fn delete_range(
         &mut self,
         start: usize,
@@ -335,6 +347,7 @@ impl Editor {
         });
     }
 
+    /// Delete the word immediately before the cursor (keeping trailing whitespace).
     fn delete_word_back(&mut self) {
         let mut start = self.cursor_pos;
 
@@ -369,10 +382,12 @@ impl Editor {
         self.delete_range(start, self.cursor_pos);
     }
 
+    /// Delete from the cursor to the end of content.
     fn delete_to_end(&mut self) {
         self.delete_range(self.cursor_pos, self.content.len());
     }
 
+    /// Delete from the beginning of content to the cursor.
     fn delete_to_beginning(&mut self) {
         self.delete_range(0, self.cursor_pos);
     }
@@ -419,6 +434,7 @@ impl Editor {
         }
     }
 
+    /// Constrain the cursor to valid byte boundaries.
     fn normalize_cursor(&mut self) {
         self.vertical_column = None;
         self.cursor_pos = self.cursor_pos.min(self.content.len());
@@ -614,14 +630,18 @@ impl Editor {
     }
 }
 
+/// A single visual line (explicit or wrapped).
 #[derive(Debug)]
 struct VisualLine {
+    /// The display text for this visual line.
     text: String,
+    /// Byte offset where this visual line starts in the content.
     start: usize,
+    /// Byte offset where this visual line ends in the content.
     end: usize,
 }
 
-/// Split explicit lines and wrapped lines into rows that fit the editor.
+/// Split explicit and wrapped lines into rows that fit the editor.
 fn visual_lines(
     content: &str,
     width: usize,
@@ -642,6 +662,7 @@ fn visual_lines(
     lines
 }
 
+/// Push one or more wrapped lines for the given content segment.
 fn append_wrapped_line(
     lines: &mut Vec<VisualLine>,
     content: &str,
@@ -687,6 +708,8 @@ fn append_wrapped_line(
     });
 }
 
+/// Split explicit and wrapped lines, appending a trailing empty line when the
+/// cursor would fall off the visible edge.
 fn editor_visual_lines(
     content: &str,
     width: usize,
@@ -709,6 +732,7 @@ fn editor_visual_lines(
     lines
 }
 
+/// Return the (row, column) of the given byte offset within the visual lines.
 fn cursor_position(
     lines: &[VisualLine],
     cursor: usize,
@@ -730,12 +754,14 @@ fn cursor_position(
     (lines.len().saturating_sub(1), 0)
 }
 
+/// Return the display width (column count) of a text segment.
 fn display_width(text: &str) -> usize {
     text.chars()
         .map(|character| character.width().unwrap_or(0))
         .sum()
 }
 
+/// Return the byte range (start, end) of the line containing the cursor.
 fn line_bounds(
     content: &str,
     cursor: usize,
@@ -754,6 +780,7 @@ fn line_bounds(
     (start, end)
 }
 
+/// Find the byte offset at the given display column within a text segment.
 fn byte_at_display_column(
     content: &str,
     start: usize,

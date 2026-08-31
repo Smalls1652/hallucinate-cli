@@ -6,42 +6,57 @@ use std::path::Path;
 /// terminal event loop and uses this type for message storage and viewport
 /// state.
 pub struct TranscriptRenderer {
+    /// Stored messages in the transcript.
     messages: Vec<Message>,
+    /// Whether to automatically follow new messages.
     follow_mode: bool,
     /// Number of lines to remain above the newest content while unfollowed.
     scroll_offset: usize,
+    /// Whether to display timestamps on messages.
     show_timestamps: bool,
+    /// Whether to display thinking blocks.
     show_thinking: bool,
 }
 
 /// A message in the transcript.
 #[derive(Debug, Clone)]
 pub struct Message {
+    /// The role of the message sender.
     pub role: MessageRole,
     /// User-visible answer text.
     pub content: String,
     /// Model reasoning kept separately so it can be toggled without changing
     /// the answer or the persisted assistant message.
     pub thinking: String,
+    /// Tool calls made by the assistant.
     pub tool_calls: Vec<ToolCall>,
+    /// When this message was created.
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
 /// The role of a message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageRole {
+    /// A user-submitted message.
     User,
+    /// An assistant-generated response.
     Assistant,
+    /// A tool call result.
     Tool,
+    /// A system-level instruction.
     System,
 }
 
 /// A tool call in a message.
 #[derive(Debug, Clone)]
 pub struct ToolCall {
+    /// Unique identifier for this tool call.
     pub id: String,
+    /// The name of the tool being called.
     pub name: String,
+    /// JSON-encoded arguments passed to the tool.
     pub arguments: String,
+    /// Optional result returned by the tool execution.
     pub result: Option<String>,
 }
 
@@ -127,6 +142,7 @@ impl ToolCall {
     }
 }
 
+/// Format a tool path for display, preserving trailing slashes or backslashes.
 fn display_tool_path(
     path: &str,
     cwd: &Path,
@@ -157,6 +173,7 @@ impl TranscriptRenderer {
         }
     }
 
+    /// Add a message to the transcript.
     pub fn add_message(
         &mut self,
         message: Message,
@@ -185,6 +202,7 @@ impl TranscriptRenderer {
         }
     }
 
+    /// Compute the vertical scroll position for the given viewport.
     pub fn scroll_position(
         &self,
         total_lines: usize,
@@ -201,10 +219,12 @@ impl TranscriptRenderer {
         position.min(u16::MAX as usize) as u16
     }
 
+    /// Whether timestamps are enabled for display.
     pub fn show_timestamps(&self) -> bool {
         self.show_timestamps
     }
 
+    /// Toggle whether thinking blocks are displayed.
     pub fn set_show_thinking(
         &mut self,
         show: bool,
@@ -212,11 +232,13 @@ impl TranscriptRenderer {
         self.show_thinking = show;
     }
 
+    /// Enter follow mode and reset the scroll offset to the bottom.
     pub fn follow(&mut self) {
         self.follow_mode = true;
         self.scroll_offset = 0;
     }
 
+    /// Append text to an existing message's content by index.
     pub fn append_to_message(
         &mut self,
         index: usize,
@@ -227,6 +249,7 @@ impl TranscriptRenderer {
         }
     }
 
+    /// Append reasoning text to an existing message's thinking block by index.
     pub fn append_thinking_to_message(
         &mut self,
         index: usize,
@@ -237,6 +260,7 @@ impl TranscriptRenderer {
         }
     }
 
+    /// Finalize a message with its full content, thinking block, and tool calls.
     pub fn complete_message(
         &mut self,
         index: usize,
@@ -276,6 +300,7 @@ impl TranscriptRenderer {
         false
     }
 
+    /// Access the stored messages.
     pub fn messages(&self) -> &[Message] {
         &self.messages
     }
@@ -288,6 +313,7 @@ impl Default for TranscriptRenderer {
 }
 
 #[cfg(test)]
+/// Unit tests for transcript rendering and tool call formatting.
 mod tests {
     use super::*;
 

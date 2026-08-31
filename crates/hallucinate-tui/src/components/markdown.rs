@@ -87,11 +87,17 @@ pub fn markdown_to_ansi(markdown: &str) -> String {
     output
 }
 
+/// Renders Comrak's Markdown AST into styled terminal [`Line`]s.
+///
+/// Accumulates spans in rows, applying indentation prefixes for nested blocks
+/// (lists, quotes, code blocks, tables).
 struct Renderer {
+    /// Buffered output lines as vectors of styled spans.
     lines: Vec<Vec<Span<'static>>>,
 }
 
 impl Renderer {
+    /// Recursively render all child nodes of the given parent.
     fn blocks<'a>(
         &mut self,
         parent: &'a comrak::nodes::AstNode<'a>,
@@ -101,6 +107,10 @@ impl Renderer {
         }
     }
 
+    /// Render a single AST node into the output lines.
+    ///
+    /// Dispatches on [`NodeValue`] variant (paragraph, heading, code block, list,
+    /// table, etc.) and renders each with appropriate styling.
     fn block<'a>(
         &mut self,
         node: &'a comrak::nodes::AstNode<'a>,
@@ -222,6 +232,10 @@ impl Renderer {
         }
     }
 
+    /// Recursively render a list node and all its items.
+    ///
+    /// Supports ordered, bullet, and task lists. Task list items are rendered
+    /// with `[ ]` or `[x]` markers; ordered lists use incremental numbers.
     fn render_list<'a>(
         &mut self,
         node: &'a comrak::nodes::AstNode<'a>,
@@ -289,6 +303,10 @@ impl Renderer {
         }
     }
 
+    /// Render a table node with aligned columns and border dividers.
+    ///
+    /// Measures all cells first so every column divider aligns across rows,
+    /// regardless of how many columns exist in the table.
     fn render_table<'a>(
         &mut self,
         node: &'a comrak::nodes::AstNode<'a>,
@@ -399,12 +417,14 @@ impl Renderer {
         }
     }
 
+    /// Push a blank separator line between blocks, avoiding duplicates.
     fn separator(&mut self) {
         if !self.lines.last().is_some_and(Vec::is_empty) {
             self.lines.push(Vec::new());
         }
     }
 
+    /// Remove trailing blank separator lines from the buffer.
     fn remove_trailing_separators(&mut self) {
         while self.lines.last().is_some_and(Vec::is_empty) {
             self.lines.pop();
@@ -412,6 +432,7 @@ impl Renderer {
     }
 }
 
+/// Render inline nodes under a single AST node into styled lines.
 fn inline_lines<'a>(
     node: &'a comrak::nodes::AstNode<'a>,
     style: Style,
@@ -425,6 +446,7 @@ fn inline_lines<'a>(
     lines
 }
 
+/// Render a single inline node and append styled spans to [`lines`].
 fn inline_node<'a>(
     node: &'a comrak::nodes::AstNode<'a>,
     style: Style,
@@ -479,6 +501,7 @@ fn inline_node<'a>(
     }
 }
 
+/// Recursively render all child inline nodes with the given [`Style`].
 fn children_inline<'a>(
     node: &'a comrak::nodes::AstNode<'a>,
     style: Style,
@@ -489,6 +512,7 @@ fn children_inline<'a>(
     }
 }
 
+/// Append a text span (split by newlines) onto [`lines`] with the given style.
 fn add_text(
     lines: &mut Vec<Vec<Span<'static>>>,
     text: String,
@@ -508,12 +532,14 @@ fn add_text(
     }
 }
 
+/// Compute the display width of a line using Unicode character widths.
 fn line_width(line: &[Span<'static>]) -> usize {
     line.iter()
         .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
         .sum()
 }
 
+/// Compute left and right padding around a table cell based on alignment.
 fn table_padding(
     alignment: TableAlignment,
     extra: usize,
@@ -525,6 +551,7 @@ fn table_padding(
     }
 }
 
+/// Build a divider row for a rendered table.
 fn table_divider(
     indent: usize,
     widths: &[usize],
@@ -537,6 +564,7 @@ fn table_divider(
     format!("{}├{}┤", " ".repeat(indent), segments.join("┼"))
 }
 
+/// Prepend a prefix [`Span`] to an existing line.
 fn with_prefix(
     mut line: Vec<Span<'static>>,
     prefix: String,
@@ -548,6 +576,11 @@ fn with_prefix(
     line
 }
 
+/// Convert a [`ratatui::style::Style`] into an ANSI escape-code string.
+///
+/// Emits foreground/background color codes (256-color, true color, or indexed)
+/// and modifier flags (bold, italic, underline, crossed-out, dim). Returns an
+/// empty string when the style has no effects.
 fn ansi_style(style: Style) -> String {
     let mut codes = Vec::new();
 
