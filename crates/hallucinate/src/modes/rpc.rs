@@ -19,6 +19,8 @@ use crate::{
     session::manager::{SessionCreateOptions, SessionManager},
 };
 
+/// Run the RPC mode server, reading JSON-RPC requests from stdin and writing
+/// responses to stdout.
 pub async fn run(
     cli: &Cli,
     settings: &Settings,
@@ -76,6 +78,7 @@ pub async fn run(
     Ok(())
 }
 
+/// Dispatch a single RPC request to the appropriate handler based on method.
 async fn handle_request(
     request: RpcRequest,
     cli: &Cli,
@@ -111,6 +114,7 @@ async fn handle_request(
     }
 }
 
+/// List all sessions and return them as an RPC result.
 fn list_sessions(id: Value) -> RpcResponse {
     match SessionManager::list() {
         Ok(sessions) => RpcResponse::result(
@@ -128,6 +132,7 @@ fn list_sessions(id: Value) -> RpcResponse {
     }
 }
 
+/// Create a new session from the given parameters and return it as an RPC result.
 fn create_session(
     params: Option<&Value>,
     id: Value,
@@ -161,6 +166,7 @@ fn create_session(
     }
 }
 
+/// Handle a chat request: create or resume a session, run the agent, and return the result.
 async fn chat(
     params: Option<&Value>,
     id: Value,
@@ -343,6 +349,7 @@ async fn chat(
     RpcResponse::result(id, json!({ "session_id": session.id, "message": answer }))
 }
 
+/// Extract the JSON object from params, returning None if params is null/absent.
 fn object_params(params: Option<&Value>) -> Result<Option<&Map<String, Value>>, String> {
     match params {
         None | Some(Value::Null) => Ok(None),
@@ -351,6 +358,7 @@ fn object_params(params: Option<&Value>) -> Result<Option<&Map<String, Value>>, 
     }
 }
 
+/// Extract an optional string field from the params object.
 fn optional_string(
     params: Option<&Map<String, Value>>,
     name: &str,
@@ -362,6 +370,7 @@ fn optional_string(
     }
 }
 
+/// Extract an optional boolean field from the params object.
 fn optional_bool(
     params: Option<&Map<String, Value>>,
     name: &str,
@@ -373,6 +382,7 @@ fn optional_bool(
     }
 }
 
+/// Extract the text content from an assistant message, optionally including thinking blocks.
 fn assistant_output(
     message: &hallucinate_agent::ai::types::AssistantMessage,
     show_thinking: bool,
@@ -391,40 +401,56 @@ fn assistant_output(
         .join("\n")
 }
 
+/// Check whether an id value is valid (null, string, or number).
 fn valid_id(id: &Value) -> bool {
     id.is_null() || id.is_string() || id.is_number()
 }
 
+/// A parsed JSON-RPC 2.0 request.
 #[derive(Debug, Deserialize)]
 struct RpcRequest {
+    /// JSON-RPC version string.
     #[serde(default)]
     jsonrpc: Option<String>,
+    /// RPC method name.
     #[serde(default)]
     method: Option<String>,
+    /// Method parameters.
     #[serde(default)]
     params: Option<Value>,
+    /// Request identifier.
     #[serde(default)]
     id: Option<Value>,
 }
 
+/// A JSON-RPC 2.0 response.
 #[derive(Debug, Serialize)]
 struct RpcResponse {
+    /// JSON-RPC version string.
     jsonrpc: &'static str,
+    /// The result value, if the request succeeded.
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<Value>,
+    /// The error details, if the request failed.
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<RpcError>,
+    /// Request identifier, echoed back from the request.
     id: Value,
 }
 
+/// A JSON-RPC 2.0 error response.
 #[derive(Debug, Serialize)]
 struct RpcError {
+    /// Error code.
     code: i32,
+    /// Human-readable error message.
     message: String,
+    /// Optional additional error data.
     data: Option<Value>,
 }
 
 impl RpcResponse {
+    /// Construct a successful RPC response with the given id and result.
     fn result(
         id: Value,
         result: Value,
@@ -437,6 +463,7 @@ impl RpcResponse {
         }
     }
 
+    /// Construct an error RPC response with the given code, message, id, and detail.
     fn error(
         code: i32,
         message: impl Into<String>,

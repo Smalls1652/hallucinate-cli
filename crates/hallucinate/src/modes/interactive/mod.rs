@@ -177,8 +177,11 @@ pub async fn run(
 
 const EPHEMERAL_NOTICE_DURATION: Duration = Duration::from_secs(4);
 
+/// A short-lived UI notice with an expiration time.
 struct EphemeralNotice {
+    /// The notice text to display.
     message: String,
+    /// When the notice should expire and be cleared.
     expires_at: Instant,
 }
 
@@ -187,15 +190,21 @@ struct EphemeralNotice {
 /// styled Markdown without having to reconstruct the rendered text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ChatSelection {
+    /// The starting point of the selection.
     anchor: (u16, u16),
+    /// The current cursor/focus point of the selection.
     focus: (u16, u16),
 }
 
 impl ChatSelection {
+    /// Return `true` if the anchor and focus differ, indicating a non-empty
+    /// selection range.
     fn has_range(self) -> bool {
         self.anchor != self.focus
     }
 
+    /// Return the selection bounds as a `(top_left, bottom_right)` pair,
+    /// regardless of which point is the anchor or focus.
     fn bounds(self) -> ((u16, u16), (u16, u16)) {
         if (self.anchor.1, self.anchor.0) <= (self.focus.1, self.focus.0) {
             (self.anchor, self.focus)
@@ -264,30 +273,38 @@ struct InteractiveTui {
 /// The result of an agent task, including ownership of the agent so the next
 /// user message can reuse its conversation history.
 struct AgentRunCompletion {
+    /// The agent instance, which retains conversation history.
     agent: Agent,
+    /// The result of the agent run — `Ok(())` on success, or an error string.
     result: Result<(), String>,
 }
 
 /// A completion shown for a slash command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AutocompleteItem {
+    /// The completion text value.
     value: String,
+    /// A human-readable description of the completion.
     description: String,
 }
 
 /// State for the keyboard-driven model picker overlay.
 #[derive(Debug, Clone, Copy)]
 struct ModelPicker {
+    /// Index of the currently selected model.
     selected: usize,
 }
 
 /// State for the keyboard-driven session picker overlay.
 #[derive(Debug, Clone, Copy)]
 struct SessionPicker {
+    /// Index of the currently selected session.
     selected: usize,
 }
 
 impl InteractiveTui {
+    /// Create a new `InteractiveTui`, setting up the terminal, raw mode, and
+    /// alternate screen.
     fn new(
         agent: Agent,
         event_rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
@@ -447,6 +464,8 @@ impl InteractiveTui {
         result
     }
 
+    /// Run the event loop until `running` is set to `false` or an error
+    /// occurs.
     fn run_loop(&mut self) -> Result<(), anyhow::Error> {
         while self.running {
             self.process_events();
@@ -480,6 +499,8 @@ impl InteractiveTui {
         let _ = crossterm::terminal::disable_raw_mode();
     }
 
+    /// Add a system message describing loaded context files, skills, and
+    /// prompt templates to the transcript when a new session starts.
     fn add_new_session_message(&mut self) {
         let mut message = String::new();
 
@@ -616,10 +637,13 @@ impl InteractiveTui {
     }
 }
 
+/// Truncate a session ID to at most 8 characters for display.
 fn short_session_id(id: &str) -> &str {
     &id[..id.len().min(8)]
 }
 
+/// Append a formatted section to a message string, showing the section name
+/// as a heading and the items as a fenced code block.
 fn push_loaded_system_items_string(
     message: &mut String,
     section_name: &str,

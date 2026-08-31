@@ -16,11 +16,14 @@ use crate::session::manager::SessionManager;
 use super::{AgentRunCompletion, AutocompleteItem, ChatSelection, InteractiveTui};
 
 impl InteractiveTui {
+    /// Clear the current chat selection state.
     fn clear_chat_selection(&mut self) {
         self.chat_selection = None;
         self.selected_text.clear();
     }
 
+    /// Map a mouse column/row to a transcript coordinate, or `None` if the
+    /// point lies outside the transcript area.
     fn chat_point(
         &self,
         column: u16,
@@ -37,6 +40,7 @@ impl InteractiveTui {
         }
     }
 
+    /// Copy the currently selected transcript text to the host clipboard.
     pub(super) fn copy_chat_selection(&mut self) {
         if self.selected_text.is_empty() {
             self.show_notice("Nothing selected");

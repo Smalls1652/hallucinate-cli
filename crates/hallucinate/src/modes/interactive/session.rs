@@ -374,6 +374,7 @@ fn display_assistant_message(message: &AssistantMessage) -> (String, String, Vec
     (text, thinking, tool_calls)
 }
 
+/// Convert a Unix timestamp in milliseconds to a UTC datetime.
 fn timestamp_from_millis(timestamp: u64) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::from_timestamp_millis(timestamp as i64).unwrap_or_else(chrono::Utc::now)
 }

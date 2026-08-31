@@ -600,11 +600,14 @@ impl InteractiveTui {
     }
 }
 
+/// Check whether a ratatui `Line` has no visible content.
 fn line_is_empty(line: &ratatui::text::Line<'_>) -> bool {
     line.spans.iter().all(|span| span.content.is_empty())
 }
 
+/// Foreground color marker for selectable text in the transcript.
 const SELECTION_MARKER: ratatui::style::Color = ratatui::style::Color::Rgb(1, 2, 3);
+/// Foreground color marker for non-selectable text in the transcript.
 const NON_SELECTION_MARKER: ratatui::style::Color = ratatui::style::Color::Rgb(4, 5, 6);
 
 /// Make a copy of a rendered line for the selection mask. Keeping the original
