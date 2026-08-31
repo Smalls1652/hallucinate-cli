@@ -261,7 +261,24 @@ impl InteractiveTui {
                         }
                     }
 
+                    // If the last body line left an empty card rail,
+                    // remove it.
+                    if lines.last().is_some_and(line_is_empty_card_rail) {
+                        lines.pop();
+                        line_starts.pop();
+                    }
+
                     for tool_call in &msg.tool_calls {
+                        // If the previous line is not an empty card rail,
+                        // push an empty card rail. This may seem counter-intuitive,
+                        // considering the last thing done is removing an empty
+                        // card rail from a body; however, this is genuinely
+                        // a tough one to keep track of.
+                        if !lines.last().is_some_and(line_is_empty_card_rail) {
+                            lines.push(Line::from(Span::styled("│ ", role_color)));
+                            line_starts.push(None);
+                        }
+
                         let previous_len = lines.len();
                         let readable = tool_call.human_readable_with_cwd(&self.project_cwd);
 
@@ -291,6 +308,9 @@ impl InteractiveTui {
 
                             line_starts.extend(vec![None; lines.len() - previous_len]);
                         }
+
+                        lines.push(Line::from(Span::styled("│ ", role_color)));
+                        line_starts.push(None);
                     }
 
                     if ends_card {
@@ -303,6 +323,13 @@ impl InteractiveTui {
                         // a quiet in-card divider between their content.
                         lines.push(Line::from(Span::styled("│ ", role_color)));
                         line_starts.push(None);
+                    }
+
+                    // If the last line is an empty card rail,
+                    // remove it.
+                    if lines.last().is_some_and(line_is_empty_card_rail) {
+                        lines.pop();
+                        line_starts.pop();
                     }
 
                     selection_line_starts.extend(line_starts);
@@ -643,9 +670,14 @@ fn ends_transcript_card(
     )
 }
 
-/// Check whether a ratatui `Line` has no visible content.
+/// Return whether a [`Line`] contains no non-empty spans.
 fn line_is_empty(line: &ratatui::text::Line<'_>) -> bool {
     line.spans.iter().all(|span| span.content.is_empty())
+}
+
+/// Return whether a [`Line`] consists solely of the card-rail marker `"│ "`.
+fn line_is_empty_card_rail(line: &ratatui::text::Line<'_>) -> bool {
+    line.spans.iter().all(|span| span.content == "│ ")
 }
 
 /// Foreground color marker for selectable text in the transcript.
@@ -803,7 +835,7 @@ fn append_prefixed_lines<'a>(
     style: ratatui::style::Style,
 ) {
     for (index, line) in text.split('\n').enumerate() {
-        let line = line.trim_end_matches('\r');
+        let line = line.trim_end();
 
         let content = if index == 0 {
             line.to_string()
@@ -818,6 +850,9 @@ fn append_prefixed_lines<'a>(
 }
 
 /// Truncate a string to one display line and a maximum display width.
+///
+/// Carriage returns and newlines are replaced with spaces so the result fits
+/// on a single terminal row.
 fn truncate_one_line(
     s: &str,
     max_width: usize,
