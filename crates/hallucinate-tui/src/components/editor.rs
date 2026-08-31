@@ -397,6 +397,81 @@ impl Editor {
         self.delete_range(0, self.cursor_pos);
     }
 
+    /// Move the cursor back one word boundary.
+    pub fn word_back(&mut self) {
+        self.vertical_column = None;
+
+        // Skip any trailing whitespace before the word boundary.
+        let mut pos = self.cursor_pos;
+
+        while pos > 0 {
+            let previous = self.content[..pos].char_indices().next_back();
+
+            let Some((_index, character)) = previous else {
+                break;
+            };
+
+            if !character.is_whitespace() {
+                break;
+            }
+
+            pos = _index;
+        }
+
+        // Skip through the word to its start.
+        while pos > 0 {
+            let previous = self.content[..pos].char_indices().next_back();
+
+            let Some((_index, character)) = previous else {
+                break;
+            };
+
+            if character.is_whitespace() {
+                break;
+            }
+
+            pos = _index;
+        }
+
+        self.cursor_pos = pos;
+    }
+
+    /// Move the cursor forward one word boundary.
+    pub fn word_forward(&mut self) {
+        self.vertical_column = None;
+
+        let len = self.content.len();
+        if self.cursor_pos >= len {
+            return;
+        }
+
+        // Skip any leading whitespace after the cursor.
+        let mut pos = self.cursor_pos;
+
+        while pos < len {
+            let next = self.content[pos..].chars().next().unwrap();
+
+            if !next.is_whitespace() {
+                break;
+            }
+
+            pos += next.len_utf8();
+        }
+
+        // Skip through the word to its end.
+        while pos < len {
+            let next = self.content[pos..].chars().next().unwrap();
+
+            if next.is_whitespace() {
+                break;
+            }
+
+            pos += next.len_utf8();
+        }
+
+        self.cursor_pos = pos;
+    }
+
     /// Move the cursor to the beginning.
     pub fn cursor_beginning(&mut self) {
         self.cursor_pos = 0;
@@ -504,8 +579,22 @@ impl Editor {
                 _ => {},
             },
 
+            KeyCode::Char(c) if key.alt => match c {
+                'b' => {
+                    self.word_back();
+                },
+                'f' => {
+                    self.word_forward();
+                },
+                _ => {},
+            },
+
             KeyCode::Char(c) => {
                 self.insert_char(c);
+            },
+
+            KeyCode::Backspace if key.alt => {
+                self.delete_word_back();
             },
 
             KeyCode::Backspace => {
@@ -516,8 +605,16 @@ impl Editor {
                 self.delete_char();
             },
 
+            KeyCode::Left if key.alt => {
+                self.word_back();
+            },
+
             KeyCode::Left => {
                 self.move_left(key.shift);
+            },
+
+            KeyCode::Right if key.alt => {
+                self.word_forward();
             },
 
             KeyCode::Right => {
@@ -938,5 +1035,103 @@ mod tests {
 
         assert!(!editor.handle_event(InputEvent::Paste("one\r\ntwo\rthree".to_string())));
         assert_eq!(editor.content(), "one\ntwo\nthree");
+    }
+
+    #[test]
+    fn alt_left_arrow_moves_cursor_back_one_word() {
+        use crossterm::event::KeyModifiers;
+
+        let mut editor = Editor::new("");
+        editor.set_content("hello world foo");
+
+        // Start at end.
+        assert_eq!(editor.cursor_pos, 15);
+
+        // Alt+Left from end of "foo" should jump to start of "foo".
+        editor.handle_key(Key::with_modifiers(
+            KeyCode::Left,
+            KeyModifiers::ALT,
+        ));
+        assert_eq!(editor.cursor_pos, 12);
+
+        // Another Alt+Left from start of "foo" jumps to start of "world".
+        editor.handle_key(Key::with_modifiers(
+            KeyCode::Left,
+            KeyModifiers::ALT,
+        ));
+        assert_eq!(editor.cursor_pos, 6);
+
+        // Another Alt+Left jumps to start of "hello".
+        editor.handle_key(Key::with_modifiers(
+            KeyCode::Left,
+            KeyModifiers::ALT,
+        ));
+        assert_eq!(editor.cursor_pos, 0);
+
+        // Cannot move back further.
+        editor.handle_key(Key::with_modifiers(
+            KeyCode::Left,
+            KeyModifiers::ALT,
+        ));
+        assert_eq!(editor.cursor_pos, 0);
+    }
+
+    #[test]
+    fn alt_right_arrow_moves_cursor_forward_one_word() {
+        use crossterm::event::KeyModifiers;
+
+        let mut editor = Editor::new("");
+        editor.set_content("hello world foo");
+        editor.cursor_beginning(); // set_content sets cursor to end, move to start
+
+        // Start at beginning.
+        assert_eq!(editor.cursor_pos, 0);
+
+        // Alt+Right from start should jump to end of "hello".
+        editor.handle_key(Key::with_modifiers(
+            KeyCode::Right,
+            KeyModifiers::ALT,
+        ));
+        assert_eq!(editor.cursor_pos, 5);
+
+        // Another Alt+Right jumps to end of "world".
+        editor.handle_key(Key::with_modifiers(
+            KeyCode::Right,
+            KeyModifiers::ALT,
+        ));
+        assert_eq!(editor.cursor_pos, 11);
+
+        // Cannot move forward further (already at end).
+        editor.handle_key(Key::with_modifiers(
+            KeyCode::Right,
+            KeyModifiers::ALT,
+        ));
+        assert_eq!(editor.cursor_pos, 15);
+    }
+
+    #[test]
+    fn word_navigation_handles_unicode_characters() {
+        use crossterm::event::KeyModifiers;
+
+        let mut editor = Editor::new("");
+        // "ab😀 cd" — 😀 is 4 bytes, total length is 9.
+        editor.set_content("ab😀 cd");
+        editor.cursor_beginning(); // set_content sets cursor to end, move to start
+
+        assert_eq!(editor.cursor_pos, 0);
+
+        // Skip past "ab😀" (bytes 0..5) → should land at byte offset 6 (the space).
+        editor.handle_key(Key::with_modifiers(
+            KeyCode::Right,
+            KeyModifiers::ALT,
+        ));
+        assert_eq!(editor.cursor_pos, 6);
+
+        // Skip past "cd" → should land at end (byte length = 9).
+        editor.handle_key(Key::with_modifiers(
+            KeyCode::Right,
+            KeyModifiers::ALT,
+        ));
+        assert_eq!(editor.cursor_pos, 9);
     }
 }
