@@ -267,7 +267,7 @@ impl InteractiveTui {
 
                         append_prefixed_lines(
                             &mut lines,
-                            &format!("├─ {}", &readable),
+                            &format!("├─ ⚙ {}", &readable),
                             "│  ",
                             Style::default().fg(Color::LightBlue),
                         );
@@ -291,9 +291,6 @@ impl InteractiveTui {
 
                             line_starts.extend(vec![None; lines.len() - previous_len]);
                         }
-
-                        lines.push(Line::from(vec![Span::styled("│ ", role_color)]));
-                        line_starts.push(None);
                     }
 
                     if ends_card {
