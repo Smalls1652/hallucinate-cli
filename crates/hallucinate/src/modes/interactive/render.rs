@@ -427,7 +427,7 @@ impl InteractiveTui {
             if let Some(picker) = self.model_picker {
                 let area = frame.area();
 
-                let popup_width = area.width.saturating_sub(4).min(90);
+                let popup_width = area.width.saturating_sub(4).min(140);
 
                 let popup_height = area
                     .height
