@@ -288,9 +288,10 @@ impl InteractiveTui {
             }
 
             if let hallucinate_tui::input::InputEvent::Key(key) = input_event {
-                // Tab accepts the selected slash-command completion. Up and
-                // Down select suggestions while the popup is visible; when
-                // it is hidden they retain their transcript-scroll behavior.
+                // Tab accepts the selected slash-command completion. Enter
+                // accepts it and continues through the normal submit path so
+                // the selected command is run immediately. Shift+Enter and
+                // Alt+Enter remain available for inserting a newline.
                 if !key.ctrl
                     && !key.alt
                     && matches!(key.code, crossterm::event::KeyCode::Tab)
@@ -299,6 +300,14 @@ impl InteractiveTui {
                     self.accept_autocomplete();
 
                     return Ok(false);
+                }
+
+                if !key.shift
+                    && !key.alt
+                    && matches!(key.code, crossterm::event::KeyCode::Enter)
+                    && !self.autocomplete_items.is_empty()
+                {
+                    self.accept_autocomplete();
                 }
 
                 if !self.autocomplete_items.is_empty()
