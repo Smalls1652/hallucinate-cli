@@ -73,6 +73,7 @@ pub fn compact_messages(
     Ok((retained, vec![summary]))
 }
 
+/// Summarize omitted messages into a compact string representation.
 fn summarize(
     messages: &[&Message],
     max_chars: usize,
@@ -119,6 +120,7 @@ fn summarize(
     lines.join("\n")
 }
 
+/// Truncate a string to `max_len` characters, appending "..." if truncated.
 fn truncate_string(
     s: &str,
     max_len: usize,
