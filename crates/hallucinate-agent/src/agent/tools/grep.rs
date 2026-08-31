@@ -167,10 +167,12 @@ fn resolve_path(
     }
 }
 
-/// Collect all files under a search path, optionally filtered by a glob pattern.
+/// Collect all files under a search path, optionally filtered by a glob
+/// pattern.
 ///
 /// If `search_path` is a file, returns a single-element vector with that file.
-/// If it is a directory, recursively collects all files matching `file_pattern`.
+/// If it is a directory, recursively collects all files matching
+/// `file_pattern`.
 fn collect_files(
     search_path: &Path,
     file_pattern: Option<&str>,
@@ -210,7 +212,8 @@ fn collect_files(
     }
 }
 
-/// Check whether a file is binary by looking for null bytes in its first 8192 bytes.
+/// Check whether a file is binary by looking for null bytes in its first 8192
+/// bytes.
 fn is_binary_file(path: &std::path::Path) -> bool {
     if let Ok(content) = std::fs::read(path) {
         content.iter().take(8192).any(|&b| b == 0)

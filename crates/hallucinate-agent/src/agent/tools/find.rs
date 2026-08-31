@@ -121,7 +121,8 @@ impl Tool for FindTool {
     }
 }
 
-/// Resolves a potentially relative path against a working directory, expanding tilde and env vars.
+/// Resolves a potentially relative path against a working directory, expanding
+/// tilde and env vars.
 fn resolve_path(
     path_str: &str,
     cwd: &str,

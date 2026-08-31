@@ -36,7 +36,8 @@ pub struct ModelSettings {
     /// Human-readable name for the model.
     #[serde(default)]
     pub name: Option<String>,
-    /// API variant used by the provider (e.g., OpenAI Chat Completions or Responses).
+    /// API variant used by the provider (e.g., OpenAI Chat Completions or
+    /// Responses).
     #[serde(default = "default_api")]
     pub api: Api,
     /// Override the base URL for this specific model.

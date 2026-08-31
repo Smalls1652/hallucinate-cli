@@ -260,7 +260,8 @@ impl TranscriptRenderer {
         }
     }
 
-    /// Finalize a message with its full content, thinking block, and tool calls.
+    /// Finalize a message with its full content, thinking block, and tool
+    /// calls.
     pub fn complete_message(
         &mut self,
         index: usize,

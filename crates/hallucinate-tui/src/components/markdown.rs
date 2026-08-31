@@ -109,8 +109,8 @@ impl Renderer {
 
     /// Render a single AST node into the output lines.
     ///
-    /// Dispatches on [`NodeValue`] variant (paragraph, heading, code block, list,
-    /// table, etc.) and renders each with appropriate styling.
+    /// Dispatches on [`NodeValue`] variant (paragraph, heading, code block,
+    /// list, table, etc.) and renders each with appropriate styling.
     fn block<'a>(
         &mut self,
         node: &'a comrak::nodes::AstNode<'a>,

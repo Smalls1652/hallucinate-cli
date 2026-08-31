@@ -133,7 +133,8 @@ impl Editor {
         self.insert_text(&ch.to_string());
     }
 
-    /// Return the active selection range as byte offsets, or None if no selection.
+    /// Return the active selection range as byte offsets, or None if no
+    /// selection.
     fn selection_range(&self) -> Option<(usize, usize)> {
         let anchor = self.selection_anchor?;
 
@@ -218,7 +219,8 @@ impl Editor {
         });
     }
 
-    /// Move the cursor left by one character, optionally extending the selection.
+    /// Move the cursor left by one character, optionally extending the
+    /// selection.
     fn move_left(
         &mut self,
         extend: bool,
@@ -242,7 +244,8 @@ impl Editor {
         }
     }
 
-    /// Move the cursor right by one character, optionally extending the selection.
+    /// Move the cursor right by one character, optionally extending the
+    /// selection.
     fn move_right(
         &mut self,
         extend: bool,
@@ -265,7 +268,8 @@ impl Editor {
         }
     }
 
-    /// Move the cursor vertically by one line, optionally extending the selection.
+    /// Move the cursor vertically by one line, optionally extending the
+    /// selection.
     fn move_vertical(
         &mut self,
         direction: i8,
@@ -347,7 +351,8 @@ impl Editor {
         });
     }
 
-    /// Delete the word immediately before the cursor (keeping trailing whitespace).
+    /// Delete the word immediately before the cursor (keeping trailing
+    /// whitespace).
     fn delete_word_back(&mut self) {
         let mut start = self.cursor_pos;
 

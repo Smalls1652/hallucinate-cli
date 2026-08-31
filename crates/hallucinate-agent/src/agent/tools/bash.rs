@@ -23,7 +23,7 @@ impl Default for BashTool {
     fn default() -> Self {
         Self {
             timeout_ms: 60_000, // Default timeout of 60 seconds
-            shell: None, // Use user's environment default shell
+            shell: None,        // Use user's environment default shell
         }
     }
 }
@@ -226,7 +226,8 @@ fn shell_command(
 fn shell_command(
     /// The shell command or script to execute
     command: &str,
-    /// Optional configured shell executable (currently unused on non-Unix/Windows platforms)
+    /// Optional configured shell executable (currently unused on
+    /// non-Unix/Windows platforms)
     _configured_shell: Option<&str>,
 ) -> Command {
     let mut cmd = Command::new("sh");

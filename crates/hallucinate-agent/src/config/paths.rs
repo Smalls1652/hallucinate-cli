@@ -106,7 +106,8 @@ fn expand_tilde(path: &Path) -> PathBuf {
     PathBuf::from(shellexpand::tilde(&path.to_string_lossy()).into_owned())
 }
 
-/// Resolve a path to an absolute path and normalize it (removing `.` and `..` components).
+/// Resolve a path to an absolute path and normalize it (removing `.` and `..`
+/// components).
 fn absolute_normalized(path: &Path) -> PathBuf {
     let absolute = if path.is_absolute() {
         path.to_path_buf()

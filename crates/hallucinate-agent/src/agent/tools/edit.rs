@@ -14,8 +14,9 @@ use super::types::Tool;
 ///
 /// # Usage
 ///
-/// Provide the path to a file, the exact text to find (old_text), and the replacement text.
-/// The tool verifies that old_text exists in the file before performing the replacement.
+/// Provide the path to a file, the exact text to find (old_text), and the
+/// replacement text. The tool verifies that old_text exists in the file before
+/// performing the replacement.
 #[derive(Debug, Clone)]
 pub struct EditTool;
 
@@ -34,11 +35,13 @@ impl EditTool {
 
 /// Resolve a file path with tilde expansion and relative path handling.
 ///
-/// Expands the provided path string using shell-like tilde expansion, then resolves
-/// relative paths against the current working directory if no explicit cwd is given.
+/// Expands the provided path string using shell-like tilde expansion, then
+/// resolves relative paths against the current working directory if no explicit
+/// cwd is given.
 ///
 /// # Parameters
-/// - `path_str`: The path to resolve, which may contain tilde (`~`) or be relative/absolute
+/// - `path_str`: The path to resolve, which may contain tilde (`~`) or be
+///   relative/absolute
 /// - `cwd`: Optional explicit working directory for resolving relative paths
 ///
 /// # Returns
@@ -100,14 +103,16 @@ impl Tool for EditTool {
     /// - `cwd`: Optional explicit working directory for path resolution
     ///
     /// # Returns
-    /// - `ToolResult::success` if the replacement was successful, including the message
+    /// - `ToolResult::success` if the replacement was successful, including the
+    ///   message
     /// - `ToolResult::error` if:
     ///   - Required arguments are missing
     ///   - The text to replace is not found in the file
     ///   - The file cannot be read or written
     ///
     /// # Errors
-    /// Returns an error if any step fails (reading file, creating directories, writing file).
+    /// Returns an error if any step fails (reading file, creating directories,
+    /// writing file).
     fn execute<'a>(
         &'a self,
         arguments: &'a serde_json::Value,

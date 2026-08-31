@@ -52,7 +52,8 @@ impl Key {
 }
 
 impl fmt::Display for Key {
-    /// Formats the key as a human-readable string (e.g., "Ctrl-Enter", "Alt-a").
+    /// Formats the key as a human-readable string (e.g., "Ctrl-Enter",
+    /// "Alt-a").
     fn fmt(
         &self,
         f: &mut fmt::Formatter<'_>,
