@@ -9,6 +9,7 @@ edition = "2024"
 publish = ["smalls-personal"]
 
 license-file = "LICENSE"
+readme = "README.md"
 
 homepage = "https://git.smalls.online/smalls/hallucinate-cli"
 repository = "https://git.smalls.online/smalls/hallucinate-cli"
