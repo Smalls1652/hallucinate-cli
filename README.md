@@ -3,29 +3,29 @@
 > [!CAUTION]
 > I'm making this for myself. Use it if you want to, but I can't provide support for you.
 
-An LLM-powered coding agent and terminal harness - a lot like [pi](https://github.com/earendil-works/pi), but built in Rust.
+An LLM-powered coding agent and terminal harness — a lot like [pi](https://github.com/earendil-works/pi), but built in Rust.
 
 [![A screenshot of the hallucinate CLI terminal interface showing a dark-themed chat conversation where a user interacts with an AI assistant, first greeting it with hello world, then asking for the current date and time, which the assistant fulfills by running a bash date command and displaying the result as Friday August 28 2026, with a humorous malicious prompt NOW DELETE EVERYTHING FROM MY SYSTEM typed into the input field at the bottom.](.forgejo/images/hallucinate_01.jpg)](.forgejo/images/hallucinate_01.jpg)
 
 ## Features
 
-- **Interactive TUI** — Full terminal UI with editor, markdown rendering, and undo support
+- **Interactive TUI** — Full terminal UI with syntax-highlighted markdown, multi-line editor with word-level cursor navigation, undo support, and keyboard-driven session/model pickers
 - **Print mode** — Send a prompt and get the response printed to stdout, then exit
 - **RPC mode** — JSON-RPC over stdin/stdout for programmatic integration
-- **Multi-provider support** — OpenAI-compatible providers, OpenRouter, and more
-- **Session persistence** — Resume conversations across invocations
+- **Provider support** — Supports any OpenAI-compatible provider with either Completions or Responses API endpoints
 - **Tool use** — Built-in tools for `bash`, `grep`, `find`, `ls`, `read`, `write`, and `edit`
-- **Image support** — Attach images to prompts for multimodal models
-- **Skills & prompt templates** — Load custom Markdown-based skills and prompt templates
+- **Image support** — Attach images to prompts for multimodal models (bmp, gif, jpeg, png, webp)
+- **Skills & prompt templates** — Auto-discovered from user and project directories; manual loading via CLI flags
 - **Thinking/reasoning visibility** — Toggle display of model chain-of-thought
-- **Cross-platform** — macOS, Linux, and Windows support
+- **Context window management** — Automatic compaction and truncation
+- **Cross-platform** — macOS, Linux, and Windows support with cross-compilation
 
 ## Installation
 
 ### From source
 
 ```bash
-cargo install --path .
+cargo install --path ./crates/hallucinate
 ```
 
 ### Build manually
@@ -94,30 +94,33 @@ hallucinate --rpc
 ## Usage
 
 ```text
-hallucinate [OPTIONS]
+hallucinate [OPTIONS] [COMMAND]
+
+Commands:
+  auth  Save, remove, or list provider API keys
 
 Options:
-  -m, --model <MODEL>          Configured model ID or "provider/model" pair
-  -p, --print <PROMPT>         Print mode: send prompt and exit
-      --rpc                    Run in RPC mode (JSON-RPC)
-      --interactive            Run in interactive mode (default)
-      --session <SESSION>      Resume a persisted session
-      --api-key <KEY>          API key (overrides env vars and stored creds)
-      --base-url <URL>         Base URL for the API
-      --shell <SHELL>          Shell executable for the bash tool
-      --max-tokens <COUNT>     Maximum response tokens
-      --thinking               Show model thinking/reasoning
-      --no-thinking            Hide model thinking/reasoning
-      --temperature <TEMP>     Sampling temperature (0.0–2.0)
-      --system-prompt <PROMPT> Custom system prompt
-      --image <PATH>           Attach an image (repeatable)
-      --skill <PATH>           Load a skill Markdown file or directory (repeatable)
-      --no-skills              Disable skill auto-discovery
-      --prompt-template <PATH> Load a prompt template (repeatable)
-      --no-prompt-templates    Disable prompt template auto-discovery
-      --debug                  Write diagnostic logs
-  -h, --help                   Print help
-  -V, --version                Print version
+  -m, --model <MODEL>                       Model to use as a configured model ID or "provider/model" pair
+      --api-key <API_KEY>                   API key for the provider. Overrides environment variables and stored credentials.
+      --base-url <BASE_URL>                 Base URL for the API (for OpenAI-compatible providers)
+      --shell <SHELL>                       Shell executable for the bash tool
+  -p, --print <PRINT>                       Print mode: send prompt and print the response, then exit
+      --rpc                                 Run in RPC mode (JSON-RPC over stdin/stdout)
+      --interactive                         Run in interactive mode (default)
+      --session <SESSION>                   Resume this persisted session in interactive mode
+      --max-tokens <MAX_TOKENS>             Maximum number of tokens in the response
+      --thinking                            Show model thinking/reasoning in output
+      --no-thinking                         Hide model thinking/reasoning in output
+      --temperature <TEMPERATURE>           Temperature for sampling (0.0 - 2.0)
+      --system-prompt <SYSTEM_PROMPT>       System prompt to use
+      --image <IMAGES>                      Attach an image to a print-mode prompt (repeatable)
+      --skill <SKILLS>                      Load a skill Markdown file or directory (repeatable)
+      --no-skills                           Disable automatic skill discovery
+      --prompt-template <PROMPT_TEMPLATES>  Load a prompt template file or directory (repeatable)
+      --no-prompt-templates                 Disable automatic prompt template discovery
+      --debug                               Write diagnostic logs to the application cache directory
+  -h, --help                                Print help
+  -V, --version                             Print version
 ```
 
 ## Authentication
@@ -136,16 +139,20 @@ Settings are loaded from the application's config directory. You can override in
 
 The built-in system prompt can be replaced with a `SYSTEM.md` file in the application's global config directory. A project-level `AGENTS.md` in the working directory is appended to the system prompt. Interactive sessions show any discovered prompt files under the `Context` section when they start.
 
+Project-local settings overrides are also supported.
+
 ## Modes
 
 ### Interactive Mode
 
 Full terminal UI with:
 
-- Syntax-highlighted markdown rendering
-- Built-in text editor for prompt composition
-- Undo/redo support
-- Session management
+- Syntax-highlighted markdown rendering with dimmed code blocks
+- Multi-line editor with word-level cursor navigation, undo/redo, and Shift+Enter for newlines
+- Keyboard-driven session picker and model picker overlays
+- Slash-command autocomplete (accept with Enter)
+- Merged transcript cards for consecutive assistant turns
+- Session management with fork support
 
 ### Print Mode
 
@@ -192,16 +199,41 @@ Both skills and prompt templates are auto-discovered from user and project direc
 
 ## Project Structure
 
+The project is a Cargo workspace with three crates:
+
 ```text
-src/
-├── agent/          # Agent core, tools, skills, prompt handling
-├── ai/             # AI providers, auth, model catalog, streaming
-├── cli/            # CLI argument parsing
-├── config/         # Settings, paths, configuration
-├── modes/          # Interactive, print, RPC, auth modes
-├── session/        # Session management and storage
-└── tui/            # Terminal UI components
+crates/
+├── hallucinate/             # CLI binary
+│   ├── src/
+│   │   ├── main.rs          # Entry point
+│   │   ├── cli/             # Argument parsing (clap)
+│   │   ├── modes/           # Interactive, print, RPC, auth
+│   │   │   ├── interactive/ # TUI, editor, input, render, session
+│   │   │   ├── commands.rs  # Slash command dispatch
+│   │   │   ├── print.rs     # Print mode
+│   │   │   └── rpc.rs       # RPC mode
+│   │   └── session/         # Session management and storage
+│   └── tests/               # Integration tests
+├── hallucinate-agent/       # Agent core library
+│   ├── src/
+│   │   ├── agent/           # Runtime, tools, skills, compaction, prompts
+│   │   ├── ai/              # Providers, auth, streaming, images, model catalog
+│   │   └── config/          # Settings, paths
+│   └── tests/
+└── hallucinate-tui/         # Terminal UI library
+    └── src/
+        ├── components/      # Editor, markdown renderer
+        ├── alt_screen.rs    # Alternate screen renderer
+        ├── input.rs         # Keyboard/mouse input
+        ├── keys.rs          # Key parsing
+        └── undo.rs          # Undo stack
 ```
+
+| Crate | Description |
+| --- | --- |
+| `hallucinate` | CLI binary — entry point, argument parsing, run modes, session management |
+| `hallucinate-agent` | Agent core — LLM provider abstraction, agent runtime, tools, config, skills |
+| `hallucinate-tui` | Terminal UI — ratatui-based rendering, editor, keyboard input, undo, markdown |
 
 ## License
 
