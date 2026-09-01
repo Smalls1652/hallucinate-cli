@@ -8,3 +8,5 @@ artifacts/
 .DS_Store
 
 run_dev.sh
+
+plans/
