@@ -128,11 +128,6 @@ pub async fn run(
                 print!("{rendered}");
 
                 std::io::stdout().flush()?;
-
-                println!(
-                    "\n[Model: {} | Tokens: {} in, {} out]",
-                    message.model, message.usage.input, message.usage.output
-                );
             },
 
             hallucinate_agent::ai::streaming::AssistantMessageEvent::Error { error, .. } => {
