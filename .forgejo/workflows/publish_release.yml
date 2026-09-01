@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow
+name: "Publish crate"
+on:
+  push:
+    tags:
+      - "*.*.*"
+      - "*.*.*-*"
+
+jobs:
+  publish:
+    name: "Publish"
+    runs-on: ubuntu-latest
+
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "Setup Rust"
+        uses: https://git.smalls.online/smallsonline-actions/setup-rs@v1
+      
+      - name: "Add personal cargo registry"
+        uses: https://git.smalls.online/smallsonline-actions/configure-cargo-registries@v1
+        with:
+          name: "smalls-personal"
+          index: "sparse+https://git.smalls.online/api/packages/smalls/cargo/"
+          token: ${{ secrets.REGISTRY_TOKEN }}
+      
+      - name: "Add Smalls.Online cargo registry"
+        uses: https://git.smalls.online/smallsonline-actions/configure-cargo-registries@v1
+        with:
+          name: "smalls-online"
+          index: "sparse+https://git.smalls.online/api/packages/smallsonline/cargo/"
+          token: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: "Publish crate"
+        shell: bash
+        run: |
+          cargo publish --workspace --registry "smalls-personal"
