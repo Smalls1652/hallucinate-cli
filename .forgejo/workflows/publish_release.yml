@@ -29,13 +29,6 @@ jobs:
           name: "smalls-personal"
           index: "sparse+https://git.smalls.online/api/packages/smalls/cargo/"
           token: ${{ secrets.REGISTRY_TOKEN }}
-      
-      - name: "Add Smalls.Online cargo registry"
-        uses: https://git.smalls.online/smallsonline-actions/configure-cargo-registries@v1
-        with:
-          name: "smalls-online"
-          index: "sparse+https://git.smalls.online/api/packages/smallsonline/cargo/"
-          token: ${{ secrets.REGISTRY_TOKEN }}
 
       - name: "Publish crate"
         shell: bash
