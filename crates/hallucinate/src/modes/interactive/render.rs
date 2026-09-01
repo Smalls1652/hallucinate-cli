@@ -524,7 +524,11 @@ impl InteractiveTui {
                                     }),
                                 ),
                                 Span::styled(
-                                    format!("{}/{} — {} ", model.provider, model.id, model.name),
+                                    format!("{}", model.name),
+                                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                                ),
+                                Span::styled(
+                                    format!(" - {}/{} ", model.provider, model.id),
                                     Style::default().fg(Color::Cyan),
                                 ),
                                 Span::styled(metadata, Style::default().fg(Color::DarkGray)),
