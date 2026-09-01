@@ -8,6 +8,7 @@ use hallucinate_tui::{alt_screen::TranscriptRenderer, keys::Key};
 use super::{
     InteractiveTui,
     ModelPicker,
+    PromptPicker,
     SessionPicker,
     session::transcript_from_messages,
     short_session_id,
@@ -178,7 +179,7 @@ impl InteractiveTui {
 
                 if !self.prompt_templates.is_empty() {
                     lines.push(
-                        "Prompt templates: type /<name> [arguments]. Use /templates to list them."
+                        "Prompt templates: type /<name> [arguments]. Use /prompts to list them."
                             .to_string(),
                     );
                 }
@@ -301,21 +302,11 @@ impl InteractiveTui {
                 }
             },
 
-            "templates" | "prompts" => {
+            "prompts" => {
                 if self.prompt_templates.is_empty() {
                     self.add_system_message("No prompt templates found.");
                 } else {
-                    let mut lines = vec!["Prompt templates:".to_string()];
-                    lines.extend(self.prompt_templates.iter().map(|template| {
-                        let hint = template
-                            .argument_hint
-                            .as_deref()
-                            .map(|hint| format!(" {hint}"))
-                            .unwrap_or_default();
-                        format!("/{}{} — {}", template.name, hint, template.description)
-                    }));
-
-                    self.add_system_messages(lines);
+                    self.open_prompt_picker();
                 }
             },
 
@@ -454,6 +445,16 @@ impl InteractiveTui {
         self.session_picker = Some(SessionPicker { selected });
     }
 
+    /// Open the prompt template picker with all loaded templates.
+    fn open_prompt_picker(&mut self) {
+        if self.prompt_templates.is_empty() {
+            self.show_notice("No prompt templates found.");
+            return;
+        }
+
+        self.prompt_picker = Some(PromptPicker { selected: 0 });
+    }
+
     /// Handle a key while the session picker owns the input focus.
     pub(super) fn handle_session_picker_key(
         &mut self,
@@ -516,6 +517,68 @@ impl InteractiveTui {
                     if let Err(error) = self.load_selected_session(&session_id) {
                         self.show_notice(format!("Failed to resume session: {error}"));
                     }
+                }
+            },
+
+            _ => {},
+        }
+
+        Ok(())
+    }
+
+    /// Handle a key while the prompt picker owns the input focus.
+    pub(super) fn handle_prompt_picker_key(
+        &mut self,
+        key: Key,
+    ) -> Result<(), anyhow::Error> {
+        let Some(picker) = self.prompt_picker.as_mut() else {
+            return Ok(());
+        };
+
+        match key.code {
+            crossterm::event::KeyCode::Char('c') if key.ctrl => {
+                // Ctrl+C is intentionally not a quit shortcut. It can still
+                // interrupt an active response, matching the Esc/stop path.
+                if let Some(cancellation) = &self.agent_cancellation {
+                    cancellation.cancel();
+                }
+            },
+
+            crossterm::event::KeyCode::Up => {
+                picker.selected = picker.selected.saturating_sub(1);
+            },
+
+            crossterm::event::KeyCode::Down => {
+                picker.selected = (picker.selected + 1).min(self.prompt_templates.len() - 1);
+            },
+
+            crossterm::event::KeyCode::PageUp => {
+                picker.selected = picker.selected.saturating_sub(8);
+            },
+
+            crossterm::event::KeyCode::PageDown => {
+                picker.selected = (picker.selected + 8).min(self.prompt_templates.len() - 1);
+            },
+
+            crossterm::event::KeyCode::Home => {
+                picker.selected = 0;
+            },
+
+            crossterm::event::KeyCode::End => {
+                picker.selected = self.prompt_templates.len() - 1;
+            },
+
+            crossterm::event::KeyCode::Esc => {
+                self.prompt_picker = None;
+            },
+
+            crossterm::event::KeyCode::Enter => {
+                let selected = picker.selected;
+                self.prompt_picker = None;
+
+                if let Some(template) = self.prompt_templates.get(selected).cloned() {
+                    self.editor.set_content(format!("/{} ", template.name));
+                    self.refresh_autocomplete();
                 }
             },
 

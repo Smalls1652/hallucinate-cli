@@ -266,6 +266,7 @@ struct InteractiveTui {
     models: Vec<hallucinate_agent::ai::types::Model>,
     model_picker: Option<ModelPicker>,
     session_picker: Option<SessionPicker>,
+    prompt_picker: Option<PromptPicker>,
     autocomplete_items: Vec<AutocompleteItem>,
     autocomplete_index: usize,
 }
@@ -299,6 +300,13 @@ struct ModelPicker {
 #[derive(Debug, Clone, Copy)]
 struct SessionPicker {
     /// Index of the currently selected session.
+    selected: usize,
+}
+
+/// State for the keyboard-driven prompt picker overlay.
+#[derive(Debug, Clone, Copy)]
+struct PromptPicker {
+    /// Index of the currently selected prompt template.
     selected: usize,
 }
 
@@ -432,6 +440,7 @@ impl InteractiveTui {
             models,
             model_picker: None,
             session_picker: None,
+            prompt_picker: None,
             autocomplete_items: Vec::new(),
             autocomplete_index: 0,
         };

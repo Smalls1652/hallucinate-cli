@@ -634,6 +634,83 @@ impl InteractiveTui {
                     }
                 }
             }
+
+            // Prompt template picker overlay. Rendered after the session picker
+            // so it takes visual precedence when open.
+            if let Some(picker) = self.prompt_picker {
+                let area = frame.area();
+
+                let popup_width = area.width.saturating_sub(4).min(140);
+
+                let popup_height = area
+                    .height
+                    .saturating_sub(4)
+                    .min((self.prompt_templates.len() + 2).min(18) as u16);
+
+                if popup_width > 4 && popup_height > 2 {
+                    let popup_area = ratatui::layout::Rect::new(
+                        area.x + (area.width - popup_width) / 2,
+                        area.y + (area.height - popup_height) / 2,
+                        popup_width,
+                        popup_height,
+                    );
+
+                    let visible_rows = usize::from(popup_height.saturating_sub(2));
+
+                    let start = picker
+                        .selected
+                        .saturating_sub(visible_rows / 2)
+                        .min(self.prompt_templates.len().saturating_sub(visible_rows));
+
+                    let rows = self
+                        .prompt_templates
+                        .iter()
+                        .enumerate()
+                        .skip(start)
+                        .take(visible_rows)
+                        .map(|(index, template)| {
+                            let marker = if index == picker.selected { "> " } else { "  " };
+
+                            let hint = template
+                                .argument_hint
+                                .as_deref()
+                                .map(|hint| format!(" {hint}"))
+                                .unwrap_or_default();
+
+                            Line::from(vec![
+                                Span::styled(
+                                    marker,
+                                    Style::default().fg(if index == picker.selected {
+                                        Color::Yellow
+                                    } else {
+                                        Color::DarkGray
+                                    }),
+                                ),
+                                Span::styled(
+                                    format!("/{}{}", template.name, hint),
+                                    Style::default().fg(Color::Cyan),
+                                ),
+                                Span::styled(
+                                    format!(" - "),
+                                    Style::default()
+                                ),
+                                Span::styled(template.description.clone(), Style::default().fg(Color::DarkGray)),
+                            ])
+                        })
+                        .collect::<Vec<_>>();
+
+                    frame.render_widget(Clear, popup_area);
+
+                    frame.render_widget(
+                        Paragraph::new(rows).block(
+                            Block::default()
+                                .borders(Borders::ALL)
+                                .title(" Select prompt · ↑↓ PgUp/PgDn Home/End Enter Esc "),
+                        ),
+                        popup_area,
+                    );
+                }
+            }
         })?;
 
         self.transcript_area = rendered_transcript_area;

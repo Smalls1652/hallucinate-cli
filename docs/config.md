@@ -388,7 +388,7 @@ hallucinate auth list
 | `/delete` | `[id]` | Delete a session. |
 | `/name` | `[name]` | Set or clear the session name. |
 | `/session` | — | Show current session info. |
-| `/templates` | — | List prompt templates. |
+| `/prompts` | — | List prompt templates. |
 | `/skills` | — | List loaded skills. |
 | `/model` | `[provider/model]` | Open model picker or switch. |
 | `/thinking` | `[on\|off]` | Toggle thinking output. |

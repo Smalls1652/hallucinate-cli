@@ -56,7 +56,7 @@ impl InteractiveTui {
     }
 
     /// Refresh slash-command completions for the current editor contents.
-    fn refresh_autocomplete(&mut self) {
+    pub(super) fn refresh_autocomplete(&mut self) {
         let input = self.editor.content().trim_start();
 
         let Some(prefix) = input.strip_prefix('/') else {
@@ -208,6 +208,22 @@ impl InteractiveTui {
                         return Ok(false);
                     }
 
+                    if let Some(picker) = self.prompt_picker.as_mut() {
+                        match mouse.kind {
+                            crossterm::event::MouseEventKind::ScrollUp => {
+                                picker.selected = picker.selected.saturating_sub(3);
+                            },
+
+                            crossterm::event::MouseEventKind::ScrollDown => {
+                                picker.selected = (picker.selected + 3).min(self.prompt_templates.len() - 1);
+                            },
+
+                            _ => {},
+                        }
+
+                        return Ok(false);
+                    }
+
                     use crossterm::event::{MouseButton, MouseEventKind};
 
                     match mouse.kind {
@@ -278,12 +294,14 @@ impl InteractiveTui {
 
             // The model picker owns keyboard input while it is open. This
             // prevents arrows and Enter from moving/submitting the editor.
-            if self.model_picker.is_some() || self.session_picker.is_some() {
+            if self.model_picker.is_some() || self.session_picker.is_some() || self.prompt_picker.is_some() {
                 if let hallucinate_tui::input::InputEvent::Key(key) = input_event {
                     if self.model_picker.is_some() {
                         self.handle_model_picker_key(key)?;
-                    } else {
+                    } else if self.session_picker.is_some() {
                         self.handle_session_picker_key(key)?;
+                    } else {
+                        self.handle_prompt_picker_key(key)?;
                     }
                 }
 

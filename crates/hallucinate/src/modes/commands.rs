@@ -57,8 +57,7 @@ pub const BUILTIN_INVOCATIONS: &[(&str, &str)] = &[
     ("name", "name"),
     ("session", "session"),
     ("status", "session"),
-    ("templates", "templates"),
-    ("prompts", "templates"),
+    ("prompts", "prompts"),
     ("skills", "skills"),
     ("model", "model"),
     ("models", "model"),
@@ -151,8 +150,8 @@ pub const BUILTIN_COMMANDS: &[CommandInfo] = &[
         description: "Show current session information",
     },
     CommandInfo {
-        name: "templates",
-        usage: "/templates",
+        name: "prompts",
+        usage: "/prompts",
         description: "List prompt templates",
     },
     CommandInfo {
