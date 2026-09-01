@@ -148,7 +148,9 @@ impl Renderer {
             },
 
             NodeValue::CodeBlock(code) => {
-                let code_style = Style::default().fg(Color::Green);
+                let code_style = Style::default()
+                    .fg(Color::LightYellow)
+                    .add_modifier(ratatui::style::Modifier::DIM);
 
                 for code_line in code.literal.trim_end_matches('\n').split('\n') {
                     let mut line = vec![Span::styled(
