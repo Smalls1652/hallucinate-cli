@@ -284,8 +284,10 @@ impl InteractiveTui {
 
                         append_prefixed_lines(
                             &mut lines,
-                            &format!("├─ ⚙ {}", &readable),
+                            &readable,
+                            "├─ ⚙ ",
                             "│  ",
+                            Style::default().fg(Color::LightBlue),
                             Style::default().fg(Color::LightBlue),
                         );
 
@@ -301,8 +303,10 @@ impl InteractiveTui {
 
                             append_prefixed_lines(
                                 &mut lines,
-                                &format!("│  {}", truncate_width(result, 100)),
+                                &truncate_width(result, 100),
                                 "│  ",
+                                "│  ",
+                                Style::default().fg(Color::LightBlue),
                                 result_style,
                             );
 
@@ -831,21 +835,23 @@ fn muted_thinking_line(
 fn append_prefixed_lines<'a>(
     lines: &mut Vec<ratatui::text::Line<'a>>,
     text: &str,
-    continuation_prefix: &str,
-    style: ratatui::style::Style,
+    prefix: &'a str,
+    continuation_prefix: &'a str,
+    prefix_style: ratatui::style::Style,
+    text_style: ratatui::style::Style,
 ) {
     for (index, line) in text.split('\n').enumerate() {
         let line = line.trim_end();
 
-        let content = if index == 0 {
-            line.to_string()
+        let prefix_span = if index == 0 {
+            ratatui::text::Span::styled(prefix, prefix_style)
         } else {
-            format!("{continuation_prefix}{line}")
+            ratatui::text::Span::styled(continuation_prefix, prefix_style)
         };
 
-        lines.push(ratatui::text::Line::from(ratatui::text::Span::styled(
-            content, style,
-        )));
+        let line_span = ratatui::text::Span::styled(line.to_string(), text_style);
+
+        lines.push(ratatui::text::Line::from(vec![prefix_span, line_span]));
     }
 }
 
