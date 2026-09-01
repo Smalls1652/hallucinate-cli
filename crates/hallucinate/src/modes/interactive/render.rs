@@ -313,7 +313,7 @@ impl InteractiveTui {
                             line_starts.extend(vec![None; lines.len() - previous_len]);
                         }
 
-                        lines.push(Line::from(Span::styled("│ ", role_color)));
+                        lines.push(Line::from(Span::styled("│ ", Style::default().fg(Color::LightBlue))));
                         line_starts.push(None);
                     }
 
