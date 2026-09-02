@@ -27,67 +27,43 @@ use crate::ai::types::{
 /// Events emitted during assistant message generation.
 #[derive(Debug, Clone)]
 pub enum AssistantMessageEvent {
-    /// Stream started with a partial message.
-    Start { partial: AssistantMessage },
+    /// Stream started.
+    Start,
 
     /// Text content block started.
-    TextStart {
-        content_index: usize,
-        partial: AssistantMessage,
-    },
+    TextStart { content_index: usize },
 
     /// Text content delta.
-    TextDelta {
-        content_index: usize,
-        delta: String,
-        partial: AssistantMessage,
-    },
+    TextDelta { content_index: usize, delta: String },
 
     /// Text content block completed.
     TextEnd {
         content_index: usize,
         content: String,
-        partial: AssistantMessage,
     },
 
     /// Thinking/reasoning block started.
-    ThinkingStart {
-        content_index: usize,
-        partial: AssistantMessage,
-    },
+    ThinkingStart { content_index: usize },
 
     /// Thinking/reasoning delta.
-    ThinkingDelta {
-        content_index: usize,
-        delta: String,
-        partial: AssistantMessage,
-    },
+    ThinkingDelta { content_index: usize, delta: String },
 
     /// Thinking/reasoning block completed.
     ThinkingEnd {
         content_index: usize,
         content: String,
-        partial: AssistantMessage,
     },
 
     /// Tool call started.
-    ToolcallStart {
-        content_index: usize,
-        partial: AssistantMessage,
-    },
+    ToolcallStart { content_index: usize },
 
-    /// Tool call delta.
-    ToolcallDelta {
-        content_index: usize,
-        delta: String,
-        partial: AssistantMessage,
-    },
+    /// Tool call argument delta.
+    ToolcallDelta { content_index: usize, delta: String },
 
     /// Tool call completed.
     ToolcallEnd {
         content_index: usize,
         tool_call: ToolCall,
-        partial: AssistantMessage,
     },
 
     /// Stream completed successfully.
@@ -103,32 +79,13 @@ pub enum AssistantMessageEvent {
     },
 }
 
-/// Extract the partial/final [`AssistantMessage`] from an event.
-pub(crate) fn event_partial(event: &AssistantMessageEvent) -> &AssistantMessage {
-    match event {
-        AssistantMessageEvent::Start { partial }
-        | AssistantMessageEvent::TextStart { partial, .. }
-        | AssistantMessageEvent::TextDelta { partial, .. }
-        | AssistantMessageEvent::TextEnd { partial, .. }
-        | AssistantMessageEvent::ThinkingStart { partial, .. }
-        | AssistantMessageEvent::ThinkingDelta { partial, .. }
-        | AssistantMessageEvent::ThinkingEnd { partial, .. }
-        | AssistantMessageEvent::ToolcallStart { partial, .. }
-        | AssistantMessageEvent::ToolcallDelta { partial, .. }
-        | AssistantMessageEvent::ToolcallEnd { partial, .. } => partial,
-
-        AssistantMessageEvent::Done { message, .. }
-        | AssistantMessageEvent::Error { error: message, .. } => message,
-    }
-}
-
 impl fmt::Display for AssistantMessageEvent {
     fn fmt(
         &self,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
         match self {
-            AssistantMessageEvent::Start { .. } => write!(f, "[start]"),
+            AssistantMessageEvent::Start => write!(f, "[start]"),
 
             AssistantMessageEvent::TextStart { content_index, .. } => {
                 write!(f, "[text_start idx={content_index}]")
@@ -323,17 +280,12 @@ impl AssistantMessageBuilder {
 
     /// Emit the initial [`Start`](AssistantMessageEvent::Start) event.
     pub async fn emit_start(&mut self) {
-        let _ = self
-            .stream
-            .push(AssistantMessageEvent::Start {
-                partial: self.message.clone(),
-            })
-            .await;
+        let _ = self.stream.push(AssistantMessageEvent::Start).await;
     }
 
     /// Append a provider text delta. A provider index is mapped to a stable
-    /// content-block index, so partial messages always represent all text
-    /// received so far.
+    /// content-block index so incremental consumers can reconstruct the block
+    /// from its deltas.
     pub async fn append_text(
         &mut self,
         provider_index: usize,
@@ -354,7 +306,6 @@ impl AssistantMessageBuilder {
                 .stream
                 .push(AssistantMessageEvent::TextStart {
                     content_index: index,
-                    partial: self.message.clone(),
                 })
                 .await;
 
@@ -370,7 +321,6 @@ impl AssistantMessageBuilder {
             .push(AssistantMessageEvent::TextDelta {
                 content_index: index,
                 delta: delta.to_string(),
-                partial: self.message.clone(),
             })
             .await;
     }
@@ -397,7 +347,6 @@ impl AssistantMessageBuilder {
                 .stream
                 .push(AssistantMessageEvent::ThinkingStart {
                     content_index: index,
-                    partial: self.message.clone(),
                 })
                 .await;
 
@@ -413,7 +362,6 @@ impl AssistantMessageBuilder {
             .push(AssistantMessageEvent::ThinkingDelta {
                 content_index: index,
                 delta: delta.to_string(),
-                partial: self.message.clone(),
             })
             .await;
     }
@@ -447,7 +395,6 @@ impl AssistantMessageBuilder {
                 .stream
                 .push(AssistantMessageEvent::ToolcallStart {
                     content_index: index,
-                    partial: self.message.clone(),
                 })
                 .await;
 
@@ -469,7 +416,7 @@ impl AssistantMessageBuilder {
             argument_buffer.push_str(delta);
 
             // Incomplete JSON cannot be represented as an object yet, so keep
-            // the raw argument buffer in the partial tool call. `finish`
+            // the raw argument buffer in the accumulated tool call. `finish`
             // replaces it with the validated JSON value before ToolcallEnd.
             if let AssistantContent::ToolCall(call) = &mut self.message.content[index] {
                 call.arguments = serde_json::Value::String(argument_buffer.clone());
@@ -480,7 +427,6 @@ impl AssistantMessageBuilder {
                 .push(AssistantMessageEvent::ToolcallDelta {
                     content_index: index,
                     delta: delta.to_string(),
-                    partial: self.message.clone(),
                 })
                 .await;
         }
@@ -511,7 +457,6 @@ impl AssistantMessageBuilder {
                 .push(AssistantMessageEvent::TextEnd {
                     content_index: index,
                     content,
-                    partial: self.message.clone(),
                 })
                 .await;
         }
@@ -531,7 +476,6 @@ impl AssistantMessageBuilder {
                 .push(AssistantMessageEvent::ThinkingEnd {
                     content_index: index,
                     content,
-                    partial: self.message.clone(),
                 })
                 .await;
         }
@@ -572,7 +516,6 @@ impl AssistantMessageBuilder {
                 .push(AssistantMessageEvent::ToolcallEnd {
                     content_index: index,
                     tool_call,
-                    partial: self.message.clone(),
                 })
                 .await;
         }
@@ -650,7 +593,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn partial_tool_arguments_reflect_raw_fragments_until_completion() {
+    async fn tool_arguments_accumulate_raw_fragments_until_completion() {
         let stream = create_assistant_message_event_stream();
 
         let mut builder =
@@ -683,6 +626,52 @@ mod tests {
             matches!(event, AssistantMessageEvent::ToolcallEnd { tool_call, .. }
                 if tool_call.arguments == serde_json::json!({ "command": "hello" }))
         }));
+    }
+
+    #[tokio::test]
+    async fn incremental_events_only_contain_deltas_and_terminal_event_has_message() {
+        let stream = create_assistant_message_event_stream();
+        let mut builder =
+            AssistantMessageBuilder::new(stream.clone(), Api::OpenaiCompletions, "test-model");
+
+        builder.emit_start().await;
+        for _ in 0..20 {
+            builder.append_text(0, "long incremental response ").await;
+            builder.append_thinking(0, "reasoning ").await;
+        }
+        builder
+            .append_tool_call(
+                0,
+                Some("call-1"),
+                Some("lookup"),
+                Some(r#"{"query":"test"}"#),
+            )
+            .await;
+        builder.finish(StopReason::ToolUse).await.unwrap();
+
+        let events: Vec<_> = stream.collect().await;
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, AssistantMessageEvent::TextDelta { .. }))
+                .count(),
+            20
+        );
+
+        // The event type intentionally exposes the full AssistantMessage only
+        // from Done/Error; all preceding events carry an index plus their
+        // local delta or completed block value.
+        let terminal_message = events
+            .into_iter()
+            .find_map(|event| match event {
+                AssistantMessageEvent::Done { message, .. } => Some(message),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            terminal_message.content[0].text_content().unwrap().len(),
+            520
+        );
     }
 
     #[tokio::test]

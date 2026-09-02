@@ -152,6 +152,10 @@ pub struct Settings {
     #[serde(default = "default_enable_compaction")]
     pub enable_compaction: bool,
 
+    /// Maximum number of independent tool calls to execute at once.
+    #[serde(default = "default_max_concurrent_tool_calls")]
+    pub max_concurrent_tool_calls: usize,
+
     /// Show model thinking/reasoning in user-facing output.
     #[serde(default)]
     pub show_thinking: bool,
@@ -253,6 +257,11 @@ fn default_enable_compaction() -> bool {
     true
 }
 
+/// Default maximum number of independent tool calls executed at once.
+fn default_max_concurrent_tool_calls() -> usize {
+    4
+}
+
 /// Merge a settings file into an already parsed TOML table.
 fn merge_settings_file(
     merged: &mut toml::Table,
@@ -326,6 +335,7 @@ impl Default for Settings {
             max_turns: default_max_turns(),
             enable_tools: default_enable_tools(),
             enable_compaction: default_enable_compaction(),
+            max_concurrent_tool_calls: default_max_concurrent_tool_calls(),
             show_thinking: false,
             temperature: None,
             max_tokens: None,
@@ -675,6 +685,7 @@ mod tests {
             max_turns = 5
             enable_tools = false
             enable_compaction = false
+            max_concurrent_tool_calls = 2
             show_thinking = true
             temperature = 0.2
             max_tokens = 256
@@ -700,6 +711,7 @@ mod tests {
         assert!(!settings.auto_resize_images);
         assert_eq!(settings.temperature, Some(0.2));
         assert!(settings.show_thinking);
+        assert_eq!(settings.max_concurrent_tool_calls, 2);
         assert_eq!(settings.max_tokens, Some(256));
         assert_eq!(
             settings.provider_headers.get("x-test"),

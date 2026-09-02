@@ -739,19 +739,97 @@ async fn process_responses_sse_line(
     process_responses_event(&value, builder, state, terminal_reason).await
 }
 
+/// Conservative limit for a single unframed SSE record.
+///
+/// SSE records contain JSON metadata and deltas, not arbitrary tool output, so
+/// allowing a peer to retain more than one MiB without a newline is unsafe.
+const MAX_SSE_RECORD_BYTES: usize = 1_048_576;
+
+/// Cursor-based line buffer for fragmented SSE records.
+///
+/// Consumed records advance a cursor instead of draining the unread tail. The
+/// tail is compacted only before the next network append, avoiding a copy and
+/// allocation for every SSE line.
+#[derive(Default)]
+struct SseLineBuffer {
+    bytes: Vec<u8>,
+    cursor: usize,
+    record_count: u64,
+    max_buffered_bytes: usize,
+}
+
+impl SseLineBuffer {
+    fn extend(
+        &mut self,
+        bytes: &[u8],
+    ) {
+        if self.cursor == self.bytes.len() {
+            self.bytes.clear();
+            self.cursor = 0;
+        } else if self.cursor > 0 {
+            self.bytes.copy_within(self.cursor.., 0);
+            self.bytes.truncate(self.bytes.len() - self.cursor);
+            self.cursor = 0;
+        }
+
+        self.bytes.extend_from_slice(bytes);
+        self.max_buffered_bytes = self.max_buffered_bytes.max(self.bytes.len());
+    }
+
+    fn next_line(&mut self) -> Result<Option<&[u8]>, ProviderError> {
+        let unread = &self.bytes[self.cursor..];
+        let Some(newline) = unread.iter().position(|byte| *byte == b'\n') else {
+            if unread.len() > MAX_SSE_RECORD_BYTES {
+                return Err(ProviderError::Stream(format!(
+                    "SSE record exceeded the {} byte limit",
+                    MAX_SSE_RECORD_BYTES
+                )));
+            }
+            return Ok(None);
+        };
+
+        if newline > MAX_SSE_RECORD_BYTES {
+            return Err(ProviderError::Stream(format!(
+                "SSE record exceeded the {} byte limit",
+                MAX_SSE_RECORD_BYTES
+            )));
+        }
+
+        let start = self.cursor;
+        self.cursor += newline + 1;
+        self.record_count += 1;
+
+        Ok(Some(&self.bytes[start..self.cursor]))
+    }
+
+    fn remaining(&self) -> &[u8] {
+        &self.bytes[self.cursor..]
+    }
+
+    fn ensure_remaining_within_limit(&self) -> Result<(), ProviderError> {
+        if self.remaining().len() > MAX_SSE_RECORD_BYTES {
+            return Err(ProviderError::Stream(format!(
+                "SSE record exceeded the {} byte limit",
+                MAX_SSE_RECORD_BYTES
+            )));
+        }
+
+        Ok(())
+    }
+}
+
 /// Feed byte fragments into the Responses API SSE decoder with buffering.
 async fn process_responses_sse_bytes(
     bytes: &[u8],
-    buffer: &mut Vec<u8>,
+    buffer: &mut SseLineBuffer,
     builder: &mut AssistantMessageBuilder,
     state: &mut ResponsesStreamState,
     terminal_reason: &mut Option<StopReason>,
 ) -> Result<ResponsesSseResult, ProviderError> {
-    buffer.extend_from_slice(bytes);
+    buffer.extend(bytes);
 
-    while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
-        let line: Vec<u8> = buffer.drain(..=newline).collect();
-        let result = process_responses_sse_line(&line, builder, state, terminal_reason).await?;
+    while let Some(line) = buffer.next_line()? {
+        let result = process_responses_sse_line(line, builder, state, terminal_reason).await?;
 
         if result != ResponsesSseResult::Continue {
             return Ok(result);
@@ -803,7 +881,7 @@ async fn process_sse_line(
 /// stream tests exercise exactly the same boundary handling.
 async fn process_sse_bytes(
     bytes: &[u8],
-    buffer: &mut Vec<u8>,
+    buffer: &mut SseLineBuffer,
     builder: &mut AssistantMessageBuilder,
     terminal_reason: &mut Option<StopReason>,
     done_seen: &mut bool,
@@ -812,12 +890,10 @@ async fn process_sse_bytes(
         return Ok(());
     }
 
-    buffer.extend_from_slice(bytes);
+    buffer.extend(bytes);
 
-    while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
-        let line: Vec<u8> = buffer.drain(..=newline).collect();
-
-        if process_sse_line(&line, builder, terminal_reason).await? {
+    while let Some(line) = buffer.next_line()? {
+        if process_sse_line(line, builder, terminal_reason).await? {
             *done_seen = true;
             break;
         }
@@ -833,7 +909,8 @@ async fn consume_chat_stream(
     builder: &mut AssistantMessageBuilder,
 ) -> (Option<StopReason>, Option<String>) {
     let mut reader = response.bytes_stream();
-    let mut buffer = Vec::new();
+    let mut buffer = SseLineBuffer::default();
+    let mut bytes_received = 0_u64;
     let mut terminal_reason = None;
     let mut failure = None;
     let mut done_seen = false;
@@ -850,6 +927,7 @@ async fn consume_chat_stream(
                 break;
             },
         };
+        bytes_received += chunk.len() as u64;
 
         if let Err(error) = process_sse_bytes(
             &chunk,
@@ -870,8 +948,17 @@ async fn consume_chat_stream(
     // structured stream error.
     if failure.is_none()
         && !done_seen
-        && !buffer.is_empty()
-        && let Err(error) = process_sse_line(&buffer, builder, &mut terminal_reason).await
+        && !buffer.remaining().is_empty()
+        && let Err(error) = buffer.ensure_remaining_within_limit()
+    {
+        failure = Some(error.to_string());
+    }
+
+    if failure.is_none()
+        && !done_seen
+        && !buffer.remaining().is_empty()
+        && let Err(error) =
+            process_sse_line(buffer.remaining(), builder, &mut terminal_reason).await
     {
         failure = Some(error.to_string());
     }
@@ -879,6 +966,13 @@ async fn consume_chat_stream(
     if failure.is_none() && terminal_reason.is_none() {
         failure = Some("SSE stream ended without a terminal completion chunk".to_string());
     }
+
+    tracing::info!(
+        sse_event_count = buffer.record_count,
+        bytes_received,
+        max_buffered_sse_bytes = buffer.max_buffered_bytes,
+        "consumed chat-completions SSE stream"
+    );
 
     (terminal_reason, failure)
 }
@@ -890,7 +984,8 @@ async fn consume_responses_stream(
     builder: &mut AssistantMessageBuilder,
 ) -> (Option<StopReason>, Option<String>) {
     let mut reader = response.bytes_stream();
-    let mut buffer = Vec::new();
+    let mut buffer = SseLineBuffer::default();
+    let mut bytes_received = 0_u64;
     let mut state = ResponsesStreamState::default();
     let mut terminal_reason = None;
     let mut failure = None;
@@ -908,6 +1003,8 @@ async fn consume_responses_stream(
                 break;
             },
         };
+
+        bytes_received += chunk.len() as u64;
 
         match process_responses_sse_bytes(
             &chunk,
@@ -931,8 +1028,23 @@ async fn consume_responses_stream(
         }
     }
 
-    if failure.is_none() && !done_seen && !buffer.is_empty() {
-        match process_responses_sse_line(&buffer, builder, &mut state, &mut terminal_reason).await {
+    if failure.is_none()
+        && !done_seen
+        && !buffer.remaining().is_empty()
+        && let Err(error) = buffer.ensure_remaining_within_limit()
+    {
+        failure = Some(error.to_string());
+    }
+
+    if failure.is_none() && !done_seen && !buffer.remaining().is_empty() {
+        match process_responses_sse_line(
+            buffer.remaining(),
+            builder,
+            &mut state,
+            &mut terminal_reason,
+        )
+        .await
+        {
             Ok(ResponsesSseResult::Continue | ResponsesSseResult::Done) => {},
             Ok(ResponsesSseResult::Failed(error)) => failure = Some(error),
             Err(error) => failure = Some(error.to_string()),
@@ -942,6 +1054,13 @@ async fn consume_responses_stream(
     if failure.is_none() && terminal_reason.is_none() {
         failure = Some("SSE stream ended without a terminal Responses API event".to_string());
     }
+
+    tracing::info!(
+        sse_event_count = buffer.record_count,
+        bytes_received,
+        max_buffered_sse_bytes = buffer.max_buffered_bytes,
+        "consumed Responses API SSE stream"
+    );
 
     (terminal_reason, failure)
 }
@@ -1695,7 +1814,7 @@ mod tests {
             })
         );
 
-        let mut buffer = Vec::new();
+        let mut buffer = SseLineBuffer::default();
         let mut terminal_reason = None;
         let mut done_seen = false;
 
@@ -2119,5 +2238,86 @@ mod tests {
         assert_eq!(tools.len(), 2);
         assert_eq!(tools[0].arguments, serde_json::json!({"a": 1}));
         assert_eq!(tools[1].arguments, serde_json::json!({"b": 2}));
+    }
+
+    #[tokio::test]
+    async fn responses_sse_accepts_fragmented_crlf_and_final_record() {
+        let stream = crate::ai::streaming::create_assistant_message_event_stream();
+        let mut builder = AssistantMessageBuilder::new(stream, Api::OpenaiResponses, "test");
+        let mut state = ResponsesStreamState::default();
+        let mut terminal_reason = None;
+        let mut buffer = SseLineBuffer::default();
+        let body = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\r\n\r\ndata: {\"type\":\"response.completed\",\"response\":{}}".to_string();
+
+        for fragment in body.as_bytes().chunks(5) {
+            assert_eq!(
+                process_responses_sse_bytes(
+                    fragment,
+                    &mut buffer,
+                    &mut builder,
+                    &mut state,
+                    &mut terminal_reason,
+                )
+                .await
+                .unwrap(),
+                ResponsesSseResult::Continue
+            );
+        }
+
+        assert_eq!(
+            process_responses_sse_line(
+                buffer.remaining(),
+                &mut builder,
+                &mut state,
+                &mut terminal_reason,
+            )
+            .await
+            .unwrap(),
+            ResponsesSseResult::Done
+        );
+        builder.finish(terminal_reason.unwrap()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oversized_unframed_records_fail_for_both_sse_formats() {
+        let oversized = vec![b'x'; MAX_SSE_RECORD_BYTES + 1];
+        let mut chat_buffer = SseLineBuffer::default();
+        let mut responses_buffer = SseLineBuffer::default();
+        let chat_stream = crate::ai::streaming::create_assistant_message_event_stream();
+        let responses_stream = crate::ai::streaming::create_assistant_message_event_stream();
+        let mut chat_builder =
+            AssistantMessageBuilder::new(chat_stream, Api::OpenaiCompletions, "test");
+        let mut responses_builder =
+            AssistantMessageBuilder::new(responses_stream, Api::OpenaiResponses, "test");
+        let mut terminal_reason = None;
+        let mut responses_state = ResponsesStreamState::default();
+        let mut done_seen = false;
+
+        assert!(
+            process_sse_bytes(
+                &oversized,
+                &mut chat_buffer,
+                &mut chat_builder,
+                &mut terminal_reason,
+                &mut done_seen,
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("exceeded")
+        );
+        assert!(
+            process_responses_sse_bytes(
+                &oversized,
+                &mut responses_buffer,
+                &mut responses_builder,
+                &mut responses_state,
+                &mut terminal_reason,
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("exceeded")
+        );
     }
 }

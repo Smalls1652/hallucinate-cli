@@ -138,17 +138,7 @@ impl Provider for FauxProvider {
             let stream = create_assistant_message_event_stream();
 
             // Push all events immediately (synchronously) before returning
-            let _ = stream
-                .push(AssistantMessageEvent::Start {
-                    partial: AssistantMessage::new(
-                        Vec::new(),
-                        model_api.clone(),
-                        "faux",
-                        &model_id,
-                        StopReason::Pending,
-                    ),
-                })
-                .await;
+            let _ = stream.push(AssistantMessageEvent::Start).await;
 
             match response {
                 Some(FauxResponse::Text(text, stop_reason)) => {
@@ -156,29 +146,13 @@ impl Provider for FauxProvider {
                     let stop = stop_reason.clone();
 
                     let _ = stream
-                        .push(AssistantMessageEvent::TextStart {
-                            content_index: 0,
-                            partial: AssistantMessage::new(
-                                content.clone(),
-                                model_api.clone(),
-                                "faux",
-                                &model_id,
-                                StopReason::Pending,
-                            ),
-                        })
+                        .push(AssistantMessageEvent::TextStart { content_index: 0 })
                         .await;
 
                     let _ = stream
                         .push(AssistantMessageEvent::TextDelta {
                             content_index: 0,
                             delta: text.clone(),
-                            partial: AssistantMessage::new(
-                                content.clone(),
-                                model_api.clone(),
-                                "faux",
-                                &model_id,
-                                StopReason::Pending,
-                            ),
                         })
                         .await;
 
@@ -186,13 +160,6 @@ impl Provider for FauxProvider {
                         .push(AssistantMessageEvent::TextEnd {
                             content_index: 0,
                             content: text,
-                            partial: AssistantMessage::new(
-                                content.clone(),
-                                model_api.clone(),
-                                "faux",
-                                &model_id,
-                                StopReason::Pending,
-                            ),
                         })
                         .await;
 
@@ -227,29 +194,13 @@ impl Provider for FauxProvider {
                     let stop = stop_reason.clone();
 
                     let _ = stream
-                        .push(AssistantMessageEvent::ToolcallStart {
-                            content_index: 0,
-                            partial: AssistantMessage::new(
-                                content.clone(),
-                                model_api.clone(),
-                                "faux",
-                                &model_id,
-                                StopReason::Pending,
-                            ),
-                        })
+                        .push(AssistantMessageEvent::ToolcallStart { content_index: 0 })
                         .await;
 
                     let _ = stream
                         .push(AssistantMessageEvent::ToolcallEnd {
                             content_index: 0,
                             tool_call,
-                            partial: AssistantMessage::new(
-                                content.clone(),
-                                model_api.clone(),
-                                "faux",
-                                &model_id,
-                                StopReason::Pending,
-                            ),
                         })
                         .await;
 

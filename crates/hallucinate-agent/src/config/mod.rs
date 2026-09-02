@@ -129,6 +129,7 @@ pub fn agent_config(
         temperature: overrides.temperature.or(settings.temperature),
         max_tokens: resolve_max_tokens(settings, overrides.max_tokens, model),
         include_tool_definitions: true,
+        max_concurrent_tool_calls: settings.max_concurrent_tool_calls,
     }
 }
 

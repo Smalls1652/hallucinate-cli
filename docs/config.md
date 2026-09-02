@@ -18,6 +18,7 @@ Complete reference for all configuration options in `hallucinate`.
 | `max_turns` | `number` | `120` | Maximum conversation turns per prompt. |
 | `enable_tools` | `bool` | `true` | Enable tool use by default. |
 | `enable_compaction` | `bool` | `true` | Enable automatic context compaction. |
+| `max_concurrent_tool_calls` | `number` | `4` | Maximum independent tool calls running at once. |
 | `show_thinking` | `bool` | `false` | Show model reasoning output to the user. |
 | `temperature` | `number` | — | Default sampling temperature. |
 | `max_tokens` | `number` | — | Default maximum output tokens. |
@@ -185,6 +186,14 @@ Enable automatic context compaction. When the context window is exceeded, older 
 
 ```toml
 enable_compaction = true
+```
+
+### `max_concurrent_tool_calls`
+
+Maximum number of independent tool calls to run at once. Results remain in the model's original call order even when calls finish in a different order. Values less than one are treated as one.
+
+```toml
+max_concurrent_tool_calls = 4
 ```
 
 ### `show_thinking`

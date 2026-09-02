@@ -4,9 +4,9 @@
 //! with an LLM provider, including state transitions, event emission,
 //! and tool execution coordination.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
-use futures::StreamExt;
+use futures::{StreamExt, stream};
 use tokio::sync::{Notify, mpsc};
 
 use crate::{
@@ -402,10 +402,6 @@ impl Agent {
                 break;
             };
 
-            // Every incremental event carries the accumulated partial message;
-            // touch it here so consumers can rely on that contract even when
-            // this agent only needs the deltas and terminal message.
-            let _ = crate::ai::streaming::event_partial(&event).content.len();
             match &event {
                 crate::ai::streaming::AssistantMessageEvent::TextDelta {
                     content_index,
@@ -500,63 +496,102 @@ impl Agent {
         // Execute tool calls
         self.set_state(AgentState::ToolExecuting);
 
-        let mut results = Vec::new();
-        for call in &tool_calls {
+        let concurrency_limit = self.config.max_concurrent_tool_calls.max(1);
+        let cwd = self.cwd.clone();
+
+        tracing::info!(
+            tool_call_count = tool_calls.len(),
+            concurrency_limit,
+            "executing tool calls"
+        );
+
+        // Emit all starts before work begins so the user-visible lifecycle is
+        // stable even though calls are allowed to complete out of order.
+        let mut tool_jobs = Vec::with_capacity(tool_calls.len());
+        for (call_index, call) in tool_calls.into_iter().enumerate() {
             self.emit(AgentEvent::ToolExecutionStarted {
                 tool_call_id: call.tool_call_id.clone(),
                 tool_name: call.tool_name.clone(),
             });
 
-            let result = tokio::select! {
-                result = self
-                    .tool_registry
-                    .execute(&call.tool_name, &call.arguments, self.cwd.as_deref()) => result,
-                _ = self.cancellation.cancelled() => {
-                    return Err(anyhow::anyhow!("Agent generation was cancelled"));
-                }
-            };
+            let tool = self.tool_registry.get_tool(&call.tool_name).cloned();
+            let cwd = cwd.clone();
 
-            match result {
-                Ok(tool_result) => {
-                    if let Some(turn_context) = self.turn_context.as_mut() {
-                        turn_context.remove_completed_tool_call(&call.tool_call_id);
-                        turn_context.tool_results.push(tool_result.clone());
-                    }
+            tool_jobs.push(async move {
+                let started_at = Instant::now();
+                let result = match tool {
+                    Some(tool) => tool.execute(&call.arguments, cwd.as_deref()).await,
+                    None => Err(anyhow::anyhow!("Unknown tool: {}", call.tool_name)),
+                };
 
-                    self.emit(AgentEvent::ToolExecutionCompleted {
-                        tool_call_id: call.tool_call_id.clone(),
-                        tool_name: call.tool_name.clone(),
-                        result: tool_result.content.clone(),
-                        is_error: tool_result.is_error,
-                    });
-
-                    results.push(tool_result);
-                },
-
-                Err(e) => {
-                    let error_result = crate::agent::tools::ToolResult::error(
+                let mut result = result.unwrap_or_else(|error| {
+                    crate::agent::tools::ToolResult::error(
                         &call.tool_call_id,
                         &call.tool_name,
-                        format!("Tool execution failed: {e}"),
-                    );
+                        format!("Tool execution failed: {error}"),
+                    )
+                });
+                // Built-in tools do not know the provider-issued ID. The
+                // agent is the boundary that associates a result with its
+                // model call.
+                result.tool_call_id.clone_from(&call.tool_call_id);
+                result.tool_name.clone_from(&call.tool_name);
 
-                    if let Some(turn_context) = self.turn_context.as_mut() {
-                        turn_context.remove_completed_tool_call(&call.tool_call_id);
-                        turn_context.tool_results.push(error_result.clone());
-                    }
+                tracing::info!(
+                    tool_call_index = call_index,
+                    tool_name = %call.tool_name,
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    is_error = result.is_error,
+                    "tool call completed"
+                );
 
-                    self.emit(AgentEvent::ToolExecutionFailed {
-                        tool_call_id: call.tool_call_id.clone(),
-                        tool_name: call.tool_name.clone(),
-                        error: error_result.content.clone(),
-                    });
+                (call_index, call, result)
+            });
+        }
+        let mut pending_jobs = stream::iter(tool_jobs).buffer_unordered(concurrency_limit);
+        let mut completed_jobs = Vec::new();
 
-                    results.push(error_result);
-                },
+        while let Some(job) = tokio::select! {
+            job = pending_jobs.next() => job,
+            _ = self.cancellation.cancelled() => {
+                // Dropping the buffered futures prevents queued calls from
+                // starting and releases in-flight async tool work.
+                return Err(anyhow::anyhow!("Agent generation was cancelled"));
             }
+        } {
+            completed_jobs.push(job);
         }
 
-        // Add tool results to history
+        // Provider protocols require tool result messages in the same order
+        // as their calls, regardless of completion order.
+        completed_jobs.sort_unstable_by_key(|(call_index, _, _)| *call_index);
+        let mut results = Vec::with_capacity(completed_jobs.len());
+
+        for (_, call, tool_result) in completed_jobs {
+            if let Some(turn_context) = self.turn_context.as_mut() {
+                turn_context.remove_completed_tool_call(&call.tool_call_id);
+                turn_context.tool_results.push(tool_result.clone());
+            }
+
+            if tool_result.is_error {
+                self.emit(AgentEvent::ToolExecutionFailed {
+                    tool_call_id: call.tool_call_id,
+                    tool_name: call.tool_name,
+                    error: tool_result.content.clone(),
+                });
+            } else {
+                self.emit(AgentEvent::ToolExecutionCompleted {
+                    tool_call_id: call.tool_call_id,
+                    tool_name: call.tool_name,
+                    result: tool_result.content.clone(),
+                    is_error: false,
+                });
+            }
+
+            results.push(tool_result);
+        }
+
+        // Add tool results to history in original model-call order.
         for result in &results {
             self.add_tool_result_message(result);
         }
@@ -724,13 +759,132 @@ impl Agent {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{
+        path::PathBuf,
+        pin::Pin,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
+
+    use futures::Future;
+    use tokio::sync::Barrier;
 
     use super::*;
-    use crate::ai::{
-        providers::faux::{FauxProvider, FauxResponse},
-        types::{Api, Model, StopReason},
+    use crate::{
+        agent::tools::{ToolResult, types::Tool},
+        ai::{
+            providers::faux::{FauxProvider, FauxResponse},
+            streaming::{AssistantMessageEvent, create_assistant_message_event_stream},
+            types::{Api, AssistantMessage, Model, StopReason, ToolCall},
+        },
     };
+
+    #[derive(Debug)]
+    struct DelayedTool {
+        barrier: Arc<Barrier>,
+        active_calls: Arc<AtomicUsize>,
+        peak_calls: Arc<AtomicUsize>,
+    }
+
+    impl Tool for DelayedTool {
+        fn name(&self) -> &str {
+            "delayed"
+        }
+
+        fn description(&self) -> &str {
+            "A controlled test tool"
+        }
+
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+
+        fn execute<'a>(
+            &'a self,
+            arguments: &'a serde_json::Value,
+            _cwd: Option<&'a str>,
+        ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>> {
+            Box::pin(async move {
+                let active = self.active_calls.fetch_add(1, Ordering::SeqCst) + 1;
+                self.peak_calls.fetch_max(active, Ordering::SeqCst);
+                self.barrier.wait().await;
+
+                let delay_ms = arguments
+                    .get("delay_ms")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0);
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                self.active_calls.fetch_sub(1, Ordering::SeqCst);
+
+                Ok(ToolResult::success("", "", delay_ms.to_string()))
+            })
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct TwoTurnToolProvider {
+        call_count: AtomicUsize,
+    }
+
+    impl Provider for TwoTurnToolProvider {
+        fn stream(
+            &self,
+            model: &Model,
+            _context: &Context,
+            _options: &StreamOptions,
+        ) -> std::pin::Pin<
+            Box<
+                dyn futures::Future<
+                        Output = crate::ai::provider::ProviderResult<
+                            crate::ai::streaming::AssistantMessageEventStream,
+                        >,
+                    > + Send
+                    + '_,
+            >,
+        > {
+            let call_number = self.call_count.fetch_add(1, Ordering::SeqCst);
+            let api = model.api.clone();
+            let model_id = model.id.clone();
+
+            Box::pin(async move {
+                let stream = create_assistant_message_event_stream();
+                stream.push(AssistantMessageEvent::Start).await.unwrap();
+                let (content, reason) = if call_number == 0 {
+                    (
+                        vec![
+                            AssistantContent::ToolCall(ToolCall::new(
+                                "call-1",
+                                "delayed",
+                                serde_json::json!({"delay_ms": 30}),
+                            )),
+                            AssistantContent::ToolCall(ToolCall::new(
+                                "call-2",
+                                "delayed",
+                                serde_json::json!({"delay_ms": 1}),
+                            )),
+                        ],
+                        StopReason::ToolUse,
+                    )
+                } else {
+                    (
+                        vec![AssistantContent::Text(crate::ai::types::TextContent::new(
+                            "done",
+                        ))],
+                        StopReason::Stop,
+                    )
+                };
+                let message = AssistantMessage::new(content, api, "test", model_id, reason.clone());
+                stream
+                    .push(AssistantMessageEvent::Done { reason, message })
+                    .await
+                    .unwrap();
+                Ok(stream)
+            })
+        }
+    }
 
     /// Return a small test model for use in unit tests.
     fn test_model() -> Model {
@@ -895,6 +1049,96 @@ mod tests {
         assert!(matches!(agent.messages()[1], Message::Assistant(_)));
         assert!(matches!(agent.messages()[2], Message::ToolResult(_)));
         assert!(matches!(agent.messages()[3], Message::Assistant(_)));
+    }
+
+    #[tokio::test]
+    async fn runs_tool_calls_concurrently_and_records_results_in_call_order() {
+        let active_calls = Arc::new(AtomicUsize::new(0));
+        let peak_calls = Arc::new(AtomicUsize::new(0));
+        let tool = DelayedTool {
+            barrier: Arc::new(Barrier::new(2)),
+            active_calls,
+            peak_calls: peak_calls.clone(),
+        };
+        let config = AgentConfig {
+            max_concurrent_tool_calls: 2,
+            ..AgentConfig::default()
+        };
+        let mut agent = Agent::new(
+            Box::new(TwoTurnToolProvider::default()),
+            test_model(),
+            config,
+        );
+        agent.tool_registry.add_tool(Arc::new(tool));
+        let mut events = agent.subscribe();
+        agent.add_user_message("run both calls");
+
+        assert_eq!(agent.run().await.unwrap(), StopReason::Stop);
+        assert_eq!(peak_calls.load(Ordering::SeqCst), 2);
+
+        let result_ids = agent
+            .messages()
+            .iter()
+            .filter_map(|message| match message {
+                Message::ToolResult(result) => Some(result.tool_call_id.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(result_ids, vec!["call-1", "call-2"]);
+
+        let completed_ids = std::iter::from_fn(|| events.try_recv().ok())
+            .filter_map(|event| match event {
+                AgentEvent::ToolExecutionCompleted { tool_call_id, .. } => Some(tool_call_id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(completed_ids, vec!["call-1", "call-2"]);
+    }
+
+    #[tokio::test]
+    async fn cancellation_drops_in_flight_and_queued_tool_jobs() {
+        let active_calls = Arc::new(AtomicUsize::new(0));
+        let peak_calls = Arc::new(AtomicUsize::new(0));
+        let tool = DelayedTool {
+            // A limit of one means this first call waits forever unless it is
+            // dropped; the second model call remains queued behind it.
+            barrier: Arc::new(Barrier::new(2)),
+            active_calls: active_calls.clone(),
+            peak_calls: peak_calls.clone(),
+        };
+        let config = AgentConfig {
+            max_concurrent_tool_calls: 1,
+            ..AgentConfig::default()
+        };
+        let mut agent = Agent::new(
+            Box::new(TwoTurnToolProvider::default()),
+            test_model(),
+            config,
+        );
+        agent.tool_registry.add_tool(Arc::new(tool));
+        agent.add_user_message("run both calls");
+        let cancellation = agent.cancellation();
+        let run = tokio::spawn(async move {
+            let result = agent.run().await;
+            (agent, result)
+        });
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while active_calls.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("first tool call should begin");
+        cancellation.cancel();
+
+        let (agent, result) = tokio::time::timeout(Duration::from_secs(1), run)
+            .await
+            .expect("cancellation should release pending tool jobs")
+            .unwrap();
+        assert!(result.is_err());
+        assert_eq!(agent.state(), &AgentState::Aborted);
+        assert_eq!(peak_calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]

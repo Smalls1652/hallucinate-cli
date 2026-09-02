@@ -245,6 +245,8 @@ pub struct AgentConfig {
     pub max_tokens: Option<u32>,
     /// Whether to include tool definitions in context.
     pub include_tool_definitions: bool,
+    /// Maximum number of independent tool calls to execute at once.
+    pub max_concurrent_tool_calls: usize,
 }
 
 impl Default for AgentConfig {
@@ -257,6 +259,7 @@ impl Default for AgentConfig {
             temperature: None,
             max_tokens: None,
             include_tool_definitions: true,
+            max_concurrent_tool_calls: 4,
         }
     }
 }
