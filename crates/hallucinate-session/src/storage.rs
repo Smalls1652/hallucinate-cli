@@ -213,6 +213,39 @@ impl SessionStorage {
             .collect())
     }
 
+    /// Load the newest durable compaction checkpoint, if the session has one.
+    pub fn load_compaction_checkpoint(&self) -> Result<Option<(String, usize)>, anyhow::Error> {
+        let mut checkpoint = None;
+
+        for entry in self.load_all()? {
+            let SessionEntry::Event {
+                event_type,
+                data,
+                ..
+            } = entry else {
+                continue;
+            };
+            if event_type != "compaction_checkpoint" {
+                continue;
+            }
+
+            let summary = data
+                .get("summary")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("compaction checkpoint has no summary"))?;
+            let archived_message_count = data
+                .get("archived_message_count")
+                .and_then(serde_json::Value::as_u64)
+                .ok_or_else(|| anyhow::anyhow!("compaction checkpoint has no archived message count"))?
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("compaction checkpoint archived message count is too large"))?;
+
+            checkpoint = Some((summary.to_string(), archived_message_count));
+        }
+
+        Ok(checkpoint)
+    }
+
     /// Save structured session metadata.
     pub fn save_metadata(
         &self,
@@ -468,6 +501,34 @@ mod tests {
                     })
                     .unwrap(),
             })
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn loads_the_latest_compaction_checkpoint() {
+        let path = std::env::temp_dir().join(format!(
+            "hallucinate-checkpoint-{}.jsonl",
+            uuid::Uuid::new_v4()
+        ));
+        let storage = SessionStorage::with_path(path.clone());
+        storage
+            .save_event(
+                "compaction_checkpoint",
+                serde_json::json!({ "summary": "first", "archived_message_count": 2 }),
+            )
+            .unwrap();
+        storage
+            .save_event(
+                "compaction_checkpoint",
+                serde_json::json!({ "summary": "updated", "archived_message_count": 5 }),
+            )
+            .unwrap();
+
+        assert_eq!(
+            storage.load_compaction_checkpoint().unwrap(),
+            Some(("updated".to_string(), 5))
         );
 
         let _ = fs::remove_file(path);

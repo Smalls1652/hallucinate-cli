@@ -874,14 +874,18 @@ fn streamed_tool_call_summary(
     tool_call: &ToolCall,
     cwd: &Path,
 ) -> String {
-    let Some(arguments) = tool_call.arguments.as_str() else {
-        return tool_call.human_readable_with_cwd(cwd);
-    };
-
     let tool_name = if tool_call.name.is_empty() {
         "tool call"
     } else {
         tool_call.name.as_str()
+    };
+
+    if tool_name == "compact" {
+        return "Context checkpoint".to_string();
+    }
+
+    let Some(arguments) = tool_call.arguments.as_str() else {
+        return tool_call.human_readable_with_cwd(cwd);
     };
 
     let summary = match tool_name {
@@ -897,6 +901,7 @@ fn streamed_tool_call_summary(
         },
         "find" | "grep" => partial_json_string_value(arguments, "pattern")
             .map(|pattern| format!("{tool_name} {}", truncate_one_line(&pattern, 100))),
+        "compact" => Some("Context checkpoint".to_string()),
         _ => None,
     };
 
@@ -1275,6 +1280,21 @@ mod tests {
             .map(String::from)
             .collect::<Vec<_>>();
         assert_eq!(rendered, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn compact_tool_call_has_a_context_checkpoint_label() {
+        let tool_call = ToolCall {
+            id: "compaction-summary".to_string(),
+            name: "compact".to_string(),
+            arguments: serde_json::json!({}),
+            result: None,
+        };
+
+        assert_eq!(
+            streamed_tool_call_summary(&tool_call, Path::new(".")),
+            "Context checkpoint"
+        );
     }
 
     #[test]

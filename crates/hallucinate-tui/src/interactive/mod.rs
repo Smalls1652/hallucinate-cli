@@ -137,6 +137,13 @@ pub struct InteractiveTui {
     render_state: RenderState,
 }
 
+/// A background operation which needs transcript feedback on completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentRunOperation {
+    /// A manual `/compact` checkpoint request.
+    Compact,
+}
+
 /// The result of an agent task, including ownership of the agent so the next
 /// user message can reuse its conversation history.
 struct AgentRunCompletion {
@@ -144,6 +151,8 @@ struct AgentRunCompletion {
     agent: Agent,
     /// The result of the agent run — `Ok(())` on success, or an error string.
     result: Result<(), String>,
+    /// Operation-specific transcript feedback, if this was not a normal turn.
+    operation: Option<AgentRunOperation>,
 }
 
 /// A completion shown for a slash command.
@@ -337,7 +346,8 @@ impl InteractiveTui {
             terminal,
             keyboard_enhancement_enabled,
             transcript: {
-                let mut transcript = session::transcript_from_messages(agent.messages());
+                let messages = agent.messages();
+                let mut transcript = session::transcript_from_messages(&messages);
                 transcript.set_show_thinking(show_thinking);
                 transcript
             },
@@ -570,6 +580,27 @@ impl InteractiveTui {
             content: content.into(),
             thinking: String::new(),
             tool_calls: Vec::new(),
+            timestamp: chrono::Utc::now(),
+        });
+    }
+
+    /// Add a compaction checkpoint as a synthetic tool result. The regular
+    /// full-tool-output toggle controls whether the complete checkpoint is
+    /// expanded or rendered as a compact preview.
+    fn add_compaction_result(
+        &mut self,
+        summary: &str,
+    ) {
+        self.transcript.add_message(TuiMessage {
+            role: MessageRole::Assistant,
+            content: String::new(),
+            thinking: String::new(),
+            tool_calls: vec![crate::alt_screen::ToolCall {
+                id: "compaction-summary".to_string(),
+                name: "compact".to_string(),
+                arguments: serde_json::json!({}),
+                result: Some(summary.to_string()),
+            }],
             timestamp: chrono::Utc::now(),
         });
     }

@@ -96,12 +96,16 @@ pub async fn run(
 
     if let Some(session_id) = &cli.session {
         let session = session_manager.resume(session_id)?;
-        let messages = session_manager
+        let storage = session_manager
             .current_storage()
-            .expect("resumed session has storage")
-            .load_messages()?;
+            .expect("resumed session has storage");
+        let messages = storage.load_messages()?;
+        let checkpoint = storage.load_compaction_checkpoint()?;
 
         agent.load_history(messages)?;
+        if let Some((summary, archived_message_count)) = checkpoint {
+            agent.restore_compaction_checkpoint(summary, archived_message_count)?;
+        }
         agent.set_cwd(session.cwd);
     } else {
         session_manager.create(hallucinate_session::manager::SessionCreateOptions {

@@ -5,7 +5,7 @@ use hallucinate_agent::{
     ai::types::{AssistantContent, AssistantMessage, Message, ToolCall as AgentToolCall},
 };
 
-use super::InteractiveTui;
+use super::{AgentRunOperation, InteractiveTui};
 use crate::alt_screen::{
     Message as TuiMessage,
     MessageRole,
@@ -203,6 +203,8 @@ impl InteractiveTui {
             completed_run = true;
             self.token_count = completion.agent.estimate_tokens();
             self.agent_cancellation = None;
+            let operation = completion.operation;
+            let result = completion.result;
             self.agent = Some(completion.agent);
 
             let agent = self.agent.as_ref().expect("completed agent is restored");
@@ -227,32 +229,54 @@ impl InteractiveTui {
                 .unwrap_or_default();
 
             for message in agent.messages() {
-                if matches!(message, Message::User(_)) {
+                if matches!(&message, Message::User(_)) {
                     continue;
                 }
 
                 let already_persisted = persisted_messages.iter().any(|persisted| {
-                    serde_json::to_string(persisted).ok() == serde_json::to_string(message).ok()
+                    serde_json::to_string(persisted).ok() == serde_json::to_string(&message).ok()
                 });
 
                 if already_persisted {
                     continue;
                 }
 
-                if let Err(error) = self.session_manager.save_message(message) {
+                if let Err(error) = self.session_manager.save_message(&message) {
                     eprintln!("Warning: could not persist session message: {error}");
                 } else {
                     persisted_messages.push(message.clone());
                 }
             }
 
-            if let Err(error) = completion.result
-                && !matches!(self.agent_state, AgentState::Aborted | AgentState::Error(_))
-            {
-                // The matching Error/Aborted event has already been consumed
-                // by process_events; the status bar is the single visible
-                // error presentation here.
-                self.agent_state = AgentState::Error(error);
+            if let Err(error) = result {
+                if operation == Some(AgentRunOperation::Compact) {
+                    self.add_system_message(format!("Context compaction failed: {error}"));
+                }
+
+                if !matches!(self.agent_state, AgentState::Aborted | AgentState::Error(_)) {
+                    // The matching Error/Aborted event has already been consumed
+                    // by process_events; the status bar is the single visible
+                    // error presentation here.
+                    self.agent_state = AgentState::Error(error);
+                }
+            } else if operation == Some(AgentRunOperation::Compact) {
+                let summary = self
+                    .agent
+                    .as_ref()
+                    .and_then(|agent| agent.compaction_summary())
+                    .unwrap_or("No checkpoint summary was returned.")
+                    .to_string();
+                self.add_compaction_result(&summary);
+                if let Err(error) = self.session_manager.save_compaction_checkpoint(
+                    &summary,
+                    self.agent
+                        .as_ref()
+                        .expect("completed agent is restored")
+                        .compaction_archived_message_count(),
+                ) {
+                    eprintln!("Warning: could not persist compaction checkpoint: {error}");
+                }
+                self.add_system_message("Compacted the current context.");
             }
         }
 

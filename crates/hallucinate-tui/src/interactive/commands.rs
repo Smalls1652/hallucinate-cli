@@ -6,6 +6,8 @@ use hallucinate_agent::ai::types::Message;
 use hallucinate_session::manager::SessionManager;
 
 use super::{
+    AgentRunCompletion,
+    AgentRunOperation,
     InteractiveTui,
     ModelPicker,
     PromptPicker,
@@ -32,14 +34,18 @@ impl InteractiveTui {
         }
 
         let session = self.session_manager.resume(session_id)?;
-        let messages = self
+        let storage = self
             .session_manager
             .current_storage()
-            .expect("resumed session has storage")
-            .load_messages()?;
+            .expect("resumed session has storage");
+        let messages = storage.load_messages()?;
+        let checkpoint = storage.load_compaction_checkpoint()?;
 
         let agent = self.agent.as_mut().expect("agent checked above");
         agent.load_history(messages.clone())?;
+        if let Some((summary, archived_message_count)) = checkpoint {
+            agent.restore_compaction_checkpoint(summary, archived_message_count)?;
+        }
 
         self.project_cwd = PathBuf::from(&session.cwd);
         agent.set_cwd(session.cwd);
@@ -346,12 +352,20 @@ impl InteractiveTui {
                     return Ok(true);
                 }
 
-                let agent = self.agent.as_mut().expect("agent is idle");
-                agent.compact()?;
+                let mut agent = self.agent.take().expect("agent is idle");
+                self.agent_cancellation = Some(agent.cancellation());
+                let completion_tx = self.agent_completion_tx.clone();
+                tokio::spawn(async move {
+                    let result = agent.compact().await.map_err(|error| error.to_string());
+                    let _ = completion_tx.send(AgentRunCompletion {
+                        agent,
+                        result,
+                        operation: Some(AgentRunOperation::Compact),
+                    });
+                });
 
-                self.token_count = agent.estimate_tokens();
-
-                self.show_notice("Compacted the current context.");
+                self.add_system_message("Compacting the current context...");
+                self.show_notice("Compacting the current context...");
             },
 
             "reload" => {

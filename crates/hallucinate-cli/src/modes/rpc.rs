@@ -265,18 +265,21 @@ async fn chat(
         },
     };
 
-    let history = match manager
+    let storage = manager
         .current_storage()
-        .expect("a created or resumed session has storage")
-        .load_messages()
-    {
+        .expect("a created or resumed session has storage");
+    let history = match storage.load_messages() {
         Ok(history) => history,
         Err(error) => {
             return RpcResponse::error(-32603, "Could not load session", id, error.to_string());
         },
     };
-    let history_len = history.len();
-
+    let checkpoint = match storage.load_compaction_checkpoint() {
+        Ok(checkpoint) => checkpoint,
+        Err(error) => {
+            return RpcResponse::error(-32603, "Could not load compaction checkpoint", id, error.to_string());
+        },
+    };
     let mut agent = Agent::with_all_tools_and_image_resize_and_shell(
         provider,
         model.clone(),
@@ -293,6 +296,16 @@ async fn chat(
 
     if let Err(error) = agent.load_history(history) {
         return RpcResponse::error(-32603, "Invalid session history", id, error.to_string());
+    }
+    if let Some((summary, archived_message_count)) = checkpoint
+        && let Err(error) = agent.restore_compaction_checkpoint(summary, archived_message_count)
+    {
+        return RpcResponse::error(
+            -32603,
+            "Invalid compaction checkpoint",
+            id,
+            error.to_string(),
+        );
     }
 
     let mut event_rx = agent.subscribe();
@@ -319,16 +332,47 @@ async fn chat(
         }
     }
 
-    // Persist any messages produced before a provider/tool failure too. The
-    // user message was already saved, hence the history_len + 1 offset.
-    for message in agent.messages().iter().skip(history_len + 1) {
-        if let Err(error) = manager.save_message(message) {
+    // Persist any messages produced before a provider/tool failure too. User
+    // messages are saved before the run. Compare complete records instead of
+    // using an index because compaction prepends an internal checkpoint to the
+    // provider-visible history.
+    let persisted_messages = match storage.load_messages() {
+        Ok(messages) => messages,
+        Err(error) => {
+            return RpcResponse::error(-32603, "Could not inspect session", id, error.to_string());
+        },
+    };
+    for message in agent.messages() {
+        if matches!(&message, Message::User(_)) {
+            continue;
+        }
+        let already_persisted = persisted_messages.iter().any(|persisted| {
+            serde_json::to_string(persisted).ok() == serde_json::to_string(&message).ok()
+        });
+        if already_persisted {
+            continue;
+        }
+        if let Err(error) = manager.save_message(&message) {
             return RpcResponse::error(-32603, "Could not persist response", id, error.to_string());
         }
     }
 
     if let Err(error) = run_result {
         return RpcResponse::error(-32603, "Chat failed", id, error.to_string());
+    }
+
+    if let Some(summary) = agent.compaction_summary()
+        && let Err(error) = manager.save_compaction_checkpoint(
+            summary,
+            agent.compaction_archived_message_count(),
+        )
+    {
+        return RpcResponse::error(
+            -32603,
+            "Could not persist compaction checkpoint",
+            id,
+            error.to_string(),
+        );
     }
 
     let answer = agent

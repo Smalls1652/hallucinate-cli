@@ -109,6 +109,7 @@ impl SessionManager {
         let parent_storage = SessionStorage::new(parent_id);
 
         let messages = parent_storage.load_messages()?;
+        let checkpoint = parent_storage.load_compaction_checkpoint()?;
 
         let parent_cwd = parent_storage
             .load_metadata()?
@@ -130,6 +131,15 @@ impl SessionManager {
 
         for msg in &messages {
             new_storage.save_message(msg)?;
+        }
+        if let Some((summary, archived_message_count)) = checkpoint {
+            new_storage.save_event(
+                "compaction_checkpoint",
+                serde_json::json!({
+                    "summary": summary,
+                    "archived_message_count": archived_message_count,
+                }),
+            )?;
         }
 
         // Update message count and modification time after copying history.
@@ -242,6 +252,21 @@ impl SessionManager {
         }
 
         Ok(())
+    }
+
+    /// Persist a compaction checkpoint for session-resume reconstruction.
+    pub fn save_compaction_checkpoint(
+        &mut self,
+        summary: &str,
+        archived_message_count: usize,
+    ) -> Result<(), anyhow::Error> {
+        self.save_event(
+            "compaction_checkpoint",
+            serde_json::json!({
+                "summary": summary,
+                "archived_message_count": archived_message_count,
+            }),
+        )
     }
 
     /// Save an event to the current session.

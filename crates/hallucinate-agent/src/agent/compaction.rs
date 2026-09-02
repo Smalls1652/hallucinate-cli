@@ -1,258 +1,148 @@
-//! Deterministic context compaction.
+//! Context-history selection and serialization for LLM-backed compaction.
 //!
-//! The compactor returns *only* retained history plus summary text. Its caller
-//! owns inserting summary messages, which makes duplicate insertion impossible.
+//! The runtime owns the summary request. This module selects a safe retained
+//! suffix and renders the omitted provider messages for that request.
 
-use crate::{agent::types::estimate_message_tokens, ai::types::Message};
+use crate::ai::types::{AssistantContent, Message};
 
-/// Compact history to approximately `max_tokens` while preserving chronological
-/// order. Recent messages are retained; every omitted message is represented in
-/// the returned summary text.
-pub fn compact_messages(
-    messages: &[Message],
-    max_tokens: u32,
-) -> Result<(Vec<Message>, Vec<String>), anyhow::Error> {
-    let costs = messages
-        .iter()
-        .map(estimate_message_tokens)
-        .collect::<Vec<_>>();
-
-    compact_messages_with_costs(messages, &costs, max_tokens)
-}
-
-/// Compact history using caller-maintained per-message token costs.
+/// Select an older prefix to summarize and a recent suffix to retain.
 ///
-/// `costs` must be in the same order as `messages`. The agent uses this path
-/// so threshold checks and compaction selection do not re-tokenize the entire
-/// transcript.
-pub fn compact_messages_with_costs(
+/// The retained suffix always starts at a user message. This deliberately
+/// preserves complete user turns and prevents an assistant tool call from
+/// being separated from its required following tool results.
+pub fn split_messages_at_turn_boundary(
     messages: &[Message],
     costs: &[u64],
-    max_tokens: u32,
-) -> Result<(Vec<Message>, Vec<String>), anyhow::Error> {
+    keep_recent_tokens: u64,
+) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error> {
     if messages.len() != costs.len() {
         return Err(anyhow::anyhow!(
             "message and token-cost counts differ during context compaction"
         ));
     }
 
-    let total: u64 = costs.iter().sum();
-
-    if total <= u64::from(max_tokens) {
-        return Ok((messages.to_vec(), Vec::new()));
-    }
-
-    if max_tokens < 32 {
-        return Err(anyhow::anyhow!(
-            "context budget is too small to compact safely"
-        ));
-    }
-
-    // Reserve one third of the message budget for a deterministic summary.
-    // There is intentionally no protected-message exception: newest messages
-    // are retained by cost, and all omitted messages are summarized. Never
-    // retain an oversized message just because it is the newest one: the
-    // result must fit the requested budget even for a very large tool output.
-    let summary_budget = u64::from(max_tokens / 3).max(16);
-    let retained_budget = u64::from(max_tokens).saturating_sub(summary_budget);
-    let mut retained_indices = Vec::new();
-    let mut used = 0_u64;
+    let mut suffix_tokens = 0_u64;
+    let mut cut_index = messages.len();
 
     for index in (0..messages.len()).rev() {
-        let cost = costs[index];
+        suffix_tokens = suffix_tokens.saturating_add(costs[index]);
 
-        if cost <= retained_budget.saturating_sub(used) {
-            retained_indices.push(index);
-            used += cost;
+        if suffix_tokens >= keep_recent_tokens && matches!(messages[index], Message::User(_)) {
+            cut_index = index;
+            break;
         }
     }
 
-    retained_indices.sort_unstable();
-
-    let retained_set: std::collections::HashSet<_> = retained_indices.iter().copied().collect();
-
-    let omitted: Vec<_> = messages
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| !retained_set.contains(index))
-        .map(|(_, message)| message)
-        .collect();
-
-    if omitted.is_empty() {
+    // A conversation shorter than the requested retained tail cannot be
+    // compacted without splitting its only turn.
+    if cut_index == 0 || cut_index == messages.len() {
         return Ok((messages.to_vec(), Vec::new()));
     }
 
-    let summary = summarize(
-        &omitted,
-        (summary_budget.saturating_sub(1) as usize).saturating_mul(4),
-    );
-
-    let retained = retained_indices
-        .into_iter()
-        .map(|index| messages[index].clone())
-        .collect();
-
-    Ok((retained, vec![summary]))
+    Ok((
+        messages[..cut_index].to_vec(),
+        messages[cut_index..].to_vec(),
+    ))
 }
 
-/// Summarize omitted messages into a compact string representation.
-fn summarize(
-    messages: &[&Message],
-    max_chars: usize,
-) -> String {
-    let mut lines = vec![format!("[{} earlier messages summarized]", messages.len())];
-    let mut remaining = max_chars.saturating_sub(lines[0].len() + 1);
-
-    for message in messages {
-        if remaining < 12 {
-            break;
-        }
-
-        let (role, content) = match message {
-            Message::User(message) => ("User", message.content.clone()),
-
-            Message::Assistant(message) => (
-                "Assistant",
-                message
-                    .content
-                    .iter()
-                    .filter_map(|block| block.text_content())
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            ),
-
-            Message::ToolResult(message) => (
-                "Tool result",
-                message
-                    .content
-                    .first()
-                    .map(|item| item.text.clone())
-                    .unwrap_or_default(),
-            ),
-        };
-
-        let prefix = format!("{role}: ");
-        let limit = remaining.saturating_sub(prefix.len()).min(200);
-        let line = format!("{prefix}{}", truncate_string(&content, limit));
-
-        remaining = remaining.saturating_sub(line.len() + 1);
-        lines.push(line);
-    }
-
-    lines.join("\n")
+/// Render messages as data inside an LLM summarization request.
+///
+/// Role labels and explicit tool blocks prevent the summarizer from treating
+/// the archived transcript as instructions to follow.
+pub fn serialize_messages(messages: &[Message]) -> String {
+    messages
+        .iter()
+        .map(serialize_message)
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
-/// Truncate a string to `max_len` characters, appending "..." if truncated.
-fn truncate_string(
-    s: &str,
-    max_len: usize,
-) -> String {
-    let count = s.chars().count();
+fn serialize_message(message: &Message) -> String {
+    match message {
+        Message::User(message) => format!("<user>\n{}\n</user>", message.content),
+        Message::Assistant(message) => {
+            let content = message
+                .content
+                .iter()
+                .map(|content| match content {
+                    AssistantContent::Text(text) => text.text.clone(),
+                    AssistantContent::Thinking(thinking) => {
+                        format!("<thinking>\n{}\n</thinking>", thinking.thinking)
+                    },
+                    AssistantContent::ToolCall(call) => format!(
+                        "<tool-call name=\"{}\" id=\"{}\">\n{}\n</tool-call>",
+                        call.name, call.id, call.arguments
+                    ),
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
 
-    if count <= max_len {
-        return s.to_string();
+            format!("<assistant>\n{content}\n</assistant>")
+        },
+        Message::ToolResult(message) => format!(
+            "<tool-result name=\"{}\" id=\"{}\">\n{}\n</tool-result>",
+            message.tool_name,
+            message.tool_call_id,
+            message
+                .content
+                .iter()
+                .map(|content| content.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
     }
-
-    if max_len <= 3 {
-        return "...".chars().take(max_len).collect();
-    }
-
-    format!("{}...", s.chars().take(max_len - 3).collect::<String>())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::types::{Api, AssistantContent, AssistantMessage, StopReason, TextContent};
-
-    fn user(content: &str) -> Message {
-        Message::User(crate::ai::types::UserMessage::new(content))
-    }
-    fn assistant(content: &str) -> Message {
-        Message::Assistant(AssistantMessage::new(
-            vec![AssistantContent::Text(TextContent::new(content))],
-            Api::OpenaiCompletions,
-            "test",
-            "test",
-            StopReason::Stop,
-        ))
-    }
+    use crate::ai::types::{
+        Api,
+        AssistantContent,
+        AssistantMessage,
+        StopReason,
+        ToolCall,
+        ToolResultMessage,
+        UserMessage,
+    };
 
     #[test]
-    fn no_compaction_when_within_budget() {
-        let messages = vec![user("hello"), assistant("hi")];
-        assert_eq!(compact_messages(&messages, 10_000).unwrap().0.len(), 2);
-    }
-
-    #[test]
-    fn compaction_is_chronological_and_summarizes_every_omission() {
+    fn retains_complete_turns_at_user_message_boundaries() {
         let messages = vec![
-            user("first unique"),
-            assistant("second unique"),
-            user(&"x".repeat(2000)),
-            assistant("latest"),
+            Message::User(UserMessage::new("first")),
+            Message::User(UserMessage::new("second")),
+            Message::User(UserMessage::new("latest")),
         ];
+        let (omitted, retained) =
+            split_messages_at_turn_boundary(&messages, &[10, 10, 10], 15).unwrap();
 
-        let (retained, summaries) = compact_messages(&messages, 200).unwrap();
-
-        assert_eq!(summaries.len(), 1);
-
-        assert!(summaries[0].contains("User: x"));
-
-        assert_eq!(retained.len(), 3);
-
-        assert!(
-            matches!(&retained[0], Message::User(message) if message.content == "first unique")
-        );
-
-        assert!(
-            matches!(&retained[1], Message::Assistant(message) if message.content[0].text_content() == Some("second unique"))
-        );
-
-        assert!(
-            matches!(retained.last(), Some(Message::Assistant(message)) if message.content[0].text_content() == Some("latest"))
-        );
+        assert_eq!(omitted.len(), 1);
+        assert_eq!(retained.len(), 2);
+        assert!(matches!(&retained[0], Message::User(message) if message.content == "second"));
     }
 
     #[test]
-    fn compacted_message_history_fits_the_message_budget() {
+    fn never_separates_tool_calls_from_their_results() {
         let messages = vec![
-            user(&"old ".repeat(500)),
-            assistant(&"middle ".repeat(500)),
-            user("latest"),
+            Message::User(UserMessage::new("first")),
+            Message::Assistant(AssistantMessage::new(
+                vec![AssistantContent::ToolCall(ToolCall::new(
+                    "call-1",
+                    "read",
+                    serde_json::json!({ "path": "Cargo.toml" }),
+                ))],
+                Api::OpenaiCompletions,
+                "test",
+                "test",
+                StopReason::ToolUse,
+            )),
+            Message::ToolResult(ToolResultMessage::new("call-1", "read", "contents", false)),
+            Message::User(UserMessage::new("second")),
         ];
+        let (omitted, retained) =
+            split_messages_at_turn_boundary(&messages, &[10, 10, 10, 10], 10).unwrap();
 
-        let (retained, summaries) = compact_messages(&messages, 200).unwrap();
-
-        let summary_message = Message::User(crate::ai::types::UserMessage::new(
-            summaries.into_iter().next().unwrap(),
-        ));
-
-        let total: u64 = retained
-            .iter()
-            .chain(std::iter::once(&summary_message))
-            .map(estimate_message_tokens)
-            .sum();
-
-        assert!(total <= 200, "compacted history used {total} tokens");
-    }
-
-    #[test]
-    fn oversized_latest_message_is_summarized_instead_of_retained() {
-        let messages = vec![user("before"), user(&"x".repeat(10_000))];
-
-        let (retained, summaries) = compact_messages(&messages, 200).unwrap();
-
-        assert!(retained.iter().all(|message| match message {
-            Message::User(message) => message.content != "x".repeat(10_000),
-            _ => true,
-        }));
-
-        assert!(summaries[0].contains("earlier messages summarized"));
-    }
-
-    #[test]
-    fn unicode_truncation_does_not_panic() {
-        assert_eq!(truncate_string("😀😀😀", 2), "..");
+        assert_eq!(omitted.len(), 3);
+        assert!(matches!(retained.as_slice(), [Message::User(message)] if message.content == "second"));
     }
 }

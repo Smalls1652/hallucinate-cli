@@ -44,14 +44,19 @@ pub struct FauxProviderState {
     pub call_count: std::sync::atomic::AtomicU32,
     /// Queued responses to return in order.
     pub responses: Arc<Mutex<Vec<FauxResponse>>>,
+    /// Request contexts received by the provider, retained for test inspection.
+    pub contexts: Arc<Mutex<Vec<Context>>>,
+    /// Stream options received with each request, retained for test inspection.
+    pub stream_options: Arc<Mutex<Vec<StreamOptions>>>,
 }
 
 /// Faux provider for testing.
+#[derive(Clone)]
 pub struct FauxProvider {
     /// The model configured for this provider.
     configured_model: Model,
     /// Shared state holding call count and response queue.
-    state: FauxProviderState,
+    state: Arc<FauxProviderState>,
 }
 
 impl FauxProvider {
@@ -73,7 +78,7 @@ impl FauxProvider {
     pub fn with_model(model: Model) -> Self {
         Self {
             configured_model: model,
-            state: FauxProviderState::default(),
+            state: Arc::new(FauxProviderState::default()),
         }
     }
 
@@ -97,6 +102,16 @@ impl FauxProvider {
             .call_count
             .load(std::sync::atomic::Ordering::SeqCst)
     }
+
+    /// Return copies of request contexts received by this provider.
+    pub fn contexts(&self) -> Vec<Context> {
+        self.state.contexts.lock().unwrap().clone()
+    }
+
+    /// Return copies of stream options received by this provider.
+    pub fn stream_options(&self) -> Vec<StreamOptions> {
+        self.state.stream_options.lock().unwrap().clone()
+    }
 }
 
 impl Default for FauxProvider {
@@ -109,8 +124,8 @@ impl Provider for FauxProvider {
     fn stream(
         &self,
         model: &Model,
-        _context: &Context,
-        _options: &StreamOptions,
+        context: &Context,
+        options: &StreamOptions,
     ) -> Pin<
         Box<
             dyn Future<Output = ProviderResult<crate::ai::streaming::AssistantMessageEventStream>>
@@ -119,7 +134,12 @@ impl Provider for FauxProvider {
         >,
     > {
         let responses = self.state.responses.clone();
+        let contexts = self.state.contexts.clone();
+        let stream_options = self.state.stream_options.clone();
         let call_count = &self.state.call_count;
+
+        contexts.lock().unwrap().push(context.clone());
+        stream_options.lock().unwrap().push(options.clone());
 
         let response = {
             let mut r = responses.lock().unwrap();

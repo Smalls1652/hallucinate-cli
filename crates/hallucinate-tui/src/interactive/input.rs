@@ -552,7 +552,11 @@ impl InteractiveTui {
                 .map(|_| ())
                 .map_err(|error| error.to_string());
 
-            let _ = completion_tx.send(AgentRunCompletion { agent, result });
+            let _ = completion_tx.send(AgentRunCompletion {
+                agent,
+                result,
+                operation: None,
+            });
         });
 
         Ok(())
