@@ -130,6 +130,19 @@ impl InteractiveTui {
         self.refresh_autocomplete();
     }
 
+    /// Toggle whether completed tool results display their full available
+    /// output or a compact one-line preview.
+    fn toggle_full_tool_output(&mut self) {
+        self.show_full_tool_output = !self.show_full_tool_output;
+        self.clear_chat_selection();
+        self.render_state.transcript = true;
+        self.show_notice(if self.show_full_tool_output {
+            "Showing full tool output."
+        } else {
+            "Showing compact tool output."
+        });
+    }
+
     /// Handle user input.
     pub(super) fn handle_input(
         &mut self,
@@ -353,6 +366,12 @@ impl InteractiveTui {
                 {
                     self.autocomplete_index = (self.autocomplete_index + 1)
                         .min(self.autocomplete_items.len().saturating_sub(1));
+
+                    return Ok(false);
+                }
+
+                if key.ctrl && (key.matches('o') || key.matches('O')) {
+                    self.toggle_full_tool_output();
 
                     return Ok(false);
                 }

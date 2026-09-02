@@ -1,6 +1,6 @@
 //! Ratatui rendering for the interactive transcript and overlays.
 
-use std::path::Path;
+use std::{borrow::Cow, path::Path};
 
 use hallucinate_agent::agent::types::AgentState;
 use ratatui::layout::Rect;
@@ -21,12 +21,14 @@ use crate::{
 /// A very large transcript is rendered correctly but is not retained twice:
 /// the cache is dropped once it exceeds this visual-line budget.
 const TRANSCRIPT_LAYOUT_CACHE_LINE_BUDGET: usize = 20_000;
+const COMPACT_TOOL_RESULT_WIDTH: usize = 100;
 
 #[derive(Default)]
 pub(super) struct TranscriptLayoutCache {
     width: u16,
     show_thinking: bool,
     show_timestamps: bool,
+    show_full_tool_output: bool,
     streaming_message_index: Option<usize>,
     message_revisions: Vec<u64>,
     lines: Vec<ratatui::text::Line<'static>>,
@@ -38,11 +40,13 @@ impl TranscriptLayoutCache {
         &self,
         transcript: &TranscriptRenderer,
         width: u16,
+        show_full_tool_output: bool,
         streaming_message_index: Option<usize>,
     ) -> bool {
         self.width == width
             && self.show_thinking == transcript.show_thinking()
             && self.show_timestamps == transcript.show_timestamps()
+            && self.show_full_tool_output == show_full_tool_output
             && self.streaming_message_index == streaming_message_index
             && self.message_revisions.len() == transcript.messages().len()
             && self
@@ -56,6 +60,7 @@ impl TranscriptLayoutCache {
         &mut self,
         transcript: &TranscriptRenderer,
         width: u16,
+        show_full_tool_output: bool,
         streaming_message_index: Option<usize>,
         lines: Vec<ratatui::text::Line<'static>>,
         selection_line_starts: Vec<Option<usize>>,
@@ -68,6 +73,7 @@ impl TranscriptLayoutCache {
         self.width = width;
         self.show_thinking = transcript.show_thinking();
         self.show_timestamps = transcript.show_timestamps();
+        self.show_full_tool_output = show_full_tool_output;
         self.streaming_message_index = streaming_message_index;
         self.message_revisions = (0..transcript.messages().len())
             .filter_map(|index| transcript.message_revision(index))
@@ -212,6 +218,7 @@ impl InteractiveTui {
             let cache_matches = self.transcript_layout_cache.matches(
                 &self.transcript,
                 transcript_width,
+                self.show_full_tool_output,
                 self.streaming_message_index,
             );
 
@@ -387,10 +394,12 @@ impl InteractiveTui {
                                 };
 
                                 let previous_len = lines.len();
+                                let result =
+                                    tool_result_for_display(result, self.show_full_tool_output);
 
                                 append_prefixed_lines(
                                     &mut lines,
-                                    &truncate_width(result, 100),
+                                    &result,
                                     "│  ",
                                     "│  ",
                                     Style::default().fg(Color::LightBlue),
@@ -460,6 +469,7 @@ impl InteractiveTui {
                 self.transcript_layout_cache.replace(
                     &self.transcript,
                     transcript_width,
+                    self.show_full_tool_output,
                     self.streaming_message_index,
                     lines.clone(),
                     selection_line_starts.clone(),
@@ -1135,6 +1145,21 @@ fn append_prefixed_lines<'a>(
     }
 }
 
+/// Return a tool result in its selected transcript display mode.
+///
+/// Full output remains subject to the tool's execution-time result limit; this
+/// setting only controls the TUI's compact display.
+fn tool_result_for_display<'a>(
+    result: &'a str,
+    show_full_tool_output: bool,
+) -> Cow<'a, str> {
+    if show_full_tool_output {
+        Cow::Borrowed(result)
+    } else {
+        Cow::Owned(truncate_width(result, COMPACT_TOOL_RESULT_WIDTH))
+    }
+}
+
 /// Truncate a string to one display line and a maximum display width.
 ///
 /// Carriage returns and newlines are replaced with spaces so the result fits
@@ -1207,6 +1232,17 @@ mod tests {
 
         assert_eq!(mask.spans[0].style.fg, Some(NON_SELECTION_MARKER));
         assert_eq!(mask.spans[1].style.fg, Some(SELECTION_MARKER));
+    }
+
+    #[test]
+    fn tool_output_display_can_switch_between_compact_and_full() {
+        let result = format!("{} tail", "x".repeat(COMPACT_TOOL_RESULT_WIDTH));
+
+        assert_eq!(
+            tool_result_for_display(&result, false),
+            format!("{}…", "x".repeat(COMPACT_TOOL_RESULT_WIDTH - 1)),
+        );
+        assert_eq!(tool_result_for_display(&result, true), result);
     }
 
     #[test]
@@ -1295,6 +1331,7 @@ mod tests {
         cache.replace(
             &transcript,
             80,
+            false,
             None,
             vec![Line::from("cached")],
             vec![Some(0)],
@@ -1302,7 +1339,8 @@ mod tests {
 
         transcript.scroll_up(3);
 
-        assert!(cache.matches(&transcript, 80, None));
+        assert!(cache.matches(&transcript, 80, false, None));
+        assert!(!cache.matches(&transcript, 80, true, None));
     }
 
     #[test]
@@ -1316,11 +1354,11 @@ mod tests {
             timestamp: chrono::Utc::now(),
         });
         let mut cache = TranscriptLayoutCache::default();
-        cache.replace(&transcript, 80, None, Vec::new(), Vec::new());
+        cache.replace(&transcript, 80, false, None, Vec::new(), Vec::new());
 
         transcript.append_to_message(0, "delta");
 
-        assert!(!cache.matches(&transcript, 80, None));
+        assert!(!cache.matches(&transcript, 80, false, None));
     }
 
     #[test]

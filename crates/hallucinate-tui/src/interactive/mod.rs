@@ -104,6 +104,8 @@ pub struct InteractiveTui {
     streaming_tool_call_indices: HashMap<usize, usize>,
     /// Whether reasoning blocks are visible in the transcript.
     show_thinking: bool,
+    /// Whether completed tool results use their compact or full display.
+    show_full_tool_output: bool,
     /// Project directory used to shorten paths in the transcript.
     project_cwd: PathBuf,
     /// The latest short-lived UI notice. Notices are deliberately not part of
@@ -353,6 +355,7 @@ impl InteractiveTui {
             streaming_message_index: None,
             streaming_tool_call_indices: HashMap::new(),
             show_thinking,
+            show_full_tool_output: false,
             project_cwd,
             notice: None,
             agent_cancellation: None,
