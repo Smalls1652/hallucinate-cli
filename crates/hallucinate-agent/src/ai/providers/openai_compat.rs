@@ -19,21 +19,11 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, Header
 use crate::ai::{
     provider::{Provider, ProviderError, ProviderResult},
     streaming::{
-        AssistantMessageBuilder,
-        AssistantMessageEventStream,
-        create_assistant_message_event_stream,
+        AssistantMessageBuilder, AssistantMessageEventStream, create_assistant_message_event_stream,
     },
     types::{
-        Api,
-        AssistantContent,
-        Context,
-        ImageContent,
-        Message,
-        Model,
-        StopReason,
-        StreamOptions,
-        ToolResultMessage,
-        Usage,
+        Api, AssistantContent, Context, ImageContent, Message, Model, StopReason, StreamOptions,
+        ToolResultMessage, Usage,
     },
 };
 

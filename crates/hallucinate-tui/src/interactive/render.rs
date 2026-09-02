@@ -1,14 +1,79 @@
 //! Ratatui rendering for the interactive transcript and overlays.
 
 use hallucinate_agent::agent::types::AgentState;
-use hallucinate_session::manager::SessionManager;
 use ratatui::layout::Rect;
 #[cfg(test)]
 use ratatui::{style::Color, text::Line};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{InteractiveTui, short_session_id};
-use crate::{alt_screen::MessageRole, components::markdown_to_lines};
+use crate::{
+    alt_screen::{MessageRole, TranscriptRenderer},
+    components::markdown_to_lines,
+};
+
+/// Cached visual transcript layout for a particular content width and display
+/// configuration. It intentionally excludes scrolling: `Paragraph::scroll`
+/// can move this layout without reparsing Markdown or rewrapping cards.
+///
+/// A very large transcript is rendered correctly but is not retained twice:
+/// the cache is dropped once it exceeds this visual-line budget.
+const TRANSCRIPT_LAYOUT_CACHE_LINE_BUDGET: usize = 20_000;
+
+#[derive(Default)]
+pub(super) struct TranscriptLayoutCache {
+    width: u16,
+    show_thinking: bool,
+    show_timestamps: bool,
+    streaming_message_index: Option<usize>,
+    message_revisions: Vec<u64>,
+    lines: Vec<ratatui::text::Line<'static>>,
+    selection_line_starts: Vec<Option<usize>>,
+}
+
+impl TranscriptLayoutCache {
+    fn matches(
+        &self,
+        transcript: &TranscriptRenderer,
+        width: u16,
+        streaming_message_index: Option<usize>,
+    ) -> bool {
+        self.width == width
+            && self.show_thinking == transcript.show_thinking()
+            && self.show_timestamps == transcript.show_timestamps()
+            && self.streaming_message_index == streaming_message_index
+            && self.message_revisions.len() == transcript.messages().len()
+            && self
+                .message_revisions
+                .iter()
+                .enumerate()
+                .all(|(index, revision)| transcript.message_revision(index) == Some(*revision))
+    }
+
+    fn replace(
+        &mut self,
+        transcript: &TranscriptRenderer,
+        width: u16,
+        streaming_message_index: Option<usize>,
+        lines: Vec<ratatui::text::Line<'static>>,
+        selection_line_starts: Vec<Option<usize>>,
+    ) {
+        if lines.len() > TRANSCRIPT_LAYOUT_CACHE_LINE_BUDGET {
+            *self = Self::default();
+            return;
+        }
+
+        self.width = width;
+        self.show_thinking = transcript.show_thinking();
+        self.show_timestamps = transcript.show_timestamps();
+        self.streaming_message_index = streaming_message_index;
+        self.message_revisions = (0..transcript.messages().len())
+            .filter_map(|index| transcript.message_revision(index))
+            .collect();
+        self.lines = lines;
+        self.selection_line_starts = selection_line_starts;
+    }
+}
 
 impl InteractiveTui {
     /// Render the current state.
@@ -142,217 +207,237 @@ impl InteractiveTui {
             let transcript_inner_area = transcript_block.inner(chunks[1]);
             let transcript_width = transcript_inner_area.width;
 
-            let mut selection_line_starts = Vec::new();
-            let messages = self.transcript.messages();
+            let cache_matches = self.transcript_layout_cache.matches(
+                &self.transcript,
+                transcript_width,
+                self.streaming_message_index,
+            );
 
-            let lines: Vec<Line<'static>> = messages
-                .iter()
-                .enumerate()
-                .flat_map(|(message_index, msg)| {
-                    let (role_color, icon, role_label) = match msg.role {
-                        MessageRole::User => (Color::LightGreen, "›", "You"),
-                        MessageRole::Assistant => (Color::LightCyan, "✦", "Assistant"),
-                        MessageRole::Tool => (Color::LightMagenta, "⚙", "Tool"),
-                        MessageRole::System => (Color::DarkGray, "·", "Notice"),
-                    };
+            let (lines, selection_line_starts) = if cache_matches {
+                (
+                    self.transcript_layout_cache.lines.clone(),
+                    self.transcript_layout_cache.selection_line_starts.clone(),
+                )
+            } else {
+                let mut selection_line_starts = Vec::new();
+                let messages = self.transcript.messages();
 
-                    let muted = Style::default().fg(Color::DarkGray);
-                    let starts_card = starts_transcript_card(
-                        message_index
-                            .checked_sub(1)
-                            .and_then(|index| messages.get(index))
-                            .map(|message| message.role),
-                        msg.role,
-                    );
-                    let ends_card = ends_transcript_card(
-                        msg.role,
-                        messages.get(message_index + 1).map(|message| message.role),
-                    );
+                let lines: Vec<Line<'static>> = messages
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(message_index, msg)| {
+                        let (role_color, icon, role_label) = match msg.role {
+                            MessageRole::User => (Color::LightGreen, "›", "You"),
+                            MessageRole::Assistant => (Color::LightCyan, "✦", "Assistant"),
+                            MessageRole::Tool => (Color::LightMagenta, "⚙", "Tool"),
+                            MessageRole::System => (Color::DarkGray, "·", "Notice"),
+                        };
 
-                    let role_style = Style::default().fg(role_color).add_modifier(Modifier::BOLD);
-                    let mut lines = Vec::new();
-                    let mut line_starts = Vec::new();
+                        let muted = Style::default().fg(Color::DarkGray);
+                        let starts_card = starts_transcript_card(
+                            message_index
+                                .checked_sub(1)
+                                .and_then(|index| messages.get(index))
+                                .map(|message| message.role),
+                            msg.role,
+                        );
+                        let ends_card = ends_transcript_card(
+                            msg.role,
+                            messages.get(message_index + 1).map(|message| message.role),
+                        );
 
-                    if starts_card {
-                        lines.push(Line::from(vec![
-                            Span::styled("╭─ ", role_color),
-                            Span::styled(icon, role_style),
-                            Span::styled(format!(" {}", role_label), role_style),
-                        ]));
-                        line_starts.push(None);
+                        let role_style =
+                            Style::default().fg(role_color).add_modifier(Modifier::BOLD);
+                        let mut lines = Vec::new();
+                        let mut line_starts = Vec::new();
 
-                        if self.transcript.show_timestamps() {
-                            lines[0].spans.push(Span::styled("  · ", muted));
-                            lines[0].spans.push(Span::styled(
-                                msg.timestamp.format("%H:%M:%S").to_string(),
-                                muted.add_modifier(Modifier::ITALIC),
-                            ));
-                        }
-                    }
+                        if starts_card {
+                            lines.push(Line::from(vec![
+                                Span::styled("╭─ ", role_color),
+                                Span::styled(icon, role_style),
+                                Span::styled(format!(" {}", role_label), role_style),
+                            ]));
+                            line_starts.push(None);
 
-                    if self.show_thinking && !msg.thinking.is_empty() {
-                        // Reasoning is deliberately styled as a secondary
-                        // surface: muted text plus a subtle background makes
-                        // it visually distinct from the answer while keeping
-                        // it readable during long streams.
-                        let thinking_style = Style::default()
-                            .fg(Color::Gray)
-                            .bg(Color::Rgb(45, 45, 45))
-                            .add_modifier(Modifier::DIM);
-
-                        lines.push(Line::from(vec![
-                            Span::styled("│ ", thinking_style),
-                            Span::styled(
-                                "💭 Thinking",
-                                thinking_style.add_modifier(Modifier::ITALIC),
-                            ),
-                        ]));
-                        line_starts.push(None);
-
-                        let mut thinking = markdown_to_lines(&msg.thinking);
-                        while thinking.last().is_some_and(line_is_empty) {
-                            thinking.pop();
+                            if self.transcript.show_timestamps() {
+                                lines[0].spans.push(Span::styled("  · ", muted));
+                                lines[0].spans.push(Span::styled(
+                                    msg.timestamp.format("%H:%M:%S").to_string(),
+                                    muted.add_modifier(Modifier::ITALIC),
+                                ));
+                            }
                         }
 
-                        for line in thinking {
-                            for line in wrap_line_to_width(line, transcript_width.saturating_sub(2))
-                            {
-                                lines.push(muted_thinking_line(line, thinking_style));
+                        if self.show_thinking && !msg.thinking.is_empty() {
+                            // Reasoning is deliberately styled as a secondary
+                            // surface: muted text plus a subtle background makes
+                            // it visually distinct from the answer while keeping
+                            // it readable during long streams.
+                            let thinking_style = Style::default()
+                                .fg(Color::Gray)
+                                .bg(Color::Rgb(45, 45, 45))
+                                .add_modifier(Modifier::DIM);
+
+                            lines.push(Line::from(vec![
+                                Span::styled("│ ", thinking_style),
+                                Span::styled(
+                                    "💭 Thinking",
+                                    thinking_style.add_modifier(Modifier::ITALIC),
+                                ),
+                            ]));
+                            line_starts.push(None);
+
+                            let mut thinking = markdown_to_lines(&msg.thinking);
+                            while thinking.last().is_some_and(line_is_empty) {
+                                thinking.pop();
+                            }
+
+                            for line in thinking {
+                                for line in
+                                    wrap_line_to_width(line, transcript_width.saturating_sub(2))
+                                {
+                                    lines.push(muted_thinking_line(line, thinking_style));
+                                    line_starts.push(None);
+                                }
+                            }
+
+                            lines.push(Line::from(vec![Span::styled("│ ", role_color)]));
+                            line_starts.push(None);
+                        }
+
+                        let mut body = markdown_to_lines(&msg.content);
+                        while body.last().is_some_and(line_is_empty) {
+                            body.pop();
+                        }
+
+                        if body.is_empty() {
+                            let mut empty_line = vec![Span::styled("│ ", role_color)];
+
+                            if self.streaming_message_index == Some(message_index) {
+                                empty_line.push(Span::styled(
+                                    "thinking…",
+                                    muted.add_modifier(Modifier::ITALIC),
+                                ));
+                            }
+
+                            lines.push(Line::from(empty_line));
+                            line_starts.push(None);
+                        } else {
+                            let selectable_start =
+                                matches!(msg.role, MessageRole::User | MessageRole::Assistant)
+                                    .then_some(2);
+
+                            for line in body {
+                                for line in
+                                    wrap_line_to_width(line, transcript_width.saturating_sub(2))
+                                {
+                                    lines.push(prefix_message_line(line, role_color));
+
+                                    // The first two cells are the decorative rail;
+                                    // only user and assistant message bodies are
+                                    // selectable.
+                                    line_starts.push(selectable_start);
+                                }
+                            }
+                        }
+
+                        // If the last body line left an empty card rail,
+                        // remove it.
+                        if lines.last().is_some_and(line_is_empty_card_rail) {
+                            lines.pop();
+                            line_starts.pop();
+                        }
+
+                        for tool_call in &msg.tool_calls {
+                            // If the previous line is not an empty card rail,
+                            // push an empty card rail. This may seem
+                            // counter-intuitive,
+                            // considering the last thing done is removing an empty
+                            // card rail from a body; however, this is genuinely
+                            // a tough one to keep track of.
+                            if !lines.last().is_some_and(line_is_empty_card_rail) {
+                                lines.push(Line::from(Span::styled("│ ", role_color)));
                                 line_starts.push(None);
                             }
-                        }
 
-                        lines.push(Line::from(vec![Span::styled("│ ", role_color)]));
-                        line_starts.push(None);
-                    }
+                            let previous_len = lines.len();
+                            let readable = tool_call.human_readable_with_cwd(&self.project_cwd);
 
-                    let mut body = markdown_to_lines(&msg.content);
-                    while body.last().is_some_and(line_is_empty) {
-                        body.pop();
-                    }
+                            append_prefixed_lines(
+                                &mut lines,
+                                &readable,
+                                "├─ ⚙ ",
+                                "│  ",
+                                Style::default().fg(Color::LightBlue),
+                                Style::default().fg(Color::LightBlue),
+                            );
 
-                    if body.is_empty() {
-                        let mut empty_line = vec![Span::styled("│ ", role_color)];
+                            line_starts.extend(vec![None; lines.len() - previous_len]);
+                            if let Some(result) = &tool_call.result {
+                                let result_style = if result.starts_with("❌") {
+                                    Style::default().fg(Color::LightRed)
+                                } else {
+                                    Style::default().fg(Color::LightGreen)
+                                };
 
-                        if self.streaming_message_index == Some(message_index) {
-                            empty_line.push(Span::styled(
-                                "thinking…",
-                                muted.add_modifier(Modifier::ITALIC),
-                            ));
-                        }
+                                let previous_len = lines.len();
 
-                        lines.push(Line::from(empty_line));
-                        line_starts.push(None);
-                    } else {
-                        let selectable_start =
-                            matches!(msg.role, MessageRole::User | MessageRole::Assistant)
-                                .then_some(2);
+                                append_prefixed_lines(
+                                    &mut lines,
+                                    &truncate_width(result, 100),
+                                    "│  ",
+                                    "│  ",
+                                    Style::default().fg(Color::LightBlue),
+                                    result_style,
+                                );
 
-                        for line in body {
-                            for line in wrap_line_to_width(line, transcript_width.saturating_sub(2))
-                            {
-                                lines.push(prefix_message_line(line, role_color));
-
-                                // The first two cells are the decorative rail;
-                                // only user and assistant message bodies are
-                                // selectable.
-                                line_starts.push(selectable_start);
+                                line_starts.extend(vec![None; lines.len() - previous_len]);
                             }
+
+                            lines.push(Line::from(Span::styled(
+                                "│ ",
+                                Style::default().fg(Color::LightBlue),
+                            )));
+                            line_starts.push(None);
                         }
-                    }
 
-                    // If the last body line left an empty card rail,
-                    // remove it.
-                    if lines.last().is_some_and(line_is_empty_card_rail) {
-                        lines.pop();
-                        line_starts.pop();
-                    }
-
-                    for tool_call in &msg.tool_calls {
-                        // If the previous line is not an empty card rail,
-                        // push an empty card rail. This may seem
-                        // counter-intuitive,
-                        // considering the last thing done is removing an empty
-                        // card rail from a body; however, this is genuinely
-                        // a tough one to keep track of.
-                        if !lines.last().is_some_and(line_is_empty_card_rail) {
+                        if ends_card {
+                            lines.push(Line::from(Span::styled("╰─", role_color)));
+                            line_starts.push(None);
+                            lines.push(Line::from(""));
+                            line_starts.push(None);
+                        } else {
+                            // Consecutive assistant turns share this card; leave
+                            // a quiet in-card divider between their content.
                             lines.push(Line::from(Span::styled("│ ", role_color)));
                             line_starts.push(None);
                         }
 
-                        let previous_len = lines.len();
-                        let readable = tool_call.human_readable_with_cwd(&self.project_cwd);
-
-                        append_prefixed_lines(
-                            &mut lines,
-                            &readable,
-                            "├─ ⚙ ",
-                            "│  ",
-                            Style::default().fg(Color::LightBlue),
-                            Style::default().fg(Color::LightBlue),
-                        );
-
-                        line_starts.extend(vec![None; lines.len() - previous_len]);
-                        if let Some(result) = &tool_call.result {
-                            let result_style = if result.starts_with("❌") {
-                                Style::default().fg(Color::LightRed)
-                            } else {
-                                Style::default().fg(Color::LightGreen)
-                            };
-
-                            let previous_len = lines.len();
-
-                            append_prefixed_lines(
-                                &mut lines,
-                                &truncate_width(result, 100),
-                                "│  ",
-                                "│  ",
-                                Style::default().fg(Color::LightBlue),
-                                result_style,
-                            );
-
-                            line_starts.extend(vec![None; lines.len() - previous_len]);
+                        // If the last line is an empty card rail,
+                        // remove it.
+                        if lines.last().is_some_and(line_is_empty_card_rail) {
+                            lines.pop();
+                            line_starts.pop();
                         }
 
-                        lines.push(Line::from(Span::styled(
-                            "│ ",
-                            Style::default().fg(Color::LightBlue),
-                        )));
-                        line_starts.push(None);
-                    }
+                        selection_line_starts.extend(line_starts);
 
-                    if ends_card {
-                        lines.push(Line::from(Span::styled("╰─", role_color)));
-                        line_starts.push(None);
-                        lines.push(Line::from(""));
-                        line_starts.push(None);
-                    } else {
-                        // Consecutive assistant turns share this card; leave
-                        // a quiet in-card divider between their content.
-                        lines.push(Line::from(Span::styled("│ ", role_color)));
-                        line_starts.push(None);
-                    }
+                        lines
+                    })
+                    .collect();
 
-                    // If the last line is an empty card rail,
-                    // remove it.
-                    if lines.last().is_some_and(line_is_empty_card_rail) {
-                        lines.pop();
-                        line_starts.pop();
-                    }
+                self.transcript_layout_cache.replace(
+                    &self.transcript,
+                    transcript_width,
+                    self.streaming_message_index,
+                    lines.clone(),
+                    selection_line_starts.clone(),
+                );
 
-                    selection_line_starts.extend(line_starts);
-
-                    lines
-                })
-                .collect();
+                (lines, selection_line_starts)
+            };
 
             debug_assert_eq!(lines.len(), selection_line_starts.len());
-
-            let selection_mask_lines = lines
-                .iter()
-                .zip(selection_line_starts.iter().copied())
-                .map(|(line, start)| selection_mask_line(line, start))
-                .collect::<Vec<_>>();
 
             // A Line is deliberately a single visual line in ratatui: an
             // embedded newline in a message would otherwise not create a new
@@ -361,6 +446,11 @@ impl InteractiveTui {
             // tool output inside the viewport. A little horizontal breathing
             // room makes the transcript read like a conversation rather than
             // a log file.
+            // Retain the cached lines for selection-mask generation only
+            // during an active drag. Ordinary frames move the owned layout
+            // directly into the paragraph without a second line tree.
+            let active_selection = selection.filter(|selection| selection.has_range());
+            let selection_lines = active_selection.is_some().then(|| lines.clone());
             let transcript = Paragraph::new(lines)
                 .wrap(Wrap { trim: false })
                 .block(transcript_block);
@@ -381,12 +471,22 @@ impl InteractiveTui {
             // buffer so drag selection works consistently across terminals.
             // Reading the same cells also gives Ctrl+C/Cmd+C the exact text
             // the user can see, including wrapped lines and Markdown styling.
-            if let Some(selection) = selection.filter(|selection| selection.has_range()) {
+            if let Some(selection) = active_selection {
                 let ((start_x, start_y), (end_x, end_y)) = selection.bounds();
                 let area = chunks[1];
 
                 let selection_style = Style::default().fg(Color::Black).bg(Color::White);
 
+                // The duplicate marker tree is needed only while a real drag
+                // selection is active; ordinary transcript frames retain one
+                // cached layout.
+                let selection_mask_lines = selection_lines
+                    .as_ref()
+                    .expect("active selection retains transcript lines")
+                    .iter()
+                    .zip(selection_line_starts.iter().copied())
+                    .map(|(line, start)| selection_mask_line(line, start))
+                    .collect::<Vec<_>>();
                 let mut mask_buffer = ratatui::buffer::Buffer::empty(area);
                 let mask = Paragraph::new(selection_mask_lines)
                     .wrap(Wrap { trim: false })
@@ -561,16 +661,16 @@ impl InteractiveTui {
 
             // Session picker overlay. Rendered after the model picker so the
             // model picker takes visual precedence when both could appear.
-            if let Some(picker) = self.session_picker {
+            if let Some(picker) = self.session_picker.as_ref() {
                 let area = frame.area();
 
                 let popup_width = area.width.saturating_sub(4).min(140);
 
-                if let Ok(sessions) = SessionManager::list() {
+                {
                     let popup_height = area
                         .height
                         .saturating_sub(4)
-                        .min((sessions.len() + 2).min(18) as u16);
+                        .min((picker.rows.len() + 2).min(18) as u16);
 
                     if popup_width > 4 && popup_height > 2 {
                         let popup_area = ratatui::layout::Rect::new(
@@ -585,9 +685,10 @@ impl InteractiveTui {
                         let start = picker
                             .selected
                             .saturating_sub(visible_rows / 2)
-                            .min(sessions.len().saturating_sub(visible_rows));
+                            .min(picker.rows.len().saturating_sub(visible_rows));
 
-                        let rows = sessions
+                        let rows = picker
+                            .rows
                             .iter()
                             .enumerate()
                             .skip(start)
@@ -595,22 +696,9 @@ impl InteractiveTui {
                             .map(|(index, session)| {
                                 let marker = if index == picker.selected { "> " } else { "  " };
 
-                                let title =
-                                    hallucinate_session::storage::SessionStorage::new(&session.id)
-                                        .load_metadata()
-                                        .ok()
-                                        .flatten()
-                                        .and_then(|metadata| metadata.title)
-                                        .unwrap_or_else(|| "untitled".to_string());
-
                                 let metadata = format!(
                                     "{} · {} · {}",
-                                    session.modified_str(),
-                                    hallucinate_agent::config::paths::display_path(
-                                        &session.path,
-                                        &self.project_cwd
-                                    ),
-                                    title
+                                    session.modified, session.display_path, session.title
                                 );
 
                                 Line::from(vec![
@@ -992,6 +1080,7 @@ fn truncate_width(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::alt_screen::Message;
 
     #[test]
     fn consecutive_assistant_turns_share_a_transcript_card() {
@@ -1053,6 +1142,48 @@ mod tests {
 
         assert!(truncated.is_char_boundary(truncated.len()));
         assert!(truncated.ends_with('…'));
+    }
+
+    #[test]
+    fn cache_remains_valid_while_only_scrolling() {
+        let mut transcript = TranscriptRenderer::new();
+        transcript.add_message(Message {
+            role: MessageRole::User,
+            content: "cached".to_string(),
+            thinking: String::new(),
+            tool_calls: Vec::new(),
+            timestamp: chrono::Utc::now(),
+        });
+        let mut cache = TranscriptLayoutCache::default();
+        cache.replace(
+            &transcript,
+            80,
+            None,
+            vec![Line::from("cached")],
+            vec![Some(0)],
+        );
+
+        transcript.scroll_up(3);
+
+        assert!(cache.matches(&transcript, 80, None));
+    }
+
+    #[test]
+    fn cache_invalidates_when_a_message_revision_changes() {
+        let mut transcript = TranscriptRenderer::new();
+        transcript.add_message(Message {
+            role: MessageRole::Assistant,
+            content: String::new(),
+            thinking: String::new(),
+            tool_calls: Vec::new(),
+            timestamp: chrono::Utc::now(),
+        });
+        let mut cache = TranscriptLayoutCache::default();
+        cache.replace(&transcript, 80, None, Vec::new(), Vec::new());
+
+        transcript.append_to_message(0, "delta");
+
+        assert!(!cache.matches(&transcript, 80, None));
     }
 
     #[test]

@@ -6,12 +6,8 @@ use hallucinate_agent::ai::types::Message;
 use hallucinate_session::manager::SessionManager;
 
 use super::{
-    InteractiveTui,
-    ModelPicker,
-    PromptPicker,
-    SessionPicker,
-    session::transcript_from_messages,
-    short_session_id,
+    InteractiveTui, ModelPicker, PromptPicker, SessionPicker, SessionPickerRow,
+    session::transcript_from_messages, short_session_id,
 };
 use crate::{
     alt_screen::TranscriptRenderer,
@@ -45,6 +41,7 @@ impl InteractiveTui {
 
         self.transcript = transcript_from_messages(&messages);
         self.transcript.set_show_thinking(self.show_thinking);
+        self.transcript_layout_cache = Default::default();
 
         self.streaming_message_index = None;
 
@@ -207,15 +204,7 @@ impl InteractiveTui {
                 self.show_notice("Created a new session.");
             },
 
-            "sessions" | "list" => {
-                let sessions = SessionManager::list()?;
-
-                if sessions.is_empty() {
-                    self.add_system_message("No sessions found.");
-                } else {
-                    self.open_session_picker();
-                }
-            },
+            "sessions" | "list" => self.open_session_picker(),
 
             "resume" => {
                 let Some(session_id) = command_arguments(&arguments)
@@ -444,13 +433,34 @@ impl InteractiveTui {
             return;
         }
 
-        let current_id = self.session_manager.current_id();
-        let selected = sessions
+        let rows = sessions
             .iter()
-            .position(|session| current_id.map_or(false, |id| session.id == id))
+            .map(|session| {
+                let title = hallucinate_session::storage::SessionStorage::new(&session.id)
+                    .load_metadata()
+                    .ok()
+                    .flatten()
+                    .and_then(|metadata| metadata.title)
+                    .unwrap_or_else(|| "untitled".to_string());
+
+                SessionPickerRow {
+                    id: session.id.clone(),
+                    modified: session.modified_str(),
+                    display_path: hallucinate_agent::config::paths::display_path(
+                        &session.path,
+                        &self.project_cwd,
+                    ),
+                    title,
+                }
+            })
+            .collect::<Vec<_>>();
+        let current_id = self.session_manager.current_id();
+        let selected = rows
+            .iter()
+            .position(|row| current_id == Some(row.id.as_str()))
             .unwrap_or(0);
 
-        self.session_picker = Some(SessionPicker { selected });
+        self.session_picker = Some(SessionPicker { rows, selected });
     }
 
     /// Open the prompt template picker with all loaded templates.
@@ -472,8 +482,7 @@ impl InteractiveTui {
             return Ok(());
         };
 
-        let sessions = SessionManager::list()?;
-        let session_count = sessions.len();
+        let session_count = picker.rows.len();
 
         match key.code {
             crossterm::event::KeyCode::Char('c') if key.ctrl => {
@@ -513,15 +522,14 @@ impl InteractiveTui {
             },
 
             crossterm::event::KeyCode::Enter => {
-                let selected = picker.selected;
+                let session_id = picker.rows.get(picker.selected).map(|row| row.id.clone());
                 self.session_picker = None;
 
-                if let Some(session) = sessions.get(selected) {
+                if let Some(session_id) = session_id {
                     if !self.ensure_idle("resuming a session") {
                         return Ok(());
                     }
 
-                    let session_id = session.id.clone();
                     if let Err(error) = self.load_selected_session(&session_id) {
                         self.show_notice(format!("Failed to resume session: {error}"));
                     }
@@ -804,6 +812,7 @@ impl InteractiveTui {
 
         self.transcript = TranscriptRenderer::new();
         self.transcript.set_show_thinking(self.show_thinking);
+        self.transcript_layout_cache = Default::default();
 
         self.streaming_message_index = None;
         self.message_history.clear();

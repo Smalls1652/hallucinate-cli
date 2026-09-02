@@ -1048,31 +1048,19 @@ mod tests {
         assert_eq!(editor.cursor_pos, 15);
 
         // Alt+Left from end of "foo" should jump to start of "foo".
-        editor.handle_key(Key::with_modifiers(
-            KeyCode::Left,
-            KeyModifiers::ALT,
-        ));
+        editor.handle_key(Key::with_modifiers(KeyCode::Left, KeyModifiers::ALT));
         assert_eq!(editor.cursor_pos, 12);
 
         // Another Alt+Left from start of "foo" jumps to start of "world".
-        editor.handle_key(Key::with_modifiers(
-            KeyCode::Left,
-            KeyModifiers::ALT,
-        ));
+        editor.handle_key(Key::with_modifiers(KeyCode::Left, KeyModifiers::ALT));
         assert_eq!(editor.cursor_pos, 6);
 
         // Another Alt+Left jumps to start of "hello".
-        editor.handle_key(Key::with_modifiers(
-            KeyCode::Left,
-            KeyModifiers::ALT,
-        ));
+        editor.handle_key(Key::with_modifiers(KeyCode::Left, KeyModifiers::ALT));
         assert_eq!(editor.cursor_pos, 0);
 
         // Cannot move back further.
-        editor.handle_key(Key::with_modifiers(
-            KeyCode::Left,
-            KeyModifiers::ALT,
-        ));
+        editor.handle_key(Key::with_modifiers(KeyCode::Left, KeyModifiers::ALT));
         assert_eq!(editor.cursor_pos, 0);
     }
 
@@ -1088,24 +1076,15 @@ mod tests {
         assert_eq!(editor.cursor_pos, 0);
 
         // Alt+Right from start should jump to end of "hello".
-        editor.handle_key(Key::with_modifiers(
-            KeyCode::Right,
-            KeyModifiers::ALT,
-        ));
+        editor.handle_key(Key::with_modifiers(KeyCode::Right, KeyModifiers::ALT));
         assert_eq!(editor.cursor_pos, 5);
 
         // Another Alt+Right jumps to end of "world".
-        editor.handle_key(Key::with_modifiers(
-            KeyCode::Right,
-            KeyModifiers::ALT,
-        ));
+        editor.handle_key(Key::with_modifiers(KeyCode::Right, KeyModifiers::ALT));
         assert_eq!(editor.cursor_pos, 11);
 
         // Cannot move forward further (already at end).
-        editor.handle_key(Key::with_modifiers(
-            KeyCode::Right,
-            KeyModifiers::ALT,
-        ));
+        editor.handle_key(Key::with_modifiers(KeyCode::Right, KeyModifiers::ALT));
         assert_eq!(editor.cursor_pos, 15);
     }
 
@@ -1121,17 +1100,11 @@ mod tests {
         assert_eq!(editor.cursor_pos, 0);
 
         // Skip past "ab😀" (bytes 0..5) → should land at byte offset 6 (the space).
-        editor.handle_key(Key::with_modifiers(
-            KeyCode::Right,
-            KeyModifiers::ALT,
-        ));
+        editor.handle_key(Key::with_modifiers(KeyCode::Right, KeyModifiers::ALT));
         assert_eq!(editor.cursor_pos, 6);
 
         // Skip past "cd" → should land at end (byte length = 9).
-        editor.handle_key(Key::with_modifiers(
-            KeyCode::Right,
-            KeyModifiers::ALT,
-        ));
+        editor.handle_key(Key::with_modifiers(KeyCode::Right, KeyModifiers::ALT));
         assert_eq!(editor.cursor_pos, 9);
     }
 }

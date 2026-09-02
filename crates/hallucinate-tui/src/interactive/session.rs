@@ -7,16 +7,18 @@ use hallucinate_agent::{
 
 use super::InteractiveTui;
 use crate::alt_screen::{
-    Message as TuiMessage,
-    MessageRole,
-    ToolCall as TuiToolCall,
-    TranscriptRenderer,
+    Message as TuiMessage, MessageRole, ToolCall as TuiToolCall, TranscriptRenderer,
 };
 
 impl InteractiveTui {
     /// Process any pending agent events.
-    pub(super) fn process_events(&mut self) {
+    pub(super) fn process_events(&mut self) -> bool {
+        let mut received_delta = false;
+
         while let Ok(event) = self.event_rx.try_recv() {
+            self.render_state.status = true;
+            self.render_state.transcript = true;
+
             if let Err(error) = self.session_manager.save_agent_event(&event) {
                 eprintln!("Warning: could not persist session event: {error}");
             }
@@ -47,48 +49,15 @@ impl InteractiveTui {
                 },
 
                 AgentEvent::AssistantTextDelta { delta, .. } => {
-                    let index = match self.streaming_message_index {
-                        Some(index) => index,
-                        None => {
-                            self.transcript.add_message(TuiMessage {
-                                role: MessageRole::Assistant,
-                                content: String::new(),
-                                thinking: String::new(),
-                                tool_calls: Vec::new(),
-                                timestamp: chrono::Utc::now(),
-                            });
-
-                            let index = self.transcript.messages().len() - 1;
-                            self.streaming_message_index = Some(index);
-
-                            index
-                        },
-                    };
-
+                    let index = self.ensure_streaming_assistant_message();
                     self.transcript.append_to_message(index, delta);
+                    received_delta = true;
                 },
 
                 AgentEvent::AssistantThinkingDelta { delta } => {
-                    let index = match self.streaming_message_index {
-                        Some(index) => index,
-                        None => {
-                            self.transcript.add_message(TuiMessage {
-                                role: MessageRole::Assistant,
-                                content: String::new(),
-                                thinking: String::new(),
-                                tool_calls: Vec::new(),
-                                timestamp: chrono::Utc::now(),
-                            });
-
-                            let index = self.transcript.messages().len() - 1;
-
-                            self.streaming_message_index = Some(index);
-
-                            index
-                        },
-                    };
-
+                    let index = self.ensure_streaming_assistant_message();
                     self.transcript.append_thinking_to_message(index, delta);
+                    received_delta = true;
                 },
 
                 AgentEvent::AssistantMessageCompleted { message, .. } => {
@@ -136,12 +105,36 @@ impl InteractiveTui {
                 _ => {},
             }
         }
+
+        received_delta
+    }
+
+    /// Create (once) the assistant card receiving streamed response data.
+    fn ensure_streaming_assistant_message(&mut self) -> usize {
+        if let Some(index) = self.streaming_message_index {
+            return index;
+        }
+
+        self.transcript.add_message(TuiMessage {
+            role: MessageRole::Assistant,
+            content: String::new(),
+            thinking: String::new(),
+            tool_calls: Vec::new(),
+            timestamp: chrono::Utc::now(),
+        });
+
+        let index = self.transcript.messages().len() - 1;
+        self.streaming_message_index = Some(index);
+        index
     }
 
     /// Restore completed agents and display their responses without blocking
     /// terminal input or rendering.
-    pub(super) fn process_completed_runs(&mut self) {
+    pub(super) fn process_completed_runs(&mut self) -> bool {
+        let mut completed_run = false;
+
         while let Ok(completion) = self.agent_completion_rx.try_recv() {
+            completed_run = true;
             self.token_count = completion.agent.estimate_tokens();
             self.agent_cancellation = None;
             self.agent = Some(completion.agent);
@@ -196,6 +189,8 @@ impl InteractiveTui {
                 self.agent_state = AgentState::Error(error);
             }
         }
+
+        completed_run
     }
 }
 

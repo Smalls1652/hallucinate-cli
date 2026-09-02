@@ -124,6 +124,10 @@ pub struct InteractiveTui {
     prompt_picker: Option<PromptPicker>,
     autocomplete_items: Vec<AutocompleteItem>,
     autocomplete_index: usize,
+    /// Cached wrapped transcript lines. Scroll-only redraws reuse this layout
+    /// rather than reparsing every historic Markdown message.
+    transcript_layout_cache: render::TranscriptLayoutCache,
+    render_state: RenderState,
 }
 
 /// The result of an agent task, including ownership of the agent so the next
@@ -152,10 +156,21 @@ struct ModelPicker {
 }
 
 /// State for the keyboard-driven session picker overlay.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct SessionPicker {
+    /// Rows captured when the picker opened or was deliberately refreshed.
+    rows: Vec<SessionPickerRow>,
     /// Index of the currently selected session.
     selected: usize,
+}
+
+/// Display-ready data for one session-picker row.
+#[derive(Debug, Clone)]
+struct SessionPickerRow {
+    id: String,
+    modified: String,
+    display_path: String,
+    title: String,
 }
 
 /// State for the keyboard-driven prompt picker overlay.
@@ -163,6 +178,54 @@ struct SessionPicker {
 struct PromptPicker {
     /// Index of the currently selected prompt template.
     selected: usize,
+}
+
+/// UI regions which need another terminal draw.
+#[derive(Debug, Clone, Copy)]
+struct RenderState {
+    transcript: bool,
+    status: bool,
+    editor: bool,
+    overlays: bool,
+    selection: bool,
+    terminal_size: bool,
+}
+
+impl RenderState {
+    fn all() -> Self {
+        Self {
+            transcript: true,
+            status: true,
+            editor: true,
+            overlays: true,
+            selection: true,
+            terminal_size: true,
+        }
+    }
+
+    fn any(self) -> bool {
+        self.transcript
+            || self.status
+            || self.editor
+            || self.overlays
+            || self.selection
+            || self.terminal_size
+    }
+
+    fn clear(&mut self) {
+        *self = Self {
+            transcript: false,
+            status: false,
+            editor: false,
+            overlays: false,
+            selection: false,
+            terminal_size: false,
+        };
+    }
+
+    fn mark_all(&mut self) {
+        *self = Self::all();
+    }
 }
 
 impl InteractiveTui {
@@ -300,6 +363,8 @@ impl InteractiveTui {
             prompt_picker: None,
             autocomplete_items: Vec::new(),
             autocomplete_index: 0,
+            transcript_layout_cache: render::TranscriptLayoutCache::default(),
+            render_state: RenderState::all(),
         };
 
         tui.add_new_session_message();
@@ -315,6 +380,8 @@ impl InteractiveTui {
     ) {
         self.show_thinking = show;
         self.transcript.set_show_thinking(show);
+        self.render_state.transcript = true;
+        self.render_state.status = true;
     }
 
     /// Run the main TUI event loop. Terminal cleanup is performed even when
@@ -331,17 +398,72 @@ impl InteractiveTui {
     /// Run the event loop until `running` is set to `false` or an error
     /// occurs.
     fn run_loop(&mut self) -> Result<(), anyhow::Error> {
-        while self.running {
-            self.process_events();
-            self.process_completed_runs();
-            self.render()?;
+        let mut next_stream_render = None;
 
-            if self.handle_input()? {
+        while self.running {
+            let received_delta = self.process_events();
+            let completed_run = self.process_completed_runs();
+            if received_delta {
+                self.render_state.transcript = true;
+                self.render_state.status = true;
+                next_stream_render
+                    .get_or_insert_with(|| Instant::now() + Duration::from_millis(16));
+            }
+            if completed_run {
+                self.render_state.mark_all();
+            }
+
+            self.clear_expired_notice();
+
+            let stream_render_due =
+                next_stream_render.is_some_and(|deadline| Instant::now() >= deadline);
+            if self.render_state.any() && (!received_delta || stream_render_due) {
+                // Clear before drawing so work performed by rendering itself
+                // (for example the macOS selection-copy fallback) can request
+                // the follow-up status redraw it needs.
+                self.render_state.clear();
+                self.render()?;
+                next_stream_render = None;
+
+                if self.render_state.any() {
+                    continue;
+                }
+            }
+
+            // Crossterm input cannot be selected with the Tokio agent channels.
+            // Poll only while a response is active (which keeps stream events
+            // responsive); when idle this blocks until a notice must expire.
+            let timeout = self.input_timeout(next_stream_render);
+            if self.handle_input(timeout)? {
                 break;
             }
         }
 
         Ok(())
+    }
+
+    fn input_timeout(
+        &self,
+        next_stream_render: Option<Instant>,
+    ) -> Duration {
+        let now = Instant::now();
+        let notice_timeout = self
+            .notice
+            .as_ref()
+            .map(|notice| notice.expires_at.saturating_duration_since(now));
+        let stream_timeout =
+            next_stream_render.map(|deadline| deadline.saturating_duration_since(now));
+
+        if self.agent_cancellation.is_some() {
+            [notice_timeout, stream_timeout]
+                .into_iter()
+                .flatten()
+                .min()
+                .unwrap_or(Duration::from_millis(16))
+                .min(Duration::from_millis(16))
+        } else {
+            notice_timeout.unwrap_or(Duration::from_secs(60 * 60))
+        }
     }
 
     /// Exit raw mode and restore terminal.
@@ -470,6 +592,7 @@ impl InteractiveTui {
             message: content.into(),
             expires_at: Instant::now() + EPHEMERAL_NOTICE_DURATION,
         });
+        self.render_state.status = true;
     }
 
     /// Remove a notice after its display window has elapsed. This runs before
@@ -482,6 +605,7 @@ impl InteractiveTui {
             .is_some_and(|notice| Instant::now() >= notice.expires_at)
         {
             self.notice = None;
+            self.render_state.status = true;
         }
     }
 

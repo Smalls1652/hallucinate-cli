@@ -16,6 +16,10 @@ pub struct TranscriptRenderer {
     show_timestamps: bool,
     /// Whether to display thinking blocks.
     show_thinking: bool,
+    /// A monotonically increasing revision for each stored message. Layout
+    /// caches use this to avoid treating scroll-only changes as content edits.
+    message_revisions: Vec<u64>,
+    next_message_revision: u64,
 }
 
 /// A message in the transcript.
@@ -93,6 +97,8 @@ impl TranscriptRenderer {
             scroll_offset: 0,
             show_timestamps: std::env::var_os("HALLUCINATE_SHOW_TIMESTAMPS").is_some(),
             show_thinking: false,
+            message_revisions: Vec::new(),
+            next_message_revision: 1,
         }
     }
 
@@ -102,6 +108,16 @@ impl TranscriptRenderer {
         message: Message,
     ) {
         self.messages.push(message);
+        let revision = self.allocate_message_revision();
+        self.message_revisions.push(revision);
+    }
+
+    /// Return a message's current content revision.
+    pub fn message_revision(
+        &self,
+        index: usize,
+    ) -> Option<u64> {
+        self.message_revisions.get(index).copied()
     }
 
     /// Scroll toward older messages and leave follow mode.
@@ -147,6 +163,11 @@ impl TranscriptRenderer {
         self.show_timestamps
     }
 
+    /// Whether thinking blocks are enabled for display.
+    pub fn show_thinking(&self) -> bool {
+        self.show_thinking
+    }
+
     /// Toggle whether thinking blocks are displayed.
     pub fn set_show_thinking(
         &mut self,
@@ -169,6 +190,7 @@ impl TranscriptRenderer {
     ) {
         if let Some(message) = self.messages.get_mut(index) {
             message.content.push_str(content);
+            self.bump_message_revision(index);
         }
     }
 
@@ -180,6 +202,7 @@ impl TranscriptRenderer {
     ) {
         if let Some(message) = self.messages.get_mut(index) {
             message.thinking.push_str(thinking);
+            self.bump_message_revision(index);
         }
     }
 
@@ -196,6 +219,7 @@ impl TranscriptRenderer {
             message.content = content;
             message.thinking = thinking;
             message.tool_calls = tool_calls;
+            self.bump_message_revision(index);
         }
     }
 
@@ -208,7 +232,8 @@ impl TranscriptRenderer {
         result: String,
         is_error: bool,
     ) -> bool {
-        for message in self.messages.iter_mut().rev() {
+        for index in (0..self.messages.len()).rev() {
+            let message = &mut self.messages[index];
             if let Some(call) = message
                 .tool_calls
                 .iter_mut()
@@ -216,6 +241,7 @@ impl TranscriptRenderer {
             {
                 let prefix = if is_error { "❌" } else { "✅" };
                 call.result = Some(format!("{prefix} {result}"));
+                self.bump_message_revision(index);
 
                 return true;
             }
@@ -227,6 +253,22 @@ impl TranscriptRenderer {
     /// Access the stored messages.
     pub fn messages(&self) -> &[Message] {
         &self.messages
+    }
+
+    fn allocate_message_revision(&mut self) -> u64 {
+        let revision = self.next_message_revision;
+        self.next_message_revision = self.next_message_revision.saturating_add(1);
+        revision
+    }
+
+    fn bump_message_revision(
+        &mut self,
+        index: usize,
+    ) {
+        let revision = self.allocate_message_revision();
+        if let Some(message_revision) = self.message_revisions.get_mut(index) {
+            *message_revision = revision;
+        }
     }
 }
 

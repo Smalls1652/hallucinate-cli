@@ -1,18 +1,20 @@
 //! Keyboard, mouse, editor, and response-task interaction.
 
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    time::Duration,
+};
 
-#[cfg(not(target_os = "macos"))]
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use hallucinate_agent::ai::types::Message;
 use crate::{
     alt_screen::{Message as TuiMessage, MessageRole},
     input::parse_event,
     keys::Key,
 };
+#[cfg(not(target_os = "macos"))]
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use hallucinate_agent::ai::types::Message;
 
 use super::{AgentRunCompletion, AutocompleteItem, ChatSelection, InteractiveTui};
-use hallucinate_session::manager::SessionManager;
 
 impl InteractiveTui {
     /// Clear the current chat selection state.
@@ -129,9 +131,15 @@ impl InteractiveTui {
     }
 
     /// Handle user input.
-    pub(super) fn handle_input(&mut self) -> Result<bool, anyhow::Error> {
-        // Check for quit
-        if crossterm::event::poll(std::time::Duration::from_millis(100))? {
+    pub(super) fn handle_input(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<bool, anyhow::Error> {
+        // Polling is event-driven from the renderer's perspective: this may
+        // block for a full notice lifetime while idle, and only uses a short
+        // bound while an agent stream needs draining.
+        if crossterm::event::poll(timeout)? {
+            self.render_state.mark_all();
             let event = crossterm::event::read()?;
             let input_event = parse_event(event);
 
@@ -195,11 +203,8 @@ impl InteractiveTui {
                             },
 
                             crossterm::event::MouseEventKind::ScrollDown => {
-                                let sessions = match SessionManager::list() {
-                                    Ok(sessions) => sessions,
-                                    Err(_) => return Ok(false),
-                                };
-                                picker.selected = (picker.selected + 3).min(sessions.len() - 1);
+                                picker.selected =
+                                    (picker.selected + 3).min(picker.rows.len().saturating_sub(1));
                             },
 
                             _ => {},
@@ -215,7 +220,8 @@ impl InteractiveTui {
                             },
 
                             crossterm::event::MouseEventKind::ScrollDown => {
-                                picker.selected = (picker.selected + 3).min(self.prompt_templates.len() - 1);
+                                picker.selected =
+                                    (picker.selected + 3).min(self.prompt_templates.len() - 1);
                             },
 
                             _ => {},
@@ -294,7 +300,10 @@ impl InteractiveTui {
 
             // The model picker owns keyboard input while it is open. This
             // prevents arrows and Enter from moving/submitting the editor.
-            if self.model_picker.is_some() || self.session_picker.is_some() || self.prompt_picker.is_some() {
+            if self.model_picker.is_some()
+                || self.session_picker.is_some()
+                || self.prompt_picker.is_some()
+            {
                 if let crate::input::InputEvent::Key(key) = input_event {
                     if self.model_picker.is_some() {
                         self.handle_model_picker_key(key)?;

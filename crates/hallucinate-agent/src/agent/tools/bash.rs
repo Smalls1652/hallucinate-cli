@@ -118,35 +118,34 @@ impl Tool for BashTool {
             let stdout_task = tokio::spawn(capture_pipe(stdout, stream_limit));
             let stderr_task = tokio::spawn(capture_pipe(stderr, stream_limit));
 
-            let status = match tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait())
-                .await
-            {
-                Ok(Ok(status)) => status,
-                Ok(Err(error)) => {
-                    return Err(anyhow::anyhow!("Failed while waiting for command: {error}"));
-                },
-                Err(_) => {
-                    // `kill_on_drop` is a fallback; await explicit cleanup so a
-                    // direct child cannot survive a timeout result.
-                    if let Err(error) = child.kill().await {
-                        if error.kind() != std::io::ErrorKind::InvalidInput {
-                            return Err(anyhow::anyhow!(
-                                "Failed to kill timed-out command: {error}"
-                            ));
+            let status =
+                match tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait()).await {
+                    Ok(Ok(status)) => status,
+                    Ok(Err(error)) => {
+                        return Err(anyhow::anyhow!("Failed while waiting for command: {error}"));
+                    },
+                    Err(_) => {
+                        // `kill_on_drop` is a fallback; await explicit cleanup so a
+                        // direct child cannot survive a timeout result.
+                        if let Err(error) = child.kill().await {
+                            if error.kind() != std::io::ErrorKind::InvalidInput {
+                                return Err(anyhow::anyhow!(
+                                    "Failed to kill timed-out command: {error}"
+                                ));
+                            }
                         }
-                    }
-                    child.wait().await.map_err(|error| {
-                        anyhow::anyhow!("Failed to reap timed-out command: {error}")
-                    })?;
-                    let _ = stdout_task.await;
-                    let _ = stderr_task.await;
-                    return Ok(super::types::ToolResult::error(
-                        "bash",
-                        "bash",
-                        format!("Command timed out after {timeout_ms}ms"),
-                    ));
-                },
-            };
+                        child.wait().await.map_err(|error| {
+                            anyhow::anyhow!("Failed to reap timed-out command: {error}")
+                        })?;
+                        let _ = stdout_task.await;
+                        let _ = stderr_task.await;
+                        return Ok(super::types::ToolResult::error(
+                            "bash",
+                            "bash",
+                            format!("Command timed out after {timeout_ms}ms"),
+                        ));
+                    },
+                };
             let stdout = stdout_task
                 .await
                 .map_err(|error| anyhow::anyhow!("stdout capture task failed: {error}"))??;
