@@ -2,17 +2,18 @@
 
 ## Project Overview
 
-**hallucinate-cli** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search), session management, and multiple run modes (interactive, print, RPC).
+**hallucinate-cli** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search), session management, skills, prompt templates, and multiple run modes (interactive, print, RPC).
 
-This is a **Cargo workspace** with three crates:
+This is a **Cargo workspace** with five crates:
 
 | Crate | Path | Description | Publish |
 | --- | --- | --- | --- |
-| `hallucinate` | `crates/hallucinate` | CLI binary — entry point, argument parsing, run modes, session management, logging | `smalls-personal` |
-| `hallucinate-agent` | `crates/hallucinate-agent` | Agent core library — LLM provider abstraction, agent runtime, tools, config, skills | `smalls-personal` |
+| `hallucinate-cli` | `crates/hallucinate-cli` | CLI binary — entry point, argument parsing, run modes, session management, logging | `smalls-personal` |
+| `hallucinate-agent` | `crates/hallucinate-agent` | Agent core library — LLM provider abstraction, agent runtime, tools, config, skills, prompt templates | `smalls-personal` |
+| `hallucinate-session` | `crates/hallucinate-session` | Session storage abstraction and JSONL backend | `smalls-personal` |
 | `hallucinate-tui` | `crates/hallucinate-tui` | Terminal UI library — ratatui-based rendering, editor, keyboard input, undo, markdown | `smalls-personal` |
 
-**Dependency graph**: `hallucinate-tui` → `hallucinate-agent` · `hallucinate` → `hallucinate-agent` + `hallucinate-tui`
+**Dependency graph**: `hallucinate-tui` → `hallucinate-agent` · `hallucinate-cli` → `hallucinate-agent` + `hallucinate-tui` + `hallucinate-session`
 
 Key features:
 
@@ -20,13 +21,16 @@ Key features:
 - **Agent Runtime**: Single `Agent` struct in `hallucinate-agent::agent::runtime` owns the production turn-loop, builds context, executes tool calls, and emits lifecycle events
 - **Terminal UI**: Built on `ratatui` with alternate screen, multi-line editor with keyboard enhancements, undo support, model picker overlay, and markdown rendering
 - **Multiple Modes**: Interactive (TUI), print (`-p "prompt"`), and RPC (newline-delimited JSON-RPC 2.0 over stdin/stdout)
-- **Session Management**: JSONL-based session storage with CRUD operations
+- **Session Management**: JSONL-based session storage with CRUD operations (via `hallucinate-session` crate)
 - **Skills System**: Load and execute skills from user config, project `.hallucinate`, shared `.agents` protocol directories, and `--skill` paths
+- **Prompt Templates**: Markdown files with YAML frontmatter that expand slash commands with argument substitution; discovered from user config and project-local directories
 - **Image Support**: Base64 image content and auto-resize via `image` crate
 - **Auth CLI**: `auth set/remove/list` subcommands for provider API key management
 - **Configurable Shell**: Bash tool supports explicit shell executable and full shell syntax (pipes, redirects, `&&`, `||`)
+- **System Prompt Override**: Place a `SYSTEM.md` in the config directory to replace the built-in system prompt; `AGENTS.md` at project root is appended under `## Project Instructions`
+- **API Variants**: Both `openai-completions` (Chat Completions wire format) and `openai-responses` (Responses API wire format) are supported
 
-**Excluded from scope**: Plugins/extensions, server/client packages, evals framework, SQLite session backends, telemetry, NPM publish tooling, and CBOR protocol (removed).
+**Excluded from scope**: Plugins/extensions, server/client packages, evals framework, telemetry, NPM publish tooling, and CBOR protocol (removed).
 
 ## Key Technologies
 
@@ -34,17 +38,17 @@ Key features:
 | --- | --- |
 | Language | Rust (edition 2024) |
 | Workspace resolver | `"3"` (edition 2024) |
-| Async Runtime | `tokio` (full features) |
+| Async Runtime | `tokio` (default-features = false) |
 | CLI Parsing | `clap` (derive, env, string features) |
 | Terminal UI | `ratatui` 0.30 + `crossterm` 0.29 |
 | HTTP Client | `reqwest` (json, stream features) |
 | Serialization | `serde` + `serde_json` + `serde_yaml` + `toml` |
 | Error Handling | `anyhow` (app-level) + `thiserror` (domain) |
 | Markdown | `comrak` 0.54 |
-| Images | `image` (bmp, gif, jpeg, png, webp) |
+| Images | `image` (default-features = false) |
 | Logging | `tracing` + `tracing-subscriber` (env-filter) |
 | Paths | `directories` + `path-absolutize` + `shellexpand` |
-| Other | `futures`, `tokio-stream`, `uuid`, `regex`, `glob`, `which`, `chrono` |
+| Other | `futures`, `tokio-stream`, `uuid`, `regex`, `glob`, `which`, `chrono`, `base64` |
 
 ## Setup Commands
 
@@ -58,7 +62,7 @@ cargo build
 # Build release
 make build-release
 # or
-cargo build --release --package hallucinate
+cargo build --release --package hallucinate-cli
 
 # Run the binary
 cargo run
@@ -77,7 +81,7 @@ make check
 
 ```plain
 crates/
-├── hallucinate/             # CLI binary crate
+├── hallucinate-cli/         # CLI binary crate
 │   ├── src/
 │   │   ├── main.rs          # CLI entry point
 │   │   ├── cli/             # CLI commands (args, mod)
@@ -141,6 +145,10 @@ crates/
 │   │       ├── mod.rs
 │   │       ├── paths.rs     # Config directory paths (.agents protocol support)
 │   │       └── settings.rs  # TOML settings manager with multi-provider config
+│   └── Cargo.toml
+├── hallucinate-session/     # Session storage crate
+│   ├── src/
+│   │   └── lib.rs           # Session trait + JSONL backend
 │   └── Cargo.toml
 └── hallucinate-tui/         # Terminal UI library crate
     ├── src/
@@ -210,12 +218,12 @@ cargo +nightly fmt -- --emit files
 cargo test
 
 # Run tests in a specific crate
-cargo test -p hallucinate
+cargo test -p hallucinate-cli
 cargo test -p hallucinate-agent
 cargo test -p hallucinate-tui
 
 # Run a specific test
-cargo test -p hallucinate specific_test_name
+cargo test -p hallucinate-cli specific_test_name
 
 # Run tests with output
 cargo test -- --nocapture
@@ -266,6 +274,16 @@ make check
 make check-nightly
 ```
 
+### Release Profile
+
+The release profile uses size optimization (`opt-level = "s"`) and LTO:
+
+```toml
+[profile.release]
+opt-level = "s"
+lto = true
+```
+
 ### Artifacts
 
 - Debug builds: `target/<target-triple>/debug/hallucinate`
@@ -274,14 +292,17 @@ make check-nightly
 
 ### CI/CD
 
-Forgejo CI workflow (`.forgejo/workflows/build.yml`) runs `make build` on push to `main` and on PRs.
+Forgejo CI workflows:
+
+- **Build** (`.forgejo/workflows/build.yml`): Runs on push to `main` and on PRs. Executes `make build`, `cargo check --all-targets`, and `cargo test --all-targets` on Ubuntu.
+- **Publish** (`.forgejo/workflows/publish_release.yml`): Runs on tag push (`*.*.*` or `*.*.*-*`). Adds the `smalls-personal` cargo registry and publishes all workspace crates.
 
 ## Pull Request Guidelines
 
 - **Title format**: `[component] Brief description` (e.g., `[agent] Add tool execution loop`)
 - **Branch workflow**: Uses Git Town (configured in `.git-branches.toml`)
 - **Merge strategy**: Feature branches use merge strategy (`sync.feature-strategy = "merge"`)
-- **CI**: Forgejo CI workflow runs `make build` on PRs and pushes to `main`
+- **CI**: Forgejo CI workflow runs build, check, and test on PRs and pushes to `main`
 - **PR template**: Defined in `.forgejo/pull_request_template.md`
 
 ## Debugging and Troubleshooting
@@ -312,24 +333,82 @@ Custom registries are configured in `.cargo/config.toml`:
 - The project is a reimplementation of the TypeScript `pi` agent harness.
 - Configuration files: `.editorconfig`, `rustfmt.toml`, `renovate.json`
 - Git workflow: Git Town for branch management, Forgejo for PRs
+- Full configuration reference: `docs/config.md`
 
 ### Configuration File Format
 
-Settings are stored in **TOML** format (`settings.toml`), not JSON. The config supports:
+Settings are stored in **TOML** format (`settings.toml`), not JSON. A project-local override may be placed at `.hallucinate/settings.toml` (merged on top of the global file).
 
-- **Multi-provider models**: Define providers with their own `base_url`, `api_key`, `headers`, and nested models
-- **Credential store**: API keys stored per-provider in `[credential_store.credentials.<provider>]`
-- **Configurable shell**: Optional `shell = "/bin/bash"` setting for the bash tool
-- **Model picker**: Models can be selected interactively with `/model` or via `provider/model` selector
+**Key settings**:
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `default_model` | `string` | — | Default model selector (`provider/model`) |
+| `provider` | `string` | `"openai"` | Credential namespace for the default provider |
+| `base_url` | `string` | — | Global API endpoint for the default provider |
+| `shell` | `string` | `$SHELL` | Shell executable used by the bash tool |
+| `timeout_ms` | `number` | `600000` | Request timeout in milliseconds |
+| `max_retries` | `number` | `3` | Retries for transient LLM API failures |
+| `auto_resize_images` | `bool` | `true` | Automatically resize image attachments |
+| `max_turns` | `number` | `120` | Maximum conversation turns per prompt |
+| `enable_tools` | `bool` | `true` | Enable tool use by default |
+| `enable_compaction` | `bool` | `true` | Enable automatic context compaction |
+| `show_thinking` | `bool` | `false` | Show model reasoning output to the user |
+| `temperature` | `number` | — | Default sampling temperature |
+| `max_tokens` | `number` | — | Default maximum output tokens |
+| `providers` | `table` | — | Multi-provider model definitions |
+| `credential_store` | `table` | — | Stored API keys per provider |
+| `provider_headers` | `table` | — | Extra HTTP headers for the default provider |
+
+**Multi-provider models**: Define providers with their own `base_url`, `api_key`, `headers`, and nested models.
+
+**Credential store**: API keys stored per-provider in `[credential_store.credentials.<provider>]`. Use `auth set <provider>` to populate.
+
+**Configurable shell**: Optional `shell = "/bin/bash"` setting for the bash tool.
+
+**Model picker**: Models can be selected interactively with `/model` or via `provider/model` selector.
 
 ### Skills Discovery
 
-Skills are loaded from multiple locations (first match wins):
+Skills are Markdown files with YAML frontmatter, discovered from multiple locations (first match wins):
 
-1. `~/.hallucinate/skills` — user config directory
-2. `<cwd>/.hallucinate/skills` — project-local
-3. `~/.agents/skills` — shared `.agents` protocol (root files ignored, skills in `SKILL.md` or subdirectories)
-4. `<cwd>/.agents/skills` (and ancestors up to git root) — shared `.agents` protocol per-project
+| Priority | Location | Description |
+| --- | --- | --- |
+| 1 | `~/.hallucinate/skills` | User config directory |
+| 2 | `<cwd>/.hallucinate/skills` | Project-local skills |
+| 3 | `~/.agents/skills` | Shared `.agents` protocol |
+| 4 | `<cwd>/.agents/skills` (and ancestors to git root) | Shared `.agents` protocol per-project |
+
+**Command-line override**: `hallucinate --skill path/to/skill.md --skill another-skill/`
+
+**Disable auto-discovery**: `hallucinate --no-skills`
+
+### Prompt Templates
+
+Prompt templates are Markdown files with YAML frontmatter that expand slash commands with argument substitution.
+
+**Discovery locations**:
+
+| Priority | Location | Description |
+| --- | --- | --- |
+| 1 | `~/.hallucinate/prompts` | User config directory |
+| 2 | `<cwd>/.hallucinate/prompts` | Project-local templates |
+
+**Command-line override**: `hallucinate --prompt-template path/to/template.md`
+
+**Disable auto-discovery**: `hallucinate --no-prompt-templates`
+
+**Argument substitution**: Templates support shell-like syntax: `$1`, `$2`, `@N` (positional), `$@`, `@`, `$ARGUMENTS` (all arguments), `${N:-default}` (default value).
+
+### System Prompt
+
+**Global override**: Place a `SYSTEM.md` in the config directory to replace the built-in system prompt entirely.
+
+**Project instructions**: Place an `AGENTS.md` at the project root — its contents are appended under a `## Project Instructions` heading to every system prompt.
+
+### Session Management
+
+Sessions are stored as JSONL files with CRUD operations. The `hallucinate-session` crate provides a session storage abstraction.
 
 ### Multi-line Editor
 
@@ -340,3 +419,14 @@ The interactive editor supports multi-line input:
 - **Up/Down**: Move through lines in multi-line mode (scroll transcript in single-line mode)
 - **Bracketed paste**: Enabled; line endings normalized to `\n`
 - **Keyboard enhancement**: Kitty protocol enabled for enhanced key reporting (graceful fallback if unavailable)
+
+### Environment Variables
+
+| Variable | Description |
+| --- | --- |
+| `HALLUCINATE_API_KEY` | API key fallback (overridden by `--api-key`) |
+| `OPENAI_API_KEY` | Fallback when the default provider is `"openai"` |
+| `HALLUCINATE_<PROVIDER>_API_KEY` | Provider-specific key (e.g., `HALLUCINATE_OPENROUTER_API_KEY`) |
+| `SHELL` | Shell executable for the bash tool (overridden by `shell` setting) |
+
+Key resolution order: `--api-key` flag → `HALLUCINATE_API_KEY` → `OPENAI_API_KEY` (for default provider) → `HALLUCINATE_<PROVIDER>_API_KEY` → inline `api_key` in provider settings → stored credential.
