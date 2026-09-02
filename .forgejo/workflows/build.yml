@@ -32,10 +32,6 @@ jobs:
         run: |
           make build
 
-      - name: Check project
-        shell: bash
-        run: cargo check --all-targets
-
       - name: Test project
         shell: bash
         run: cargo test --all-targets
