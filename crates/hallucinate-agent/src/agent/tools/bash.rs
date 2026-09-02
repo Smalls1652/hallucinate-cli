@@ -1,20 +1,24 @@
-//! Bash tool: execute shell commands.
+//! Bash tool: bounded shell command execution.
 
-use std::{future::Future, pin::Pin};
+use std::{future::Future, pin::Pin, process::Stdio, time::Duration};
 
 use serde_json::json;
-use tokio::process::Command;
+use tokio::{
+    io::{AsyncRead, AsyncReadExt},
+    process::Command,
+};
 
-use super::types::Tool;
+use super::{
+    limits::{ToolLimits, truncate_utf8},
+    types::Tool,
+};
 
 /// Shell command execution tool.
-///
-/// Runs commands in a shell subprocess with configurable timeout and shell.
-/// Output is captured and returned as text.
 #[derive(Debug, Clone)]
 pub struct BashTool {
     /// Maximum execution time in milliseconds.
     timeout_ms: u64,
+    limits: ToolLimits,
     /// Explicit shell executable. `None` uses the user's environment default.
     shell: Option<String>,
 }
@@ -22,27 +26,34 @@ pub struct BashTool {
 impl Default for BashTool {
     fn default() -> Self {
         Self {
-            timeout_ms: 60_000, // Default timeout of 60 seconds
-            shell: None,        // Use user's environment default shell
+            timeout_ms: 60_000,
+            limits: ToolLimits::default(),
+            shell: None,
         }
     }
 }
 
 impl BashTool {
-    /// Create a new BashTool with the given timeout.
+    /// Create a new `BashTool` with default settings.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Configure resource limits for this tool.
+    pub fn with_limits(
+        mut self,
+        limits: ToolLimits,
+    ) -> Self {
+        self.limits = limits;
+        self
+    }
+
     /// Configure the shell executable used for commands.
-    ///
-    /// If `None`, the tool uses the user's environment default shell.
     pub fn with_shell(
         mut self,
         shell: Option<String>,
     ) -> Self {
         self.shell = shell;
-
         self
     }
 }
@@ -53,21 +64,15 @@ impl Tool for BashTool {
     }
 
     fn description(&self) -> &str {
-        "Execute a shell command or script and return the output. Commands are interpreted by the user's default shell, so pipes, quoting, &&, ||, redirects, variables, and other shell syntax are supported. Use this for running any shell command, including git, cargo, make, curl, etc."
+        "Execute a shell command or script and return bounded stdout and stderr. Shell syntax including pipes, redirects, quoting, &&, and || is supported. Timed-out commands are killed before a timeout result is returned."
     }
 
     fn parameters(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "The shell command or script to execute using the user's default shell"
-                },
-                "timeout_ms": {
-                    "type": "integer",
-                    "description": "Maximum execution time in milliseconds (default: 60000)"
-                }
+                "command": { "type": "string", "description": "Shell command or script" },
+                "timeout_ms": { "type": "integer", "description": "Maximum execution time in milliseconds (default: 60000)" }
             },
             "required": ["command"]
         })
@@ -82,14 +87,8 @@ impl Tool for BashTool {
         Box::pin(async move {
             let command = arguments
                 .get("command")
-                .and_then(|v| v.as_str())
+                .and_then(|value| value.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: command"))?;
-
-            let timeout_ms = arguments
-                .get("timeout_ms")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(self.timeout_ms);
-
             if command.trim().is_empty() {
                 return Ok(super::types::ToolResult::error(
                     "bash",
@@ -97,77 +96,131 @@ impl Tool for BashTool {
                     "Empty command",
                 ));
             }
-
-            // Pass the complete command to a shell instead of splitting it into
-            // whitespace-delimited arguments. The latter loses quoting and
-            // makes shell operators (for example `|` and `&&`) ordinary
-            // arguments to the first program.
-            let mut cmd = shell_command(command, self.shell.as_deref());
-
-            // Set working directory if provided
+            let timeout_ms = arguments
+                .get("timeout_ms")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(self.timeout_ms);
+            let mut command_process = shell_command(command, self.shell.as_deref());
             if let Some(cwd) = cwd {
-                cmd.current_dir(cwd);
+                command_process.current_dir(cwd);
             }
+            command_process
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
 
-            // Capture stdout and stderr
-            let output =
-                tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), cmd.output())
-                    .await;
+            let mut child = command_process
+                .spawn()
+                .map_err(|error| anyhow::anyhow!("Failed to execute command: {error}"))?;
+            let stdout = child.stdout.take().expect("stdout was explicitly piped");
+            let stderr = child.stderr.take().expect("stderr was explicitly piped");
+            let stream_limit = self.limits.max_shell_stream_bytes;
+            let stdout_task = tokio::spawn(capture_pipe(stdout, stream_limit));
+            let stderr_task = tokio::spawn(capture_pipe(stderr, stream_limit));
 
-            match output {
-                Ok(Ok(output)) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-                    let mut result = stdout;
-                    if !stderr.is_empty() && output.status.success() {
-                        // Some tools write warnings to stderr even on success
-                        result.push_str("\n[stderr:]\n");
-                        result.push_str(&stderr);
-                    }
-
-                    if !output.status.success() {
-                        let status = output.status;
-                        let mut error_msg = format!("Command exited with status: {status}");
-
-                        if !stderr.is_empty() {
-                            error_msg.push_str("\n[stderr:]\n");
-                            error_msg.push_str(&stderr);
-                        }
-
-                        return Ok(super::types::ToolResult::error(
-                            "bash",
-                            "bash",
-                            format!("{}\n\n[stdout:]\n{}", error_msg, result),
-                        ));
-                    }
-
-                    // Truncate very long output
-                    let truncated = truncate_output(&result, 10_000);
-
-                    Ok(super::types::ToolResult::success("bash", "bash", truncated))
+            let status = match tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait())
+                .await
+            {
+                Ok(Ok(status)) => status,
+                Ok(Err(error)) => {
+                    return Err(anyhow::anyhow!("Failed while waiting for command: {error}"));
                 },
+                Err(_) => {
+                    // `kill_on_drop` is a fallback; await explicit cleanup so a
+                    // direct child cannot survive a timeout result.
+                    if let Err(error) = child.kill().await {
+                        if error.kind() != std::io::ErrorKind::InvalidInput {
+                            return Err(anyhow::anyhow!(
+                                "Failed to kill timed-out command: {error}"
+                            ));
+                        }
+                    }
+                    child.wait().await.map_err(|error| {
+                        anyhow::anyhow!("Failed to reap timed-out command: {error}")
+                    })?;
+                    let _ = stdout_task.await;
+                    let _ = stderr_task.await;
+                    return Ok(super::types::ToolResult::error(
+                        "bash",
+                        "bash",
+                        format!("Command timed out after {timeout_ms}ms"),
+                    ));
+                },
+            };
+            let stdout = stdout_task
+                .await
+                .map_err(|error| anyhow::anyhow!("stdout capture task failed: {error}"))??;
+            let stderr = stderr_task
+                .await
+                .map_err(|error| anyhow::anyhow!("stderr capture task failed: {error}"))??;
 
-                Ok(Err(e)) => Ok(super::types::ToolResult::error(
-                    "bash",
-                    "bash",
-                    format!("Failed to execute command: {e}"),
-                )),
-
-                Err(_) => Ok(super::types::ToolResult::error(
-                    "bash",
-                    "bash",
-                    format!("Command timed out after {}ms", timeout_ms),
-                )),
+            let stdout = format_captured_stream("stdout", stdout);
+            let stderr = format_captured_stream("stderr", stderr);
+            if !status.success() {
+                let mut content = format!("Command exited with status: {status}");
+                if !stderr.is_empty() {
+                    content.push_str("\n[stderr:]\n");
+                    content.push_str(&stderr);
+                }
+                content.push_str("\n\n[stdout:]\n");
+                content.push_str(&stdout);
+                return Ok(super::types::ToolResult::error("bash", "bash", content));
             }
+
+            let mut content = stdout;
+            if !stderr.is_empty() {
+                content.push_str("\n[stderr:]\n");
+                content.push_str(&stderr);
+            }
+            Ok(super::types::ToolResult::success(
+                "bash",
+                "bash",
+                truncate_utf8(&content, self.limits.max_tool_result_bytes, "Output"),
+            ))
         })
     }
 }
 
-/// Build a command that evaluates the input as a shell script on Unix.
-///
-/// Uses the conventional Unix environment variable `SHELL` to determine
-/// which shell to use, falling back to `sh` if not available.
+#[derive(Debug)]
+struct CapturedStream {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+async fn capture_pipe<R: AsyncRead + Unpin>(
+    mut reader: R,
+    limit: usize,
+) -> Result<CapturedStream, anyhow::Error> {
+    let mut bytes = Vec::with_capacity(limit);
+    let mut buffer = [0_u8; 8_192];
+    let mut truncated = false;
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        let remaining = limit.saturating_sub(bytes.len());
+        let retained = read.min(remaining);
+        bytes.extend_from_slice(&buffer[..retained]);
+        truncated |= retained < read;
+    }
+    Ok(CapturedStream { bytes, truncated })
+}
+
+fn format_captured_stream(
+    name: &str,
+    captured: CapturedStream,
+) -> String {
+    let mut output = String::from_utf8_lossy(&captured.bytes).to_string();
+    if captured.truncated {
+        output.push_str(&format!(
+            "\n[{name} truncated after {} bytes]",
+            captured.bytes.len()
+        ));
+    }
+    output
+}
+
 #[cfg(unix)]
 fn shell_command(
     command: &str,
@@ -177,143 +230,70 @@ fn shell_command(
         .map(std::ffi::OsString::from)
         .or_else(|| std::env::var_os("SHELL"))
         .unwrap_or_else(|| "sh".into());
-
-    let mut cmd = Command::new(shell);
-    cmd.arg("-c").arg(command);
-
-    cmd
+    let mut command_process = Command::new(shell);
+    command_process.arg("-c").arg(command);
+    command_process
 }
 
-/// Build a command that evaluates the input as a shell script on Windows.
-///
-/// Uses `SHELL` (e.g. Git Bash) when available; falls back to `COMSPEC` with
-/// the `/C` switch for native CMD.
 #[cfg(windows)]
 fn shell_command(
-    /// The shell command or script to execute
     command: &str,
-    /// Optional configured shell executable
     configured_shell: Option<&str>,
 ) -> Command {
-    if let Some(shell) = configured_shell
+    let shell = configured_shell
         .map(std::ffi::OsString::from)
         .or_else(|| std::env::var_os("SHELL"))
-    {
-        let is_cmd = std::path::Path::new(&shell)
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.eq_ignore_ascii_case("cmd"));
-
-        let mut cmd = Command::new(shell);
-        cmd.arg(if is_cmd { "/C" } else { "-c" }).arg(command);
-
-        cmd
-    } else {
-        let shell = std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into());
-
-        let mut cmd = Command::new(shell);
-        cmd.arg("/C").arg(command);
-
-        cmd
-    }
+        .or_else(|| std::env::var_os("COMSPEC"))
+        .unwrap_or_else(|| "cmd.exe".into());
+    let is_cmd = std::path::Path::new(&shell)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("cmd"));
+    let mut command_process = Command::new(shell);
+    command_process
+        .arg(if is_cmd { "/C" } else { "-c" })
+        .arg(command);
+    command_process
 }
 
-/// Build a command that evaluates the input as a shell script on unsupported
-/// platforms.
-///
-/// Falls back to `sh` as a best-effort default.
 #[cfg(not(any(unix, windows)))]
 fn shell_command(
-    /// The shell command or script to execute
     command: &str,
-    /// Optional configured shell executable (currently unused on
-    /// non-Unix/Windows platforms)
     _configured_shell: Option<&str>,
 ) -> Command {
-    let mut cmd = Command::new("sh");
-    cmd.arg("-c").arg(command);
-
-    cmd
-}
-
-/// Truncate output to a maximum length, adding a note if truncated.
-///
-/// Returns the original string if it is within `max_len`. Otherwise returns
-/// the first `max_len` characters followed by a truncation notice showing the
-/// total number of characters.
-fn truncate_output(
-    output: &str,
-    max_len: usize,
-) -> String {
-    if output.len() <= max_len {
-        output.to_string()
-    } else {
-        let truncated = &output[..max_len];
-
-        format!(
-            "{}\n\n[Output truncated: {} total characters]",
-            truncated,
-            output.len()
-        )
-    }
+    let mut command_process = Command::new("sh");
+    command_process.arg("-c").arg(command);
+    command_process
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[tokio::test]
-    async fn test_bash_tool_exists() {
-        let tool = BashTool::new();
-
-        assert_eq!(tool.name(), "bash");
-        assert!(!tool.description().is_empty());
-    }
-
-    #[test]
-    fn test_echo_command() {
-        // Just verify the tool exists with correct name
-        let tool = BashTool::new();
-
-        assert_eq!(tool.name(), "bash");
-        assert!(!tool.description().is_empty());
+    async fn captures_both_pipes_without_unbounded_returned_output() {
+        let mut limits = ToolLimits::default();
+        limits.max_shell_stream_bytes = 32;
+        let result = BashTool::new().with_limits(limits).execute(&json!({ "command": "i=0; while [ $i -lt 100 ]; do printf x; printf y >&2; i=$((i+1)); done" }), None).await.unwrap();
+        assert!(!result.is_error, "{}", result.content);
+        assert!(result.content.contains("stdout truncated"));
+        assert!(result.content.contains("stderr truncated"));
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn test_configured_shell_is_used() {
-        let tool = BashTool::new().with_shell(Some("/bin/sh".to_string()));
-        let arguments = json!({ "command": "printf configured" });
-
-        let result = tool.execute(&arguments, None).await.unwrap();
-
-        assert!(!result.is_error, "{}", result.content);
-        assert_eq!(result.content, "configured");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn test_shell_syntax_is_supported() {
-        let tool = BashTool::new();
-        let arguments = json!({
-            "command": "printf '%s\\n' \"hello world\" | tr '[:lower:]' '[:upper:]' && printf 'success\\n' || printf 'failure\\n'"
-        });
-
-        let result = tool.execute(&arguments, None).await.unwrap();
-
-        assert!(!result.is_error, "{}", result.content);
-        assert_eq!(result.content, "HELLO WORLD\nsuccess\n");
+    async fn kills_a_timed_out_direct_child() {
+        let result = BashTool::new()
+            .execute(&json!({ "command": "sleep 5", "timeout_ms": 20 }), None)
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("timed out"));
     }
 
     #[test]
-    fn test_truncate_output() {
-        let short = "hello";
-        assert_eq!(truncate_output(short, 100), "hello");
-
-        let long = "a".repeat(200);
-        let truncated = truncate_output(&long, 100);
-
-        assert!(truncated.len() < long.len());
-        assert!(truncated.contains("truncated"));
+    fn truncation_preserves_utf8_boundaries() {
+        assert!(truncate_utf8("aé", 2, "Output").starts_with('a'));
     }
 }

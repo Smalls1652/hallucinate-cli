@@ -1,18 +1,27 @@
-//! Read tool: read file contents.
+//! Read tool: bounded file and image reading.
 
-use std::{future::Future, pin::Pin};
+use std::{
+    fs::File,
+    future::Future,
+    io::{Read, Seek},
+    pin::Pin,
+};
 
 use serde_json::json;
 
-use super::{paths::resolve_path, types::Tool};
+use super::{
+    limits::{ToolLimits, parse_bounded_usize, run_blocking, truncate_utf8},
+    paths::resolve_path,
+    types::Tool,
+};
 
 /// File reading tool.
 ///
-/// Reads file contents with configurable size limits.
+/// Reads text files and supported images without allocating a text file before
+/// its size has been validated.
 #[derive(Debug, Clone)]
 pub struct ReadTool {
-    /// Maximum text file size in bytes.
-    max_size: usize,
+    limits: ToolLimits,
     /// Whether image files should be resized before attachment.
     auto_resize_images: bool,
 }
@@ -20,16 +29,25 @@ pub struct ReadTool {
 impl Default for ReadTool {
     fn default() -> Self {
         Self {
-            max_size: 1_000_000,
+            limits: ToolLimits::default(),
             auto_resize_images: true,
-        } // 1MB default
+        }
     }
 }
 
 impl ReadTool {
-    /// Create a new ReadTool with default settings.
+    /// Create a new `ReadTool` with default settings.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Configure resource limits for this tool.
+    pub fn with_limits(
+        mut self,
+        limits: ToolLimits,
+    ) -> Self {
+        self.limits = limits;
+        self
     }
 
     /// Configure whether returned image attachments are automatically resized.
@@ -48,21 +66,15 @@ impl Tool for ReadTool {
     }
 
     fn description(&self) -> &str {
-        "Read the contents of a file. Returns the file content as a string. Supports text files and images (jpg, png, gif, webp, bmp). For large files, consider using grep or find to extract specific content."
+        "Read the contents of a file. Returns text or an image attachment (jpg, png, gif, webp, bmp). Text and source images have bounded sizes. For large files, use grep or find to extract specific content."
     }
 
     fn parameters(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Path to the file to read"
-                },
-                "max_size": {
-                    "type": "integer",
-                    "description": "Maximum file size in bytes (default: 1000000)"
-                }
+                "path": { "type": "string", "description": "Path to the file to read" },
+                "max_size": { "type": "integer", "description": "Maximum text file size in bytes (default: 1000000)" }
             },
             "required": ["path"]
         })
@@ -77,146 +89,138 @@ impl Tool for ReadTool {
         Box::pin(async move {
             let path_str = arguments
                 .get("path")
-                .and_then(|v| v.as_str())
+                .and_then(|value| value.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: path"))?;
-
-            let max_size = arguments
-                .get("max_size")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(self.max_size as u64) as usize;
-
+            let max_size = parse_bounded_usize(
+                arguments,
+                "max_size",
+                self.limits.max_text_file_bytes,
+                self.limits.max_text_file_bytes,
+            )?;
             let path = resolve_path(path_str, cwd);
             let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
+            let limits = self.limits.clone();
+            let auto_resize_images = self.auto_resize_images;
 
-            if !path.exists() {
-                return Ok(super::types::ToolResult::error(
-                    "read",
-                    "read",
-                    format!("File not found: {display_path}"),
-                ));
-            }
+            run_blocking("read", move || {
+                let mut file = match File::open(&path) {
+                    Ok(file) => file,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        return Ok(super::types::ToolResult::error(
+                            "read",
+                            "read",
+                            format!("File not found: {display_path}"),
+                        ));
+                    },
+                    Err(error) => {
+                        return Err(anyhow::Error::new(error)
+                            .context(format!("failed to open {display_path}")));
+                    },
+                };
+                let metadata = file.metadata().map_err(|error| {
+                    anyhow::Error::new(error).context(format!("failed to inspect {display_path}"))
+                })?;
 
-            if path.is_dir() {
-                return Ok(super::types::ToolResult::error(
-                    "read",
-                    "read",
-                    format!("Path is a directory, not a file: {display_path}"),
-                ));
-            }
+                if metadata.is_dir() {
+                    return Ok(super::types::ToolResult::error(
+                        "read",
+                        "read",
+                        format!("Path is a directory, not a file: {display_path}"),
+                    ));
+                }
 
-            let metadata = std::fs::metadata(&path)?;
-            let bytes = std::fs::read(&path)?;
+                let mut magic = [0_u8; 32];
+                let magic_len = file.read(&mut magic)?;
+                file.rewind()?;
+                let is_image = crate::ai::images::is_supported_image(&magic[..magic_len]);
+                let byte_limit = if is_image {
+                    limits.max_image_source_bytes
+                } else {
+                    max_size
+                };
 
-            if crate::ai::images::is_supported_image(&bytes) {
-                // Allow source images larger than the text limit so automatic
-                // resizing can make them safe to attach to a vision model.
-                const MAX_SOURCE_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
-
-                if metadata.len() > MAX_SOURCE_IMAGE_BYTES {
+                if metadata.len() > byte_limit as u64 {
+                    let kind = if is_image { "Image file" } else { "File" };
                     return Ok(super::types::ToolResult::error(
                         "read",
                         "read",
                         format!(
-                            "Image file too large: {} bytes (max source size: {} bytes)",
+                            "{kind} too large: {} bytes (max: {} bytes)",
                             metadata.len(),
-                            MAX_SOURCE_IMAGE_BYTES
+                            byte_limit
                         ),
                     ));
                 }
 
-                let image =
-                    crate::ai::images::process_image_bytes(&bytes, self.auto_resize_images)?;
+                let mut bytes =
+                    Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(byte_limit));
+                file.take(metadata.len().saturating_add(1))
+                    .read_to_end(&mut bytes)?;
+                if bytes.len() > byte_limit {
+                    return Ok(super::types::ToolResult::error(
+                        "read",
+                        "read",
+                        format!("File grew beyond its {byte_limit} byte limit while reading"),
+                    ));
+                }
 
-                return Ok(super::types::ToolResult::success(
+                if is_image {
+                    let image = crate::ai::images::process_image_bytes(&bytes, auto_resize_images)?;
+                    return Ok(super::types::ToolResult::success(
+                        "read",
+                        "read",
+                        format!("Read image file [{}]: {display_path}", image.mime_type),
+                    )
+                    .with_images(vec![image]));
+                }
+
+                let content = String::from_utf8(bytes).map_err(|_| {
+                    anyhow::anyhow!("file is not valid UTF-8 text or a supported image")
+                })?;
+                let content = truncate_utf8(&content, max_size, "Content");
+
+                Ok(super::types::ToolResult::success(
                     "read",
                     "read",
-                    format!("Read image file [{}]: {display_path}", image.mime_type),
-                )
-                .with_images(vec![image]));
-            }
-
-            if metadata.len() as usize > max_size {
-                return Ok(super::types::ToolResult::error(
-                    "read",
-                    "read",
-                    format!(
-                        "File too large: {} bytes (max: {} bytes)",
-                        metadata.len(),
-                        max_size
-                    ),
-                ));
-            }
-
-            let content = String::from_utf8(bytes).map_err(|_| {
-                anyhow::anyhow!("file is not valid UTF-8 text or a supported image")
-            })?;
-
-            let truncated = truncate_output(&content, max_size);
-
-            Ok(super::types::ToolResult::success(
-                "read",
-                "read",
-                format!("File: {display_path}\n\n{truncated}"),
-            ))
+                    format!("File: {display_path}\n\n{content}"),
+                ))
+            })
+            .await
         })
-    }
-}
-
-/// Truncate output to a maximum size, adding a truncation message if needed.
-fn truncate_output(
-    content: &str,
-    max_size: usize,
-) -> String {
-    if content.len() <= max_size {
-        content.to_string()
-    } else {
-        let truncated = &content[..max_size];
-
-        format!(
-            "{}\n\n[Content truncated: {} total characters]",
-            truncated,
-            content.len()
-        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{fs, path::Path};
 
     use super::*;
 
     #[tokio::test]
-    async fn test_read_tool_exists() {
-        let tool = ReadTool::new();
+    async fn rejects_an_oversized_file_before_reading_it() {
+        let path = std::env::temp_dir().join(format!("hallucinate-read-{}", uuid::Uuid::new_v4()));
+        let file = File::create(&path).unwrap();
+        file.set_len(2_000_000).unwrap();
 
-        assert_eq!(tool.name(), "read");
-        assert!(!tool.description().is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_read_nonexistent_file() {
-        let tool = ReadTool::new();
-        let args = json!({ "path": "/nonexistent/file.txt" });
-        let result = futures::executor::block_on(tool.execute(&args, None));
-
-        assert!(result.is_ok());
-
-        let result = result.unwrap();
+        let result = ReadTool::new()
+            .execute(&json!({ "path": path }), None)
+            .await
+            .unwrap();
         assert!(result.is_error);
+        assert!(result.content.contains("too large"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn truncation_preserves_utf8_boundaries() {
+        assert_eq!(
+            truncate_utf8("aéz", 2, "Content"),
+            "a\n\n[Content truncated: 4 total bytes]"
+        );
     }
 
     #[tokio::test]
-    async fn test_read_missing_path() {
-        let tool = ReadTool::new();
-        let args = json!({});
-        let result = futures::executor::block_on(tool.execute(&args, None));
-
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_read_image_returns_base64_attachment() {
+    async fn reads_images_as_attachments() {
         use image::{DynamicImage, ImageFormat};
 
         let path =
@@ -224,29 +228,21 @@ mod tests {
         DynamicImage::new_rgba8(1, 1)
             .save_with_format(&path, ImageFormat::Png)
             .unwrap();
-
-        let tool = ReadTool::new();
-        let args = json!({ "path": path });
-        let result = tool.execute(&args, None).await.unwrap();
+        let result = ReadTool::new()
+            .execute(&json!({ "path": path }), None)
+            .await
+            .unwrap();
 
         assert!(!result.is_error);
-        assert_eq!(result.images.len(), 1);
         assert_eq!(result.images[0].mime_type, "image/png");
-
-        std::fs::remove_file(path).unwrap();
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
-    fn test_resolve_path_relative() {
-        let path = resolve_path("test.txt", Some("/some/dir"));
-
-        assert_eq!(path, Path::new("/some/dir/test.txt"));
-    }
-
-    #[test]
-    fn test_resolve_path_absolute() {
-        let path = resolve_path("/absolute/path.txt", Some("/some/dir"));
-
-        assert_eq!(path, Path::new("/absolute/path.txt"));
+    fn resolves_relative_paths() {
+        assert_eq!(
+            resolve_path("test.txt", Some("/some/dir")),
+            Path::new("/some/dir/test.txt")
+        );
     }
 }

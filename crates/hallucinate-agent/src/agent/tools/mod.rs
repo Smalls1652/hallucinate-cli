@@ -13,14 +13,17 @@ pub mod bash;
 pub mod edit;
 pub mod find;
 pub mod grep;
+pub mod limits;
 pub mod ls;
 mod paths;
 pub mod read;
 pub mod types;
+mod walker;
 pub mod write;
 
 use std::sync::Arc;
 
+pub use limits::ToolLimits;
 pub use types::ToolResult;
 
 use crate::{agent::tools::types::Tool, ai::types::Tool as AiTool};

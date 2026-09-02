@@ -5,7 +5,10 @@ use std::pin::Pin;
 use futures::Future;
 use serde::{Deserialize, Serialize};
 
-use crate::ai::types::{ImageContent, Tool as AiTool};
+use crate::{
+    agent::tools::limits::{ToolLimits, truncate_utf8},
+    ai::types::{ImageContent, Tool as AiTool},
+};
 
 /// A tool that can be called by the agent.
 ///
@@ -63,7 +66,11 @@ impl ToolResult {
         Self {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
-            content: content.into(),
+            content: truncate_utf8(
+                &content.into(),
+                ToolLimits::default().max_tool_result_bytes,
+                "Tool result",
+            ),
             images: Vec::new(),
             is_error: false,
         }
@@ -78,7 +85,11 @@ impl ToolResult {
         Self {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
-            content: error.into(),
+            content: truncate_utf8(
+                &error.into(),
+                ToolLimits::default().max_tool_result_bytes,
+                "Tool result",
+            ),
             images: Vec::new(),
             is_error: true,
         }

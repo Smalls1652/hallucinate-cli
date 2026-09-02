@@ -4,7 +4,7 @@ use std::{future::Future, io::Write, pin::Pin};
 
 use serde_json::json;
 
-use super::{paths::resolve_path, types::Tool};
+use super::{limits::run_blocking, paths::resolve_path, types::Tool};
 
 /// Intelligent edit tool for modifying file contents.
 ///
@@ -107,43 +107,45 @@ impl Tool for EditTool {
 
             let path = resolve_path(path_str, cwd);
             let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
+            let old_text = old_text.to_string();
+            let new_text = new_text.to_string();
 
-            let content = std::fs::read_to_string(&path)
-                .map_err(|e| anyhow::anyhow!("Failed to read file {display_path}: {e}"))?;
+            run_blocking("edit", move || {
+                let content = std::fs::read_to_string(&path).map_err(|error| {
+                    anyhow::anyhow!("Failed to read file {display_path}: {error}")
+                })?;
 
-            if !content.contains(old_text) {
-                return Ok(super::types::ToolResult::error(
+                if !content.contains(&old_text) {
+                    return Ok(super::types::ToolResult::error(
+                        "edit",
+                        "edit",
+                        format!(
+                            "Text not found in file: {display_path}\n\nSearched for:\n{old_text}"
+                        ),
+                    ));
+                }
+
+                let count = content.matches(&old_text).count();
+                let new_content = content.replace(&old_text, &new_text);
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+
+                let temp_path = path.with_extension(format!(".tmp.{}", std::process::id()));
+                {
+                    let mut file = std::fs::File::create(&temp_path)?;
+                    file.write_all(new_content.as_bytes())?;
+                    file.flush()?;
+                }
+                std::fs::rename(&temp_path, &path)?;
+
+                Ok(super::types::ToolResult::success(
                     "edit",
                     "edit",
-                    format!(
-                        "Text not found in file.\n\nFile: {display_path}\n\nSearched for:\n{old_text}\n\nFile content:\n{content}"
-                    ),
-                ));
-            }
-
-            let count = content.matches(old_text).count();
-            let new_content = content.replace(old_text, new_text);
-
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-
-            let temp_path = path.with_extension(format!(".tmp.{}", std::process::id()));
-            {
-                let mut file = std::fs::File::create(&temp_path)?;
-                file.write_all(new_content.as_bytes())?;
-                file.flush()?;
-            }
-            std::fs::rename(&temp_path, &path)?;
-
-            Ok(super::types::ToolResult::success(
-                "edit",
-                "edit",
-                format!(
-                    "Successfully replaced {} occurrence(s) in {}",
-                    count, display_path
-                ),
-            ))
+                    format!("Successfully replaced {count} occurrence(s) in {display_path}"),
+                ))
+            })
+            .await
         })
     }
 }

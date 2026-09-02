@@ -4,22 +4,25 @@ use std::{future::Future, io::Write, pin::Pin};
 
 use serde_json::json;
 
-use super::{paths::resolve_path, types::Tool};
+use super::{
+    limits::{ToolLimits, run_blocking},
+    paths::resolve_path,
+    types::Tool,
+};
 
 /// File writing tool.
 ///
 /// Writes content to a file atomically using a temp file.
 #[derive(Debug, Clone)]
 pub struct WriteTool {
-    /// Maximum file size in bytes.
-    max_size: usize,
+    limits: ToolLimits,
 }
 
 impl Default for WriteTool {
     fn default() -> Self {
         Self {
-            max_size: 1_000_000,
-        } // 1MB default
+            limits: ToolLimits::default(),
+        }
     }
 }
 
@@ -27,6 +30,15 @@ impl WriteTool {
     /// Create a new WriteTool with default settings.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Configure resource limits for this tool.
+    pub fn with_limits(
+        mut self,
+        limits: ToolLimits,
+    ) -> Self {
+        self.limits = limits;
+        self
     }
 }
 
@@ -73,42 +85,46 @@ impl Tool for WriteTool {
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: content"))?;
 
-            if content.len() > self.max_size {
+            if content.len() > self.limits.max_text_file_bytes {
                 return Ok(super::types::ToolResult::error(
                     "write",
                     "write",
                     format!(
                         "Content too large: {} bytes (max: {} bytes)",
                         content.len(),
-                        self.max_size
+                        self.limits.max_text_file_bytes
                     ),
                 ));
             }
 
             let path = resolve_path(path_str, cwd);
             let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
+            let content = content.to_string();
 
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
+            run_blocking("write", move || {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
 
-            let temp_path = path.with_extension(format!(".tmp.{}", std::process::id()));
-            {
-                let mut file = std::fs::File::create(&temp_path)?;
-                file.write_all(content.as_bytes())?;
-                file.flush()?;
-            }
-            std::fs::rename(&temp_path, &path)?;
+                let temp_path = path.with_extension(format!(".tmp.{}", std::process::id()));
+                {
+                    let mut file = std::fs::File::create(&temp_path)?;
+                    file.write_all(content.as_bytes())?;
+                    file.flush()?;
+                }
+                std::fs::rename(&temp_path, &path)?;
 
-            Ok(super::types::ToolResult::success(
-                "write",
-                "write",
-                format!(
-                    "Successfully wrote {} bytes to {}",
-                    content.len(),
-                    display_path
-                ),
-            ))
+                Ok(super::types::ToolResult::success(
+                    "write",
+                    "write",
+                    format!(
+                        "Successfully wrote {} bytes to {}",
+                        content.len(),
+                        display_path
+                    ),
+                ))
+            })
+            .await
         })
     }
 }

@@ -6,7 +6,10 @@ use anyhow::Context;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use image::{DynamicImage, GenericImageView, ImageFormat, imageops::FilterType};
 
-use crate::ai::types::ImageContent;
+use crate::{
+    agent::tools::{ToolLimits, limits::run_blocking},
+    ai::types::ImageContent,
+};
 
 /// Largest dimension sent to a model when automatic resizing is enabled.
 pub const MAX_IMAGE_DIMENSION: u32 = 2_000;
@@ -14,25 +17,37 @@ pub const MAX_IMAGE_DIMENSION: u32 = 2_000;
 pub const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 
 /// Load a supported image file and prepare it for an API request.
-pub fn load_image_file(
+///
+/// File I/O and decoding run behind the shared blocking-work boundary so image
+/// attachments cannot stall an async CLI or RPC worker.
+pub async fn load_image_file(
     path: impl AsRef<std::path::Path>,
     auto_resize: bool,
 ) -> Result<ImageContent, anyhow::Error> {
-    let path = path.as_ref();
+    let path = path.as_ref().to_path_buf();
+    let display_path = crate::config::paths::display_path(&path, ".");
+    let max_source_bytes = ToolLimits::default().max_image_source_bytes;
 
-    let bytes = std::fs::read(path).with_context(|| {
-        format!(
-            "failed to read image file {}",
-            crate::config::paths::display_path(path, ".")
-        )
-    })?;
+    run_blocking("image processing", move || {
+        let metadata = std::fs::metadata(&path)
+            .with_context(|| format!("failed to inspect image file {display_path}"))?;
+        if metadata.len() > max_source_bytes as u64 {
+            anyhow::bail!(
+                "image file {display_path} is {} bytes (maximum: {max_source_bytes} bytes)",
+                metadata.len()
+            );
+        }
 
-    process_image_bytes(&bytes, auto_resize).with_context(|| {
-        format!(
-            "failed to process image file {}",
-            crate::config::paths::display_path(path, ".")
-        )
+        let bytes = std::fs::read(&path)
+            .with_context(|| format!("failed to read image file {display_path}"))?;
+        if bytes.len() > max_source_bytes {
+            anyhow::bail!("image file {display_path} grew beyond its source-byte limit");
+        }
+
+        process_image_bytes(&bytes, auto_resize)
+            .with_context(|| format!("failed to process image file {display_path}"))
     })
+    .await
 }
 
 /// Return whether bytes are one of the supported image formats.

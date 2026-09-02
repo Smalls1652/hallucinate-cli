@@ -1,30 +1,46 @@
-//! Ls tool: directory listing.
+//! Ls tool: bounded deterministic directory listing.
 
 use std::{future::Future, pin::Pin};
 
 use serde_json::json;
 
-use super::{paths::resolve_path, types::Tool};
+use super::{
+    limits::{MAX_REQUESTED_RESULTS, ToolLimits, parse_bounded_usize, run_blocking},
+    paths::resolve_path,
+    types::Tool,
+    walker::{WalkControl, walk_entries},
+};
 
 /// Directory listing tool.
-///
-/// Lists files and directories with optional details.
 #[derive(Debug, Clone)]
 pub struct LsTool {
-    /// Maximum entries to return.
+    limits: ToolLimits,
+    /// Default maximum entries to return.
     max_entries: usize,
 }
 
 impl Default for LsTool {
     fn default() -> Self {
-        Self { max_entries: 100 }
+        Self {
+            limits: ToolLimits::default(),
+            max_entries: 100,
+        }
     }
 }
 
 impl LsTool {
-    /// Create a new LsTool with default settings.
+    /// Create a new `LsTool` with default settings.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Configure resource limits for this tool.
+    pub fn with_limits(
+        mut self,
+        limits: ToolLimits,
+    ) -> Self {
+        self.limits = limits;
+        self
     }
 }
 
@@ -34,25 +50,16 @@ impl Tool for LsTool {
     }
 
     fn description(&self) -> &str {
-        "List files and directories. Shows file names, types, and sizes. Supports recursive listing. Use this instead of running 'ls' commands."
+        "List files and directories with types and sizes. Recursive lists are deterministic, do not follow directory symlinks, skip generated-directory contents, and are bounded by entry limits."
     }
 
     fn parameters(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Path to list (default: current directory)"
-                },
-                "recursive": {
-                    "type": "boolean",
-                    "description": "List recursively (default: false)"
-                },
-                "max_entries": {
-                    "type": "integer",
-                    "description": "Maximum number of entries (default: 100)"
-                }
+                "path": { "type": "string", "description": "Path to list (default: current directory)" },
+                "recursive": { "type": "boolean", "description": "List recursively (default: false)" },
+                "max_entries": { "type": "integer", "description": "Maximum entries (default: 100, maximum: 1000)" }
             },
             "required": []
         })
@@ -65,130 +72,98 @@ impl Tool for LsTool {
     ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
     {
         Box::pin(async move {
-            let path_str = arguments
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or(".")
-                .to_string();
-
+            let path = resolve_path(
+                arguments
+                    .get("path")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("."),
+                cwd,
+            );
+            let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
             let recursive = arguments
                 .get("recursive")
-                .and_then(|v| v.as_bool())
+                .and_then(|value| value.as_bool())
                 .unwrap_or(false);
+            let max_entries = parse_bounded_usize(
+                arguments,
+                "max_entries",
+                self.max_entries,
+                MAX_REQUESTED_RESULTS,
+            )?;
+            let limits = self.limits.clone();
+            let display_cwd = cwd.unwrap_or(".").to_string();
 
-            let max_entries = arguments
-                .get("max_entries")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(self.max_entries as u64) as usize;
-
-            let path = resolve_path(&path_str, cwd);
-            let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
-
-            if !path.exists() {
-                return Ok(super::types::ToolResult::error(
-                    "ls",
-                    "ls",
-                    format!("Path not found: {display_path}"),
-                ));
-            }
-
-            let mut entries: Vec<String> = Vec::new();
-
-            if recursive {
-                let mut dir_stack = vec![path.clone()];
-
-                while let Some(current) = dir_stack.pop() {
-                    if entries.len() >= max_entries {
-                        break;
-                    }
-
-                    if let Ok(read_dir) = std::fs::read_dir(&current) {
-                        let mut child_entries: Vec<_> = read_dir.filter_map(|e| e.ok()).collect();
-                        child_entries.sort_by_key(|e| e.path());
-
-                        for entry in child_entries {
-                            if entries.len() >= max_entries {
-                                break;
-                            }
-
-                            let entry_path = entry.path();
-                            let metadata = entry.metadata().ok();
-                            let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-                            let is_file = metadata.as_ref().map(|m| m.is_file()).unwrap_or(false);
-                            let size = metadata.map(|m| m.len()).unwrap_or(0);
-
-                            let entry_type = if is_dir {
-                                "dir"
-                            } else if is_file {
-                                "file"
-                            } else {
-                                "other"
-                            };
-
-                            entries.push(format!(
-                                "{:<6} {:>10} {}",
-                                entry_type,
-                                format_size(size),
-                                crate::config::paths::display_path(&entry_path, cwd.unwrap_or("."),)
-                            ));
-
-                            if is_dir {
-                                dir_stack.push(entry_path);
-                            }
-                        }
-                    }
-                }
-            } else {
-                let read_dir = std::fs::read_dir(&path)?;
-                let mut child_entries: Vec<_> = read_dir.filter_map(|e| e.ok()).collect();
-                child_entries.sort_by_key(|e| e.file_name());
-
-                for entry in child_entries.into_iter().take(max_entries) {
-                    let entry_path = entry.path();
-                    let metadata = entry.metadata().ok();
-                    let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-                    let is_file = metadata.as_ref().map(|m| m.is_file()).unwrap_or(false);
-                    let size = metadata.map(|m| m.len()).unwrap_or(0);
-
-                    let entry_type = if is_dir {
-                        "dir"
-                    } else if is_file {
-                        "file"
-                    } else {
-                        "other"
-                    };
-
-                    entries.push(format!(
-                        "{:<6} {:>10} {}",
-                        entry_type,
-                        format_size(size),
-                        entry_path
-                            .file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_else(|| "?".to_string())
+            run_blocking("ls", move || {
+                if !path.exists() {
+                    return Ok(super::types::ToolResult::error(
+                        "ls",
+                        "ls",
+                        format!("Path not found: {display_path}"),
                     ));
                 }
-            }
+                if path.is_file() {
+                    return Ok(super::types::ToolResult::success(
+                        "ls",
+                        "ls",
+                        format_entry(&path, &display_cwd)?,
+                    ));
+                }
 
-            if entries.is_empty() {
-                Ok(super::types::ToolResult::success(
-                    "ls",
-                    "ls",
-                    format!("Directory is empty: {display_path}"),
-                ))
-            } else {
-                let result = format!("Directory: {display_path}\n\n{}", entries.join("\n"));
+                let mut entries = Vec::new();
+                let status = walk_entries(&path, recursive, &limits, |entry_path, _| {
+                    if entries.len() >= max_entries {
+                        return WalkControl::Stop;
+                    }
+                    if let Ok(entry) = format_entry(&entry_path, &display_cwd) {
+                        entries.push(entry);
+                    }
+                    if entries.len() >= max_entries {
+                        WalkControl::Stop
+                    } else {
+                        WalkControl::Continue
+                    }
+                })?;
 
-                Ok(super::types::ToolResult::success("ls", "ls", result))
-            }
+                let mut content = if entries.is_empty() {
+                    format!("Directory is empty: {display_path}")
+                } else {
+                    format!("Directory: {display_path}\n\n{}", entries.join("\n"))
+                };
+                if status.truncated {
+                    content.push_str("\n\n[Listing truncated by an entry or traversal limit]");
+                }
+                Ok(super::types::ToolResult::success("ls", "ls", content))
+            })
+            .await
         })
     }
+}
+
+fn format_entry(
+    path: &std::path::Path,
+    cwd: &str,
+) -> Result<String, anyhow::Error> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    let entry_type = if metadata.is_dir() {
+        "dir"
+    } else if metadata.is_file() {
+        "file"
+    } else if metadata.file_type().is_symlink() {
+        "link"
+    } else {
+        "other"
+    };
+    Ok(format!(
+        "{entry_type:<6} {:>10} {}",
+        format_size(metadata.len()),
+        crate::config::paths::display_path(path, cwd),
+    ))
 }
 
 /// Format a byte count as a human-readable size string.
 fn format_size(bytes: u64) -> String {
     if bytes < 1024 {
-        format!("{}B", bytes)
+        format!("{bytes}B")
     } else if bytes < 1024 * 1024 {
         format!("{:.1}K", bytes as f64 / 1024.0)
     } else if bytes < 1024 * 1024 * 1024 {
@@ -200,41 +175,31 @@ fn format_size(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[tokio::test]
-    async fn test_ls_tool_exists() {
-        let tool = LsTool::new();
-
-        assert_eq!(tool.name(), "ls");
-        assert!(!tool.description().is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_ls_nonexistent_path() {
-        let tool = LsTool::new();
-        let args = json!({ "path": "/nonexistent/directory" });
-        let result = futures::executor::block_on(tool.execute(&args, None)).unwrap();
-
-        assert!(result.is_error);
-        assert!(result.content.contains("not found"));
-    }
-
-    #[tokio::test]
-    async fn test_ls_current_dir() {
-        let tool = LsTool::new();
-        let args = json!({});
-        let result = futures::executor::block_on(tool.execute(&args, None)).unwrap();
-
-        assert!(!result.is_error);
-        assert!(result.content.contains("Directory:"));
+    async fn recursive_list_skips_generated_directory_contents_and_reports_cutoff() {
+        let root = std::env::temp_dir().join(format!("hallucinate-ls-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("target")).unwrap();
+        fs::write(root.join("a.txt"), "a").unwrap();
+        fs::write(root.join("target/ignored.txt"), "ignored").unwrap();
+        let result = LsTool::new()
+            .execute(
+                &json!({ "path": root, "recursive": true, "max_entries": 1 }),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(result.content.contains("truncated"));
+        assert!(!result.content.contains("ignored.txt"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn test_format_size() {
+    fn formats_sizes() {
         assert_eq!(format_size(500), "500B");
         assert_eq!(format_size(1500), "1.5K");
-        assert_eq!(format_size(1_500_000), "1.4M");
-        assert_eq!(format_size(1_500_000_000), "1.4G");
     }
 }

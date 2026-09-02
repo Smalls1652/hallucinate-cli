@@ -1,31 +1,46 @@
-//! Find tool: glob-based file search.
+//! Find tool: bounded deterministic glob-based file search.
 
 use std::{future::Future, pin::Pin};
 
 use serde_json::json;
 
-use super::{paths::resolve_path, types::Tool};
+use super::{
+    limits::{MAX_REQUESTED_RESULTS, ToolLimits, parse_bounded_usize, run_blocking},
+    paths::resolve_path,
+    types::Tool,
+    walker::{WalkControl, walk_matching_files},
+};
 
 /// Glob-based file search tool.
-///
-/// Searches for files matching a glob pattern.
 #[derive(Debug, Clone)]
 pub struct FindTool {
-    /// Maximum number of results to return.
+    limits: ToolLimits,
+    /// Default maximum number of results to return.
     max_results: usize,
 }
 
 impl Default for FindTool {
-    /// Returns a `FindTool` with the default max_results of 100.
     fn default() -> Self {
-        Self { max_results: 100 }
+        Self {
+            limits: ToolLimits::default(),
+            max_results: 100,
+        }
     }
 }
 
 impl FindTool {
-    /// Create a new FindTool with default settings.
+    /// Create a new `FindTool` with default settings.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Configure resource limits for this tool.
+    pub fn with_limits(
+        mut self,
+        limits: ToolLimits,
+    ) -> Self {
+        self.limits = limits;
+        self
     }
 }
 
@@ -35,25 +50,16 @@ impl Tool for FindTool {
     }
 
     fn description(&self) -> &str {
-        "Search for files matching a glob pattern. Supports patterns like '*.rs', 'src/**/*.ts', 'tests/**/test_*'. Returns a list of matching file paths. Use this instead of running 'find' or 'ls' commands."
+        "Search recursively for files matching a glob. Results are deterministic, generated directories are skipped, and traversal stops at configured result and resource limits."
     }
 
     fn parameters(&self) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
-                "pattern": {
-                    "type": "string",
-                    "description": "Glob pattern to search for (e.g., '*.rs', 'src/**/*.ts')"
-                },
-                "path": {
-                    "type": "string",
-                    "description": "Directory to search in (default: current directory)"
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results (default: 100)"
-                }
+                "pattern": { "type": "string", "description": "Glob pattern (for example, '*.rs' or 'src/**/*.ts')" },
+                "path": { "type": "string", "description": "Directory to search (default: current directory)" },
+                "max_results": { "type": "integer", "description": "Maximum files to return (default: 100, maximum: 1000)" }
             },
             "required": ["pattern"]
         })
@@ -68,83 +74,91 @@ impl Tool for FindTool {
         Box::pin(async move {
             let pattern = arguments
                 .get("pattern")
-                .and_then(|v| v.as_str())
+                .and_then(|value| value.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: pattern"))?;
+            let glob_pattern = glob::Pattern::new(pattern)
+                .map_err(|error| anyhow::anyhow!("Invalid glob pattern '{pattern}': {error}"))?;
+            let max_results = parse_bounded_usize(
+                arguments,
+                "max_results",
+                self.max_results,
+                MAX_REQUESTED_RESULTS,
+            )?;
+            let project_dir = cwd.unwrap_or(".").to_string();
+            let search_path = resolve_path(
+                arguments
+                    .get("path")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("."),
+                Some(&project_dir),
+            );
+            let limits = self.limits.clone();
+            let pattern = pattern.to_string();
 
-            let project_dir = cwd.unwrap_or(".");
+            run_blocking("find", move || {
+                let mut matches = Vec::new();
+                let status =
+                    walk_matching_files(&search_path, Some(&glob_pattern), &limits, |path| {
+                        if matches.len() >= max_results {
+                            return WalkControl::Stop;
+                        }
+                        matches.push(crate::config::paths::display_path(&path, &project_dir));
+                        if matches.len() >= max_results {
+                            WalkControl::Stop
+                        } else {
+                            WalkControl::Continue
+                        }
+                    })?;
 
-            let search_path = arguments
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or(".");
-            let search_path = resolve_path(search_path, Some(project_dir));
-
-            let max_results = arguments
-                .get("max_results")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(self.max_results as u64) as usize;
-
-            let full_pattern = search_path.join(pattern);
-            let full_pattern_string = full_pattern.to_string_lossy().into_owned();
-
-            let expanded_pattern = shellexpand::full(&full_pattern_string)
-                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(&full_pattern_string));
-
-            let matches: Vec<_> = glob::glob(expanded_pattern.as_ref())?
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.is_file())
-                .map(|entry| crate::config::paths::display_path(entry, project_dir))
-                .take(max_results)
-                .collect();
-
-            if matches.is_empty() {
-                Ok(super::types::ToolResult::success(
-                    "find",
-                    "find",
-                    format!("No files matching pattern: {}", pattern),
-                ))
-            } else {
-                let result = format!(
-                    "Found {} file(s) matching '{}':\n\n{}",
-                    matches.len(),
-                    pattern,
-                    matches.join("\n")
-                );
-
-                Ok(super::types::ToolResult::success("find", "find", result))
-            }
+                let mut content = if matches.is_empty() {
+                    format!("No files matching pattern: {pattern}")
+                } else {
+                    format!(
+                        "Found {} file(s) matching '{pattern}':\n\n{}",
+                        matches.len(),
+                        matches.join("\n")
+                    )
+                };
+                if status.truncated {
+                    content.push_str("\n\n[Search truncated by a result or traversal limit]");
+                }
+                Ok(super::types::ToolResult::success("find", "find", content))
+            })
+            .await
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[tokio::test]
-    async fn test_find_tool_exists() {
-        let tool = FindTool::new();
+    async fn returns_sorted_matches_and_skips_generated_directories() {
+        let root = std::env::temp_dir().join(format!("hallucinate-find-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("target")).unwrap();
+        fs::write(root.join("b.rs"), "").unwrap();
+        fs::write(root.join("a.rs"), "").unwrap();
+        fs::write(root.join("target/ignored.rs"), "").unwrap();
 
-        assert_eq!(tool.name(), "find");
-        assert!(!tool.description().is_empty());
+        let result = FindTool::new()
+            .execute(&json!({ "pattern": "*.rs", "path": root }), None)
+            .await
+            .unwrap();
+        assert!(result.content.contains("a.rs"));
+        assert!(result.content.contains("b.rs"));
+        assert!(!result.content.contains("ignored.rs"));
+        assert!(result.content.find("a.rs") < result.content.find("b.rs"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
-    async fn test_find_missing_pattern() {
-        let tool = FindTool::new();
-        let args = json!({});
-        let result = futures::executor::block_on(tool.execute(&args, None));
-
+    async fn rejects_result_counts_above_the_hard_ceiling() {
+        let result = FindTool::new()
+            .execute(&json!({ "pattern": "*", "max_results": 1001 }), None)
+            .await;
         assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_find_nonexistent_pattern() {
-        let tool = FindTool::new();
-        let args = json!({ "pattern": "**/nonexistent_xyz_123.rs" });
-        let result = futures::executor::block_on(tool.execute(&args, None)).unwrap();
-
-        assert!(!result.is_error);
-        assert!(result.content.contains("No files"));
     }
 }

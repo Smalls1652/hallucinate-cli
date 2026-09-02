@@ -26,13 +26,10 @@ pub async fn run(
     )?;
 
     // Build context
-    let images = cli
-        .images
-        .iter()
-        .map(|path| {
-            hallucinate_agent::ai::images::load_image_file(path, settings.auto_resize_images)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let images = futures::future::try_join_all(cli.images.iter().map(|path| {
+        hallucinate_agent::ai::images::load_image_file(path, settings.auto_resize_images)
+    }))
+    .await?;
 
     let cwd = std::env::current_dir()?;
 
