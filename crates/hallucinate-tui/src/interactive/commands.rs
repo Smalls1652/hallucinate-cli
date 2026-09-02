@@ -3,11 +3,7 @@
 use std::path::PathBuf;
 
 use hallucinate_agent::ai::types::Message;
-use hallucinate_session::{
-    commands::{BUILTIN_COMMANDS, resolve_builtin_command, parse},
-    manager::SessionManager,
-};
-use crate::{alt_screen::TranscriptRenderer, keys::Key};
+use hallucinate_session::manager::SessionManager;
 
 use super::{
     InteractiveTui,
@@ -16,6 +12,11 @@ use super::{
     SessionPicker,
     session::transcript_from_messages,
     short_session_id,
+};
+use crate::{
+    alt_screen::TranscriptRenderer,
+    keys::Key,
+    slash_commands::{BUILTIN_COMMANDS, parse, resolve_builtin_command},
 };
 
 impl InteractiveTui {
@@ -102,8 +103,11 @@ impl InteractiveTui {
 
                 if provider == &self.model.provider {
                     let model = self.model.clone();
-                    let new_provider =
-                        hallucinate_agent::config::create_provider_for_model(&self.settings, self.common_args.base_url.as_ref(), self.common_args.api_key.as_ref(), &model)?;
+                    let new_provider = hallucinate_agent::config::create_provider(
+                        &self.settings,
+                        &self.runtime_overrides,
+                        &model,
+                    )?;
 
                     self.agent
                         .as_mut()
@@ -111,11 +115,12 @@ impl InteractiveTui {
                         .set_model(
                             new_provider,
                             model,
-                            hallucinate_agent::config::resolve_max_tokens(
+                            hallucinate_agent::config::agent_config(
                                 &self.settings,
-                                self.common_args.max_tokens,
                                 &self.model,
-                            ),
+                                &self.runtime_overrides,
+                            )
+                            .max_tokens,
                         );
                 }
 
@@ -698,8 +703,17 @@ impl InteractiveTui {
             return Ok(());
         }
 
-        let provider = hallucinate_agent::config::create_provider_for_model(&self.settings, self.common_args.base_url.as_ref(), self.common_args.api_key.as_ref(), &model)?;
-        let max_tokens = hallucinate_agent::config::resolve_max_tokens(&self.settings, self.common_args.max_tokens, &model);
+        let provider = hallucinate_agent::config::create_provider(
+            &self.settings,
+            &self.runtime_overrides,
+            &model,
+        )?;
+        let max_tokens = hallucinate_agent::config::agent_config(
+            &self.settings,
+            &model,
+            &self.runtime_overrides,
+        )
+        .max_tokens;
 
         self.agent
             .as_mut()

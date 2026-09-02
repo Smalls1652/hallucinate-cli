@@ -6,7 +6,7 @@
 use std::fs;
 
 use chrono::Utc;
-use hallucinate_agent::{ai::types::Message, config::paths};
+use hallucinate_agent::{agent::types::AgentEvent, ai::types::Message, config::paths};
 use uuid::Uuid;
 
 use crate::{
@@ -69,18 +69,11 @@ impl SessionManager {
         }
 
         // Determine working directory
-        let cwd = options
-            .cwd
-            .or_else(|| SessionCwd::load(&session_id).ok())
-            .unwrap_or_else(|| {
-                std::env::current_dir()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| ".".to_string())
-            });
-
-        // Save the working directory sidecar as a compatibility fallback for
-        // sessions created by older versions.
-        SessionCwd::save(&session_id, &cwd)?;
+        let cwd = options.cwd.unwrap_or_else(|| {
+            std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| ".".to_string())
+        });
 
         // Create initial session file
         let storage = SessionStorage::new(&session_id);
@@ -119,7 +112,7 @@ impl SessionManager {
 
         let parent_cwd = parent_storage
             .load_metadata()?
-            .map(|(_, _, cwd)| cwd)
+            .map(|metadata| metadata.cwd)
             .or_else(|| SessionCwd::load(parent_id).ok());
 
         // Create a new session
@@ -162,11 +155,15 @@ impl SessionManager {
 
         let metadata = storage.load_metadata()?;
 
-        let (title, parent_session_id, saved_cwd) = metadata.unwrap_or((
-            None,
-            None,
-            SessionCwd::load(session_id).unwrap_or_else(|_| ".".to_string()),
-        ));
+        let metadata = metadata.unwrap_or_else(|| crate::storage::SessionMetadata {
+            title: None,
+            parent_session_id: None,
+            cwd: SessionCwd::load(session_id).unwrap_or_else(|_| ".".to_string()),
+            timestamp: 0,
+        });
+        let title = metadata.title;
+        let parent_session_id = metadata.parent_session_id;
+        let saved_cwd = metadata.cwd;
 
         let cwd = if std::path::Path::new(&saved_cwd).is_dir() {
             saved_cwd
@@ -226,6 +223,22 @@ impl SessionManager {
                 session.message_count += 1;
                 session.modified = Utc::now().timestamp_millis() as u64;
             }
+        }
+
+        Ok(())
+    }
+
+    /// Persist an agent lifecycle event using the stable session event schema.
+    ///
+    /// Streaming deltas and completed assistant messages return successfully
+    /// without writing an event because completed messages are archived through
+    /// [`Self::save_message`].
+    pub fn save_agent_event(
+        &mut self,
+        event: &AgentEvent,
+    ) -> Result<(), anyhow::Error> {
+        if let Some((event_type, data)) = crate::events::archive_event(event) {
+            self.save_event(event_type, data)?;
         }
 
         Ok(())
@@ -383,6 +396,76 @@ mod tests {
 
         SessionManager::delete_session(&parent_id).unwrap();
         SessionManager::delete_session(&child.id).unwrap();
+    }
+
+    #[test]
+    fn resume_prefers_jsonl_metadata_over_a_legacy_cwd_sidecar() {
+        let session_id = format!("metadata-wins-{}", Uuid::new_v4());
+        let jsonl_cwd = std::env::temp_dir().to_string_lossy().into_owned();
+        let sidecar_cwd = "/path/that/does/not/exist";
+        let storage = SessionStorage::new(&session_id);
+        storage
+            .save_metadata(Some("JSONL".to_string()), None, jsonl_cwd.clone())
+            .unwrap();
+
+        let sidecar = storage.path().with_extension("cwd.json");
+        fs::write(
+            &sidecar,
+            serde_json::json!({ "cwd": sidecar_cwd, "timestamp": 1 }).to_string(),
+        )
+        .unwrap();
+
+        let mut manager = SessionManager::new();
+        let session = manager.resume(&session_id).unwrap();
+        assert_eq!(session.title.as_deref(), Some("JSONL"));
+        assert_eq!(session.cwd, jsonl_cwd);
+
+        SessionManager::delete_session(&session_id).unwrap();
+    }
+
+    #[test]
+    fn resume_uses_a_legacy_cwd_sidecar_when_jsonl_metadata_is_absent() {
+        let session_id = format!("legacy-cwd-{}", Uuid::new_v4());
+        let storage = SessionStorage::new(&session_id);
+        storage
+            .save_message(&Message::User(
+                hallucinate_agent::ai::types::UserMessage::new("legacy"),
+            ))
+            .unwrap();
+
+        let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+        fs::write(
+            storage.path().with_extension("cwd.json"),
+            serde_json::json!({ "cwd": cwd, "timestamp": 1 }).to_string(),
+        )
+        .unwrap();
+
+        let mut manager = SessionManager::new();
+        assert_eq!(manager.resume(&session_id).unwrap().cwd, cwd);
+
+        SessionManager::delete_session(&session_id).unwrap();
+    }
+
+    #[test]
+    fn new_sessions_do_not_create_legacy_cwd_sidecars() {
+        let mut manager = SessionManager::new();
+        let session = manager
+            .create(SessionCreateOptions {
+                title: None,
+                parent_session_id: None,
+                cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
+            })
+            .unwrap();
+
+        assert!(SessionStorage::new(&session.id).exists());
+        assert!(
+            !SessionStorage::new(&session.id)
+                .path()
+                .with_extension("cwd.json")
+                .exists()
+        );
+
+        SessionManager::delete_session(&session.id).unwrap();
     }
 
     #[test]

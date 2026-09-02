@@ -1,14 +1,14 @@
 //! Ratatui rendering for the interactive transcript and overlays.
 
 use hallucinate_agent::agent::types::AgentState;
-use crate::{alt_screen::MessageRole, components::markdown_to_lines};
+use hallucinate_session::manager::SessionManager;
 use ratatui::layout::Rect;
 #[cfg(test)]
 use ratatui::{style::Color, text::Line};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{InteractiveTui, short_session_id};
-use hallucinate_session::manager::SessionManager;
+use crate::{alt_screen::MessageRole, components::markdown_to_lines};
 
 impl InteractiveTui {
     /// Render the current state.
@@ -270,7 +270,8 @@ impl InteractiveTui {
 
                     for tool_call in &msg.tool_calls {
                         // If the previous line is not an empty card rail,
-                        // push an empty card rail. This may seem counter-intuitive,
+                        // push an empty card rail. This may seem
+                        // counter-intuitive,
                         // considering the last thing done is removing an empty
                         // card rail from a body; however, this is genuinely
                         // a tough one to keep track of.
@@ -313,7 +314,10 @@ impl InteractiveTui {
                             line_starts.extend(vec![None; lines.len() - previous_len]);
                         }
 
-                        lines.push(Line::from(Span::styled("│ ", Style::default().fg(Color::LightBlue))));
+                        lines.push(Line::from(Span::styled(
+                            "│ ",
+                            Style::default().fg(Color::LightBlue),
+                        )));
                         line_starts.push(None);
                     }
 
@@ -525,7 +529,9 @@ impl InteractiveTui {
                                 ),
                                 Span::styled(
                                     format!("{}", model.name),
-                                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                                    Style::default()
+                                        .fg(Color::Cyan)
+                                        .add_modifier(Modifier::BOLD),
                                 ),
                                 Span::styled(
                                     format!(" - {}/{} ", model.provider, model.id),
@@ -594,7 +600,7 @@ impl InteractiveTui {
                                         .load_metadata()
                                         .ok()
                                         .flatten()
-                                        .and_then(|(t, _, _)| t)
+                                        .and_then(|metadata| metadata.title)
                                         .unwrap_or_else(|| "untitled".to_string());
 
                                 let metadata = format!(
@@ -694,11 +700,11 @@ impl InteractiveTui {
                                     format!("/{}{}", template.name, hint),
                                     Style::default().fg(Color::Cyan),
                                 ),
+                                Span::styled(format!(" - "), Style::default()),
                                 Span::styled(
-                                    format!(" - "),
-                                    Style::default()
+                                    template.description.clone(),
+                                    Style::default().fg(Color::DarkGray),
                                 ),
-                                Span::styled(template.description.clone(), Style::default().fg(Color::DarkGray)),
                             ])
                         })
                         .collect::<Vec<_>>();

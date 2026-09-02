@@ -4,14 +4,14 @@
 
 **hallucinate-cli** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search), session management, skills, prompt templates, and multiple run modes (interactive, print, RPC).
 
-This is a **Cargo workspace** with five crates:
+This is a **Cargo workspace** with four crates:
 
 | Crate | Path | Description | Publish |
 | --- | --- | --- | --- |
 | `hallucinate-cli` | `crates/hallucinate-cli` | CLI binary — entry point, argument parsing, run modes, session management, logging | `smalls-personal` |
 | `hallucinate-agent` | `crates/hallucinate-agent` | Agent core library — LLM provider abstraction, agent runtime, tools, config, skills, prompt templates | `smalls-personal` |
-| `hallucinate-session` | `crates/hallucinate-session` | Session storage abstraction and JSONL backend | `smalls-personal` |
-| `hallucinate-tui` | `crates/hallucinate-tui` | Terminal UI library — ratatui-based rendering, editor, keyboard input, undo, markdown | `smalls-personal` |
+| `hallucinate-session` | `crates/hallucinate-session` | CLI-oriented JSONL session persistence and lifecycle archival | `smalls-personal` |
+| `hallucinate-tui` | `crates/hallucinate-tui` | Terminal UI and interactive controller — ratatui rendering, editor, input, commands | `smalls-personal` |
 
 **Dependency graph**: `hallucinate-tui` → `hallucinate-agent` · `hallucinate-cli` → `hallucinate-agent` + `hallucinate-tui` + `hallucinate-session`
 
@@ -21,7 +21,8 @@ Key features:
 - **Agent Runtime**: Single `Agent` struct in `hallucinate-agent::agent::runtime` owns the production turn-loop, builds context, executes tool calls, and emits lifecycle events
 - **Terminal UI**: Built on `ratatui` with alternate screen, multi-line editor with keyboard enhancements, undo support, model picker overlay, and markdown rendering
 - **Multiple Modes**: Interactive (TUI), print (`-p "prompt"`), and RPC (newline-delimited JSON-RPC 2.0 over stdin/stdout)
-- **Session Management**: JSONL-based session storage with CRUD operations (via `hallucinate-session` crate)
+- **Session Management**: CLI-oriented JSONL persistence with CRUD operations and lifecycle archival (via `hallucinate-session`)
+
 - **Skills System**: Load and execute skills from user config, project `.hallucinate`, shared `.agents` protocol directories, and `--skill` paths
 - **Prompt Templates**: Markdown files with YAML frontmatter that expand slash commands with argument substitution; discovered from user config and project-local directories
 - **Image Support**: Base64 image content and auto-resize via `image` crate
@@ -87,23 +88,12 @@ crates/
 │   │   ├── cli/             # CLI commands (args, mod)
 │   │   │   ├── args.rs      # Argument parsing (clap derive, subcommands)
 │   │   │   └── mod.rs
-│   │   ├── modes/           # Run modes
-│   │   │   ├── mod.rs       # Model resolution, provider creation, shell resolution
+│   │   ├── modes/           # Run mode startup policy
+│   │   │   ├── mod.rs
 │   │   │   ├── print.rs     # Print mode (-p "prompt")
 │   │   │   ├── rpc.rs       # RPC mode (JSON-RPC)
 │   │   │   ├── auth.rs      # Auth CLI subcommand handler
-│   │   │   ├── commands.rs  # Slash command dispatch
-│   │   │   └── interactive/ # Interactive mode (subdirectory)
-│   │   │       ├── mod.rs       # Main UI, model picker, bracketed paste
-│   │   │       ├── commands.rs  # Interactive slash commands
-│   │   │       ├── input.rs     # Keyboard/mouse input handling
-│   │   │       ├── render.rs    # TUI rendering logic
-│   │   │       └── session.rs   # Session management in interactive mode
-│   │   ├── session/         # Session management
-│   │   │   ├── mod.rs
-│   │   │   ├── manager.rs   # Session CRUD, listing
-│   │   │   ├── storage.rs   # JSONL session storage
-│   │   │   └── cwd.rs       # Session working directory
+│   │   │   └── interactive.rs # Interactive TUI startup
 │   │   ├── logging.rs       # Tracing/logging setup
 │   │   └── tests/
 │   │       └── rpc.rs       # RPC integration tests
@@ -118,7 +108,6 @@ crates/
 │   │   │   ├── streaming.rs # Event stream protocol
 │   │   │   ├── images.rs    # Image support (base64, auto-resize)
 │   │   │   ├── auth.rs      # OAuth, credential store (multi-provider)
-│   │   │   ├── model_catalog.rs # Model registry
 │   │   │   └── providers/
 │   │   │       ├── mod.rs
 │   │   │       ├── openai_compat.rs  # OpenAI API-compatible provider
@@ -139,6 +128,7 @@ crates/
 │   │   │       ├── find.rs      # File search (glob)
 │   │   │       ├── grep.rs      # Pattern-based search
 │   │   │       ├── ls.rs        # Directory listing
+│   │   │       ├── paths.rs     # Shared filesystem path resolution
 │   │   │       ├── read.rs      # File read
 │   │   │       └── write.rs     # File write
 │   │   └── config/          # Settings and paths
@@ -146,13 +136,15 @@ crates/
 │   │       ├── paths.rs     # Config directory paths (.agents protocol support)
 │   │       └── settings.rs  # TOML settings manager with multi-provider config
 │   └── Cargo.toml
-├── hallucinate-session/     # Session storage crate
+├── hallucinate-session/     # CLI-oriented JSONL session persistence
 │   ├── src/
-│   │   └── lib.rs           # Session trait + JSONL backend
+│   │   ├── manager.rs       # Session lifecycle and event archival
+│   │   └── storage.rs       # JSONL records and metadata
 │   └── Cargo.toml
-└── hallucinate-tui/         # Terminal UI library crate
+└── hallucinate-tui/         # Terminal UI and interactive controller
     ├── src/
-    │   ├── lib.rs           # Crate root, re-exports
+    │   ├── interactive/     # Controller, commands, input, render, session sync
+    │   ├── slash_commands.rs # Canonical interactive command catalog
     │   ├── alt_screen.rs    # Alternate screen renderer
     │   ├── components/      # UI components
     │   │   ├── mod.rs
@@ -408,7 +400,7 @@ Prompt templates are Markdown files with YAML frontmatter that expand slash comm
 
 ### Session Management
 
-Sessions are stored as JSONL files with CRUD operations. The `hallucinate-session` crate provides a session storage abstraction.
+Sessions are stored as append-only JSONL files with CLI CRUD and lifecycle archival. `hallucinate-session` is intentionally CLI-oriented rather than a generic cross-frontend storage abstraction; legacy `.cwd.json` sidecars remain readable for migration.
 
 ### Multi-line Editor
 

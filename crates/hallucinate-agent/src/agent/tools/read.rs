@@ -1,10 +1,10 @@
 //! Read tool: read file contents.
 
-use std::{future::Future, path::Path, pin::Pin};
+use std::{future::Future, pin::Pin};
 
 use serde_json::json;
 
-use super::types::Tool;
+use super::{paths::resolve_path, types::Tool};
 
 /// File reading tool.
 ///
@@ -40,24 +40,6 @@ impl ReadTool {
         self.auto_resize_images = enabled;
         self
     }
-}
-
-/// Resolve a file path, handling tilde expansion and relative paths.
-pub(crate) fn resolve_path(
-    path_str: &str,
-    cwd: Option<&str>,
-) -> std::path::PathBuf {
-    let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
-
-    let path = Path::new(expanded.as_ref());
-    if path.is_relative() {
-        if let Some(cwd) = cwd {
-            return Path::new(cwd).join(path);
-        }
-
-        return std::env::current_dir().unwrap_or_default().join(path);
-    }
-    path.to_path_buf()
 }
 
 impl Tool for ReadTool {
@@ -200,6 +182,8 @@ fn truncate_output(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[tokio::test]

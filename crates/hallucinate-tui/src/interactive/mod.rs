@@ -15,23 +15,20 @@ use hallucinate_agent::{
         runtime::Agent,
         types::{AgentCancellation, AgentEvent, AgentState},
     },
-    config::{CommonArgs, settings::Settings},
+    config::{RuntimeOverrides, settings::Settings},
 };
-use hallucinate_session::{
-    manager::{SessionManager},
-};
+use hallucinate_session::manager::SessionManager;
+use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
+
 use crate::{
     alt_screen::{Message as TuiMessage, MessageRole, TranscriptRenderer},
     components::Editor,
 };
-use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 
 mod commands;
 mod input;
 mod render;
 mod session;
-
-pub use self::session::session_event;
 
 const EPHEMERAL_NOTICE_DURATION: Duration = Duration::from_secs(4);
 
@@ -116,9 +113,9 @@ pub struct InteractiveTui {
     prompt_templates: Vec<hallucinate_agent::agent::prompt_templates::PromptTemplate>,
     prompt_template_options: hallucinate_agent::agent::prompt_templates::PromptTemplateLoadOptions,
     skills: Vec<hallucinate_agent::agent::skills::Skill>,
-    /// CLI overrides are retained so switching providers uses the same
+    /// Runtime overrides are retained so switching providers uses the same
     /// endpoint/key precedence as the initial model.
-    common_args: CommonArgs,
+    runtime_overrides: RuntimeOverrides,
     settings: Settings,
     model: hallucinate_agent::ai::types::Model,
     models: Vec<hallucinate_agent::ai::types::Model>,
@@ -178,7 +175,8 @@ impl InteractiveTui {
         prompt_templates: Vec<hallucinate_agent::agent::prompt_templates::PromptTemplate>,
         prompt_template_options: hallucinate_agent::agent::prompt_templates::PromptTemplateLoadOptions,
         skills: Vec<hallucinate_agent::agent::skills::Skill>,
-        common_args: CommonArgs,
+        runtime_overrides: RuntimeOverrides,
+        show_thinking_override: bool,
         settings: Settings,
         model: hallucinate_agent::ai::types::Model,
         models: Vec<hallucinate_agent::ai::types::Model>,
@@ -257,7 +255,8 @@ impl InteractiveTui {
             .unwrap_or_else(|| PathBuf::from("."));
         let agent_state = agent.state().clone();
         let token_count = agent.estimate_tokens();
-        let show_thinking = hallucinate_agent::config::resolve_show_thinking(&settings, common_args.thinking);
+        let show_thinking =
+            hallucinate_agent::config::resolve_show_thinking(&settings, show_thinking_override);
 
         let (agent_completion_tx, agent_completion_rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -292,7 +291,7 @@ impl InteractiveTui {
             prompt_templates,
             prompt_template_options,
             skills,
-            common_args,
+            runtime_overrides,
             settings,
             model,
             models,

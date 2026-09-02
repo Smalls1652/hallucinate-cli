@@ -2,74 +2,42 @@
 
 use std::collections::HashMap;
 
-use crate::ai::{model_catalog, provider::Provider, types::{Api, Model}};
+use crate::{
+    agent::types::AgentConfig,
+    ai::{
+        provider::Provider,
+        types::{Api, Model},
+    },
+};
 
 pub mod paths;
 pub mod settings;
 
-#[derive(Clone)]
-pub struct CommonArgs {
-    /// Model to use as a configured model ID or "provider/model" pair.
+/// Command-line values which affect runtime model and agent configuration.
+///
+/// Frontend-only choices such as the selected mode, session, or presentation
+/// settings remain in the application that owns them.
+#[derive(Debug, Clone, Default)]
+pub struct RuntimeOverrides {
+    /// Selected configured model or `provider/model` pair.
     pub model: Option<String>,
-
-    /// API key for the provider. Overrides environment variables and stored
-    /// credentials. Environment fallback also accepts OPENAI_API_KEY.
+    /// Explicit provider credential.
     pub api_key: Option<String>,
-
-    /// Base URL for the API (for OpenAI-compatible providers).
+    /// Explicit OpenAI-compatible provider endpoint.
     pub base_url: Option<String>,
-
-    /// Shell executable for the bash tool. Overrides the settings file and
-    /// SHELL environment variable.
+    /// Shell executable for the bash tool.
     pub shell: Option<String>,
-
-    /// Print mode: send prompt and print the response, then exit.
-    pub print: Option<String>,
-
-    /// Run in RPC mode (JSON-RPC over stdin/stdout).
-    pub rpc: bool,
-
-    /// Run in interactive mode (default when no other mode is specified).
-    pub interactive: bool,
-
-    /// Resume this persisted session in interactive mode.
-    pub session: Option<String>,
-
-    /// Maximum number of tokens in the response.
+    /// Maximum response tokens.
     pub max_tokens: Option<u32>,
-
-    /// Show model thinking/reasoning in output. Overrides the settings file.
-    pub thinking: bool,
-
-    /// Temperature for sampling (0.0 - 2.0).
+    /// Sampling temperature.
     pub temperature: Option<f64>,
-
-    /// System prompt to use.
+    /// Explicit system prompt.
     pub system_prompt: Option<String>,
-
-    /// Attach an image to a print-mode prompt. May be repeated.
-    pub images: Vec<std::path::PathBuf>,
-
-    /// Load a skill Markdown file or a directory of skills. May be repeated.
-    pub skills: Vec<std::path::PathBuf>,
-
-    /// Disable automatic discovery of user and project skills.
-    pub no_skills: bool,
-
-    /// Load a prompt template Markdown file or directory. May be repeated.
-    pub prompt_templates: Vec<std::path::PathBuf>,
-
-    /// Disable automatic discovery of user and project prompt templates.
-    pub no_prompt_templates: bool,
-
-    /// Write diagnostic logs to the application cache directory.
-    pub debug: bool,
 }
 
 /// Return the models declared by configured providers in deterministic order.
 pub fn available_models(settings: &self::settings::Settings) -> Vec<Model> {
-    let mut models = model_catalog::all_models();
-    models.extend(settings.configured_models());
+    let mut models = settings.configured_models();
     models.sort_by(|left, right| {
         left.provider
             .cmp(&right.provider)
@@ -88,10 +56,6 @@ pub fn resolve_model_selector(
     if let Some(model) = settings.find_configured_model(selector) {
         return Some(model);
     }
-    if let Some(model) = model_catalog::resolve_model(selector) {
-        return Some(model);
-    }
-
     // An unknown selector is still useful for a configured provider whose
     // model catalog is intentionally minimal. An unqualified selector uses
     // the configured default provider rather than implicitly selecting OpenAI.
@@ -119,7 +83,7 @@ pub fn resolve_model_selector(
 pub fn resolve_model(
     settings: &self::settings::Settings,
     model: Option<&String>,
-    base_url: Option<&String>
+    base_url: Option<&String>,
 ) -> Result<Model, anyhow::Error> {
     settings.require_configured_providers()?;
 
@@ -145,9 +109,41 @@ pub fn resolve_model(
 /// environment when both are unset.
 pub fn resolve_shell(
     settings: &self::settings::Settings,
-    shell: Option<String>
+    shell: Option<String>,
 ) -> Option<String> {
     shell.or_else(|| settings.shell.clone())
+}
+
+/// Derive agent request configuration from persisted settings, a selected
+/// model, and explicit runtime overrides.
+pub fn agent_config(
+    settings: &self::settings::Settings,
+    model: &Model,
+    overrides: &RuntimeOverrides,
+) -> AgentConfig {
+    AgentConfig {
+        max_turns: settings.max_turns,
+        max_context_tokens: model.context_window,
+        enable_compaction: settings.enable_compaction,
+        enable_tools: settings.enable_tools,
+        temperature: overrides.temperature.or(settings.temperature),
+        max_tokens: resolve_max_tokens(settings, overrides.max_tokens, model),
+        include_tool_definitions: true,
+    }
+}
+
+/// Create the provider selected by a model using runtime override precedence.
+pub fn create_provider(
+    settings: &self::settings::Settings,
+    overrides: &RuntimeOverrides,
+    model: &Model,
+) -> Result<Box<dyn Provider>, anyhow::Error> {
+    create_provider_for_model(
+        settings,
+        overrides.base_url.as_ref(),
+        overrides.api_key.as_ref(),
+        model,
+    )
 }
 
 /// Resolve the response limit. A model's declared maximum is the default and
@@ -186,10 +182,7 @@ pub fn create_provider_for_model(
     api_key: Option<&String>,
     model: &Model,
 ) -> Result<Box<dyn Provider>, anyhow::Error> {
-    use crate::ai::providers::openai_compat::{
-        OpenaiCompatConfig,
-        OpenaiCompatProvider,
-    };
+    use crate::ai::providers::openai_compat::{OpenaiCompatConfig, OpenaiCompatProvider};
 
     let api_key = settings
         .resolve_api_key_for(&model.provider, api_key.map(|x| x.as_str()))
@@ -229,12 +222,37 @@ pub fn create_provider_for_model(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::settings::*;
+    use super::{settings::*, *};
 
     #[test]
     fn available_models_only_contains_configured_models() {
         let settings = Settings::default();
         assert!(available_models(&settings).is_empty());
+    }
+
+    #[test]
+    fn agent_config_prefers_runtime_temperature_over_settings() {
+        let mut settings = Settings::default();
+        settings.temperature = Some(0.2);
+        let model = Model::new(
+            "test",
+            "Test",
+            Api::OpenaiCompletions,
+            "openai",
+            "https://example.test/v1",
+            false,
+            128_000,
+            4_096,
+        );
+        let overrides = RuntimeOverrides {
+            temperature: Some(0.8),
+            max_tokens: Some(8_000),
+            ..RuntimeOverrides::default()
+        };
+
+        let config = agent_config(&settings, &model, &overrides);
+
+        assert_eq!(config.temperature, Some(0.8));
+        assert_eq!(config.max_tokens, Some(4_096));
     }
 }

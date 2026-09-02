@@ -13,14 +13,10 @@ use chrono::{DateTime, Utc};
 use hallucinate_agent::{ai::types::Message, config::paths};
 
 /// A line in a session JSONL file.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[derive(Debug, Clone)]
 pub enum SessionEntry {
     /// A message in the conversation.
-    Message {
-        #[serde(flatten)]
-        message: Box<Message>,
-    },
+    Message { message: Box<Message> },
 
     /// An event (e.g., tool execution, state change).
     Event {
@@ -167,7 +163,18 @@ impl SessionEntry {
     }
 }
 
-pub type SessionMetadata = (Option<String>, Option<String>, String);
+/// Metadata stored in an append-only JSONL session record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionMetadata {
+    /// The human-readable session title, if one has been assigned.
+    pub title: Option<String>,
+    /// The parent session ID when this session was forked.
+    pub parent_session_id: Option<String>,
+    /// The working directory used when the session was created or renamed.
+    pub cwd: String,
+    /// Unix timestamp in milliseconds when this metadata record was written.
+    pub timestamp: u64,
+}
 
 /// A JSONL session file reader/writer.
 pub struct SessionStorage {
@@ -224,13 +231,18 @@ impl SessionStorage {
 
         for entry in self.load_all()? {
             if let SessionEntry::Metadata {
+                timestamp,
                 title,
                 parent_session_id,
                 cwd,
-                ..
             } = entry
             {
-                metadata = Some((title, parent_session_id, cwd));
+                metadata = Some(SessionMetadata {
+                    title,
+                    parent_session_id,
+                    cwd,
+                    timestamp,
+                });
             }
         }
 
@@ -442,11 +454,20 @@ mod tests {
 
         assert_eq!(
             storage.load_metadata().unwrap(),
-            Some((
-                Some("Session title".to_string()),
-                Some("parent".to_string()),
-                "/tmp".to_string()
-            ))
+            Some(SessionMetadata {
+                title: Some("Session title".to_string()),
+                parent_session_id: Some("parent".to_string()),
+                cwd: "/tmp".to_string(),
+                timestamp: storage
+                    .load_all()
+                    .unwrap()
+                    .into_iter()
+                    .find_map(|entry| match entry {
+                        SessionEntry::Metadata { timestamp, .. } => Some(timestamp),
+                        _ => None,
+                    })
+                    .unwrap(),
+            })
         );
 
         let _ = fs::remove_file(path);

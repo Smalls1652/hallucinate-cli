@@ -44,7 +44,7 @@ async fn main() -> Result<(), anyhow::Error> {
         // the user's global settings file.
         Settings::load_global()?
     } else {
-        Settings::load().unwrap_or_default()
+        Settings::load()?
     };
 
     // Authentication management is deliberately a separate command so it can

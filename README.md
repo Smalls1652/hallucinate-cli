@@ -199,41 +199,26 @@ Both skills and prompt templates are auto-discovered from user and project direc
 
 ## Project Structure
 
-The project is a Cargo workspace with three crates:
+The project is a Cargo workspace with four crates:
 
 ```text
 crates/
-├── hallucinate/             # CLI binary
-│   ├── src/
-│   │   ├── main.rs          # Entry point
-│   │   ├── cli/             # Argument parsing (clap)
-│   │   ├── modes/           # Interactive, print, RPC, auth
-│   │   │   ├── interactive/ # TUI, editor, input, render, session
-│   │   │   ├── commands.rs  # Slash command dispatch
-│   │   │   ├── print.rs     # Print mode
-│   │   │   └── rpc.rs       # RPC mode
-│   │   └── session/         # Session management and storage
-│   └── tests/               # Integration tests
-├── hallucinate-agent/       # Agent core library
-│   ├── src/
-│   │   ├── agent/           # Runtime, tools, skills, compaction, prompts
-│   │   ├── ai/              # Providers, auth, streaming, images, model catalog
-│   │   └── config/          # Settings, paths
-│   └── tests/
-└── hallucinate-tui/         # Terminal UI library
+├── hallucinate-cli/         # CLI parsing and print/RPC/interactive startup
+├── hallucinate-agent/       # Provider contracts, runtime, tools, config, skills
+├── hallucinate-session/     # CLI-oriented JSONL session persistence
+└── hallucinate-tui/         # Terminal primitives and interactive controller
     └── src/
-        ├── components/      # Editor, markdown renderer
-        ├── alt_screen.rs    # Alternate screen renderer
-        ├── input.rs         # Keyboard/mouse input
-        ├── keys.rs          # Key parsing
-        └── undo.rs          # Undo stack
+        ├── interactive/     # Controller, commands, input, rendering, sessions
+        ├── slash_commands.rs # Canonical interactive command catalog
+        └── components/      # Editor and markdown renderer
 ```
 
 | Crate | Description |
 | --- | --- |
-| `hallucinate` | CLI binary — entry point, argument parsing, run modes, session management |
-| `hallucinate-agent` | Agent core — LLM provider abstraction, agent runtime, tools, config, skills |
-| `hallucinate-tui` | Terminal UI — ratatui-based rendering, editor, keyboard input, undo, markdown |
+| `hallucinate-cli` | CLI binary — argument parsing and run-mode startup policy |
+| `hallucinate-agent` | Agent core — LLM provider abstraction, runtime, tools, config, and skills |
+| `hallucinate-session` | CLI-oriented append-only JSONL session persistence and lifecycle archival |
+| `hallucinate-tui` | Terminal UI and interactive controller — rendering, editor, input, and commands |
 
 ## License
 

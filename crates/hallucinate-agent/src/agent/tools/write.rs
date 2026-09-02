@@ -1,10 +1,10 @@
 //! Write tool: write file contents atomically.
 
-use std::{future::Future, io::Write, path::Path, pin::Pin};
+use std::{future::Future, io::Write, pin::Pin};
 
 use serde_json::json;
 
-use super::types::Tool;
+use super::{paths::resolve_path, types::Tool};
 
 /// File writing tool.
 ///
@@ -28,25 +28,6 @@ impl WriteTool {
     pub fn new() -> Self {
         Self::default()
     }
-}
-
-/// Resolve a file path, handling tilde expansion and relative paths.
-pub(crate) fn resolve_path(
-    path_str: &str,
-    cwd: Option<&str>,
-) -> std::path::PathBuf {
-    let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
-
-    let path = Path::new(expanded.as_ref());
-    if path.is_relative() {
-        if let Some(cwd) = cwd {
-            return Path::new(cwd).join(path);
-        }
-
-        return std::env::current_dir().unwrap_or_default().join(path);
-    }
-
-    path.to_path_buf()
 }
 
 impl Tool for WriteTool {

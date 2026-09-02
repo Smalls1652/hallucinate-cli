@@ -151,54 +151,51 @@ impl ToolCall {
         &self,
         cwd: &Path,
     ) -> String {
-        let args = &self.arguments;
+        format_tool_call_summary(&self.name, &self.arguments, cwd)
+    }
+}
 
-        match self.name.as_str() {
-            "bash" => {
-                if let Some(cmd) = args.get("command").and_then(|value| value.as_str()) {
-                    format!("bash {cmd}")
-                } else {
-                    format!("{}", self.arguments)
-                }
-            },
-            "read" | "write" | "edit" => {
-                if let Some(path) = args.get("path").and_then(|value| value.as_str()) {
-                    format!("{} {}", self.name, display_tool_path(path, cwd))
-                } else {
-                    format!("{}", self.arguments)
-                }
-            },
-            "find" => {
-                if let Some(pattern) = args.get("pattern").and_then(|value| value.as_str()) {
-                    if let Some(path) = args.get("path").and_then(|value| value.as_str()) {
-                        format!("find {} {}", pattern, display_tool_path(path, cwd))
-                    } else {
-                        format!("find {}", pattern)
-                    }
-                } else {
-                    format!("{}", self.arguments)
-                }
-            },
-            "grep" => {
-                if let Some(pattern) = args.get("pattern").and_then(|value| value.as_str()) {
-                    if let Some(path) = args.get("path").and_then(|value| value.as_str()) {
-                        format!("grep {} {}", pattern, display_tool_path(path, cwd))
-                    } else {
-                        format!("grep {}", pattern)
-                    }
-                } else {
-                    format!("{}", self.arguments)
-                }
-            },
-            "ls" => {
-                if let Some(path) = args.get("path").and_then(|value| value.as_str()) {
-                    format!("ls {}", display_tool_path(path, cwd))
-                } else {
-                    "ls .".to_string()
-                }
-            },
-            _ => format!("{}", self.arguments),
-        }
+/// Format a built-in tool call for presentation in a frontend transcript.
+///
+/// Unknown tools and malformed historic arguments retain their JSON display so
+/// frontends do not need to duplicate formatting policy or discard details.
+pub fn format_tool_call_summary(
+    name: &str,
+    arguments: &serde_json::Value,
+    cwd: &Path,
+) -> String {
+    let fallback = arguments
+        .as_str()
+        .map(str::to_owned)
+        .unwrap_or_else(|| arguments.to_string());
+
+    match name {
+        "bash" => arguments
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .map(|command| format!("bash {command}"))
+            .unwrap_or(fallback),
+        "read" | "write" | "edit" => arguments
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .map(|path| format!("{name} {}", display_tool_path(path, cwd)))
+            .unwrap_or(fallback),
+        "find" | "grep" => arguments
+            .get("pattern")
+            .and_then(serde_json::Value::as_str)
+            .map(
+                |pattern| match arguments.get("path").and_then(serde_json::Value::as_str) {
+                    Some(path) => format!("{name} {pattern} {}", display_tool_path(path, cwd)),
+                    None => format!("{name} {pattern}"),
+                },
+            )
+            .unwrap_or(fallback),
+        "ls" => arguments
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .map(|path| format!("ls {}", display_tool_path(path, cwd)))
+            .unwrap_or_else(|| "ls .".to_string()),
+        _ => fallback,
     }
 }
 

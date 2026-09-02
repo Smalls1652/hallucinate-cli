@@ -4,6 +4,8 @@ use hallucinate_agent::{
     agent::types::{AgentEvent, AgentState},
     ai::types::{AssistantContent, AssistantMessage, Message},
 };
+
+use super::InteractiveTui;
 use crate::alt_screen::{
     Message as TuiMessage,
     MessageRole,
@@ -11,15 +13,11 @@ use crate::alt_screen::{
     TranscriptRenderer,
 };
 
-use super::InteractiveTui;
-
 impl InteractiveTui {
     /// Process any pending agent events.
     pub(super) fn process_events(&mut self) {
         while let Ok(event) = self.event_rx.try_recv() {
-            if let Some((event_type, data)) = session_event(&event)
-                && let Err(error) = self.session_manager.save_event(event_type, data)
-            {
+            if let Err(error) = self.session_manager.save_agent_event(&event) {
                 eprintln!("Warning: could not persist session event: {error}");
             }
 
@@ -201,88 +199,6 @@ impl InteractiveTui {
     }
 }
 
-/// Convert lifecycle events into durable session entries. Streaming text and
-/// thinking deltas are intentionally omitted: the completed assistant message
-/// is saved as a message entry, while these events preserve operational
-/// history.
-pub fn session_event(event: &AgentEvent) -> Option<(&'static str, serde_json::Value)> {
-    match event {
-        AgentEvent::StateChanged {
-            new_state,
-            old_state,
-        } => Some((
-            "state_changed",
-            serde_json::json!({ "old_state": old_state.to_string(), "new_state": new_state.to_string() }),
-        )),
-
-        AgentEvent::TurnStarted { turn_number } => Some((
-            "turn_started",
-            serde_json::json!({ "turn_number": turn_number }),
-        )),
-
-        AgentEvent::ToolCallDetected {
-            tool_call_id,
-            tool_name,
-            arguments,
-        } => Some((
-            "tool_call_detected",
-            serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name, "arguments": arguments }),
-        )),
-
-        AgentEvent::ToolExecutionStarted {
-            tool_call_id,
-            tool_name,
-        } => Some((
-            "tool_execution_started",
-            serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name }),
-        )),
-
-        AgentEvent::ToolExecutionCompleted {
-            tool_call_id,
-            tool_name,
-            result,
-            is_error,
-        } => Some((
-            "tool_execution_completed",
-            serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name, "result": result, "is_error": is_error }),
-        )),
-
-        AgentEvent::ToolExecutionFailed {
-            tool_call_id,
-            tool_name,
-            error,
-        } => Some((
-            "tool_execution_failed",
-            serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name, "error": error }),
-        )),
-
-        AgentEvent::TurnCompleted {
-            turn_number,
-            stop_reason,
-        } => Some((
-            "turn_completed",
-            serde_json::json!({ "turn_number": turn_number, "stop_reason": stop_reason.to_string() }),
-        )),
-
-        AgentEvent::Error { message } => Some(("error", serde_json::json!({ "message": message }))),
-
-        AgentEvent::CompactionPerformed {
-            tokens_before,
-            tokens_after,
-            summaries_added,
-        } => Some((
-            "compaction",
-            serde_json::json!({ "tokens_before": tokens_before, "tokens_after": tokens_after, "summaries_added": summaries_added }),
-        )),
-
-        AgentEvent::Aborted => Some(("aborted", serde_json::json!({}))),
-
-        AgentEvent::AssistantTextDelta { .. }
-        | AgentEvent::AssistantThinkingDelta { .. }
-        | AgentEvent::AssistantMessageCompleted { .. } => None,
-    }
-}
-
 /// Rebuild the visible transcript from persisted conversation history.
 pub(super) fn transcript_from_messages(messages: &[Message]) -> TranscriptRenderer {
     let mut transcript = TranscriptRenderer::new();
@@ -346,7 +262,7 @@ fn display_assistant_message(message: &AssistantMessage) -> (String, String, Vec
                 Some(TuiToolCall {
                     id: tool_call.id.clone(),
                     name: tool_call.name.clone(),
-                    arguments: tool_call.arguments.to_string(),
+                    arguments: tool_call.arguments.clone(),
                     result: None,
                 })
             } else {

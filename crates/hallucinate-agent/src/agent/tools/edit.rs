@@ -1,10 +1,10 @@
 //! Edit tool: intelligent text editing with diff verification.
 
-use std::{future::Future, io::Write, path::Path, pin::Pin};
+use std::{future::Future, io::Write, pin::Pin};
 
 use serde_json::json;
 
-use super::types::Tool;
+use super::{paths::resolve_path, types::Tool};
 
 /// Intelligent edit tool for modifying file contents.
 ///
@@ -31,36 +31,6 @@ impl EditTool {
     pub fn new() -> Self {
         Self
     }
-}
-
-/// Resolve a file path with tilde expansion and relative path handling.
-///
-/// Expands the provided path string using shell-like tilde expansion, then
-/// resolves relative paths against the current working directory if no explicit
-/// cwd is given.
-///
-/// # Parameters
-/// - `path_str`: The path to resolve, which may contain tilde (`~`) or be
-///   relative/absolute
-/// - `cwd`: Optional explicit working directory for resolving relative paths
-///
-/// # Returns
-/// A resolved absolute `PathBuf` for the given path.
-pub(crate) fn resolve_path(
-    path_str: &str,
-    cwd: Option<&str>,
-) -> std::path::PathBuf {
-    let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
-
-    let path = Path::new(expanded.as_ref());
-    if path.is_relative() {
-        if let Some(cwd) = cwd {
-            return Path::new(cwd).join(path);
-        }
-        return std::env::current_dir().unwrap_or_default().join(path);
-    }
-
-    path.to_path_buf()
 }
 
 impl Tool for EditTool {

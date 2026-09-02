@@ -33,31 +33,6 @@ impl SessionCwd {
             .map_err(Into::into)
     }
 
-    /// Save the current working directory for a session.
-    pub fn save(
-        session_id: &str,
-        cwd: &str,
-    ) -> Result<(), anyhow::Error> {
-        let cwd_path = cwd_file_path(session_id);
-
-        if let Some(parent) = cwd_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let cwd_data = SessionCwd {
-            cwd: cwd.to_string(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64,
-        };
-
-        let content = serde_json::to_string_pretty(&cwd_data)?;
-        fs::write(&cwd_path, content)?;
-
-        Ok(())
-    }
-
     /// Delete the stored working directory for a session.
     pub fn delete(session_id: &str) -> Result<(), anyhow::Error> {
         let cwd_path = cwd_file_path(session_id);

@@ -6,19 +6,12 @@
 
 use std::io::{self, BufRead, Write};
 
-use hallucinate_agent::{
-    agent::{runtime::Agent, types::AgentConfig},
-    ai::types::Message,
-    config::settings::Settings,
-};
+use hallucinate_agent::{agent::runtime::Agent, ai::types::Message, config::settings::Settings};
+use hallucinate_session::manager::{SessionCreateOptions, SessionManager};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::{
-    cli::args::Cli,
-};
-
-use hallucinate_session::manager::{SessionCreateOptions, SessionManager};
+use crate::cli::args::Cli;
 
 /// Run the RPC mode server, reading JSON-RPC requests from stdin and writing
 /// responses to stdout.
@@ -204,28 +197,36 @@ async fn chat(
     };
 
     let show_thinking = match optional_bool(Some(params), "thinking") {
-        Ok(value) => value.unwrap_or_else(|| hallucinate_agent::config::resolve_show_thinking(settings, cli.thinking)),
+        Ok(value) => value.unwrap_or_else(|| {
+            hallucinate_agent::config::resolve_show_thinking(settings, cli.thinking)
+        }),
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
 
-    let model = match hallucinate_agent::config::resolve_model(settings, cli.model.as_ref(), cli.base_url.as_ref()) {
+    let runtime_overrides = hallucinate_agent::config::RuntimeOverrides::from(cli);
+    let model = match hallucinate_agent::config::resolve_model(
+        settings,
+        runtime_overrides.model.as_ref(),
+        runtime_overrides.base_url.as_ref(),
+    ) {
         Ok(model) => model,
         Err(error) => {
             return RpcResponse::error(-32603, "Model configuration failed", id, error.to_string());
         },
     };
 
-    let provider = match hallucinate_agent::config::create_provider_for_model(settings, cli.base_url.as_ref(), cli.api_key.as_ref(), &model) {
-        Ok(provider) => provider,
-        Err(error) => {
-            return RpcResponse::error(
-                -32603,
-                "Provider configuration failed",
-                id,
-                error.to_string(),
-            );
-        },
-    };
+    let provider =
+        match hallucinate_agent::config::create_provider(settings, &runtime_overrides, &model) {
+            Ok(provider) => provider,
+            Err(error) => {
+                return RpcResponse::error(
+                    -32603,
+                    "Provider configuration failed",
+                    id,
+                    error.to_string(),
+                );
+            },
+        };
 
     let session_id = match optional_string(Some(params), "session_id") {
         Ok(session_id) => session_id,
@@ -279,17 +280,10 @@ async fn chat(
     let mut agent = Agent::with_all_tools_and_image_resize_and_shell(
         provider,
         model.clone(),
-        AgentConfig {
-            max_turns: settings.max_turns,
-            max_context_tokens: model.context_window,
-            enable_compaction: settings.enable_compaction,
-            enable_tools: settings.enable_tools,
-            temperature: settings.temperature,
-            max_tokens: hallucinate_agent::config::resolve_max_tokens(settings, cli.max_tokens, &model),
-            include_tool_definitions: true,
-        },
+        hallucinate_agent::config::agent_config(settings, &model, &runtime_overrides),
         settings.auto_resize_images,
-        hallucinate_agent::config::resolve_shell(settings, cli.shell.clone()).as_deref(),
+        hallucinate_agent::config::resolve_shell(settings, runtime_overrides.shell.clone())
+            .as_deref(),
     )
     .with_cwd(session.cwd.clone());
 
@@ -315,9 +309,7 @@ async fn chat(
     // The agent owns the event sequence; drain it after completion so provider,
     // tool, compaction, and terminal-state diagnostics are durable in RPC mode.
     while let Ok(event) = event_rx.try_recv() {
-        if let Some((event_type, data)) = hallucinate_tui::interactive::session_event(&event)
-            && let Err(error) = manager.save_event(event_type, data)
-        {
+        if let Err(error) = manager.save_agent_event(&event) {
             return RpcResponse::error(
                 -32603,
                 "Could not persist session event",

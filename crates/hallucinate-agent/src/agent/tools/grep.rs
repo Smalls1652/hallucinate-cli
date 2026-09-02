@@ -4,7 +4,7 @@ use std::{future::Future, path::Path, pin::Pin};
 
 use serde_json::json;
 
-use super::types::Tool;
+use super::{paths::resolve_path, types::Tool};
 
 /// Pattern-based file content search tool.
 ///
@@ -80,7 +80,7 @@ impl Tool for GrepTool {
                 .get("path")
                 .and_then(|v| v.as_str())
                 .unwrap_or(".");
-            let search_path = resolve_path(search_path, project_dir);
+            let search_path = resolve_path(search_path, Some(project_dir));
 
             let file_pattern = arguments
                 .get("file_pattern")
@@ -146,24 +146,6 @@ impl Tool for GrepTool {
                 Ok(super::types::ToolResult::success("grep", "grep", result))
             }
         })
-    }
-}
-
-/// Resolve a path string to an absolute path buffer.
-///
-/// Expands environment variables and tilde in the path, then joins with `cwd`
-/// if the result is relative.
-fn resolve_path(
-    path_str: &str,
-    cwd: &str,
-) -> std::path::PathBuf {
-    let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
-
-    let path = Path::new(expanded.as_ref());
-    if path.is_relative() {
-        Path::new(cwd).join(path)
-    } else {
-        path.to_path_buf()
     }
 }
 

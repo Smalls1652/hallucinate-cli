@@ -54,8 +54,9 @@ pub struct ToolCall {
     pub id: String,
     /// The name of the tool being called.
     pub name: String,
-    /// JSON-encoded arguments passed to the tool.
-    pub arguments: String,
+    /// Structured arguments passed to the tool. Historic malformed argument
+    /// text is retained as a JSON string at the UI boundary.
+    pub arguments: serde_json::Value,
     /// Optional result returned by the tool execution.
     pub result: Option<String>,
 }
@@ -78,85 +79,7 @@ impl ToolCall {
         &self,
         cwd: &Path,
     ) -> String {
-        let args = serde_json::from_str::<serde_json::Value>(&self.arguments).ok();
-        let Some(args) = args.as_ref() else {
-            return self.arguments.clone();
-        };
-
-        match self.name.as_str() {
-            "bash" => {
-                // Show the command directly
-                if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
-                    format!("bash {cmd}")
-                } else {
-                    self.arguments.clone()
-                }
-            },
-
-            "read" | "write" | "edit" => {
-                // Show tool name + path
-                if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                    format!("{} {}", self.name, display_tool_path(path, cwd))
-                } else {
-                    self.arguments.clone()
-                }
-            },
-
-            "find" => {
-                // Show tool name + pattern (and optional path)
-                if let Some(pattern) = args.get("pattern").and_then(|v| v.as_str()) {
-                    if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                        format!("find {} {}", pattern, display_tool_path(path, cwd))
-                    } else {
-                        format!("find {}", pattern)
-                    }
-                } else {
-                    self.arguments.clone()
-                }
-            },
-
-            "grep" => {
-                // Show grep pattern + optional path
-                if let Some(pattern) = args.get("pattern").and_then(|v| v.as_str()) {
-                    if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                        format!("grep {} {}", pattern, display_tool_path(path, cwd))
-                    } else {
-                        format!("grep {}", pattern)
-                    }
-                } else {
-                    self.arguments.clone()
-                }
-            },
-
-            "ls" => {
-                // Show ls + optional path
-                if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                    format!("ls {}", display_tool_path(path, cwd))
-                } else {
-                    "ls .".to_string()
-                }
-            },
-
-            _ => self.arguments.clone(),
-        }
-    }
-}
-
-/// Format a tool path for display, preserving trailing slashes or backslashes.
-fn display_tool_path(
-    path: &str,
-    cwd: &Path,
-) -> String {
-    let displayed = hallucinate_agent::config::paths::display_path(path, cwd);
-
-    if (path.ends_with('/') || path.ends_with('\\'))
-        && displayed != "."
-        && !displayed.ends_with('/')
-        && !displayed.ends_with('\\')
-    {
-        format!("{displayed}{}", &path[path.len() - 1..])
-    } else {
-        displayed
+        hallucinate_agent::ai::types::format_tool_call_summary(&self.name, &self.arguments, cwd)
     }
 }
 
@@ -323,7 +246,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "bash".to_string(),
-            arguments: r#"{"command": "echo hello world"}"#.to_string(),
+            arguments: serde_json::json!({ "command": "echo hello world" }),
             result: None,
         };
 
@@ -335,7 +258,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "bash".to_string(),
-            arguments: r#"{"command": "grep -r 'foo' src/ | wc -l"}"#.to_string(),
+            arguments: serde_json::json!({ "command": "grep -r 'foo' src/ | wc -l" }),
             result: None,
         };
 
@@ -347,7 +270,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "read".to_string(),
-            arguments: r#"{"path": "/path/to/file.rs"}"#.to_string(),
+            arguments: serde_json::json!({ "path": "/path/to/file.rs" }),
             result: None,
         };
 
@@ -359,7 +282,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "write".to_string(),
-            arguments: r#"{"path": "/path/to/file.rs", "content": "hello"}"#.to_string(),
+            arguments: serde_json::json!({ "path": "/path/to/file.rs", "content": "hello" }),
             result: None,
         };
 
@@ -371,8 +294,11 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "edit".to_string(),
-            arguments: r#"{"path": "/path/to/file.rs", "old_text": "foo", "new_text": "bar"}"#
-                .to_string(),
+            arguments: serde_json::json!({
+                "path": "/path/to/file.rs",
+                "old_text": "foo",
+                "new_text": "bar",
+            }),
             result: None,
         };
 
@@ -384,7 +310,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "find".to_string(),
-            arguments: r#"{"pattern": "**/*.rs"}"#.to_string(),
+            arguments: serde_json::json!({ "pattern": "**/*.rs" }),
             result: None,
         };
 
@@ -396,7 +322,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "find".to_string(),
-            arguments: r#"{"pattern": "*.toml", "path": "src"}"#.to_string(),
+            arguments: serde_json::json!({ "pattern": "*.toml", "path": "src" }),
             result: None,
         };
 
@@ -408,7 +334,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "grep".to_string(),
-            arguments: r#"{"pattern": "hello"}"#.to_string(),
+            arguments: serde_json::json!({ "pattern": "hello" }),
             result: None,
         };
 
@@ -420,7 +346,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "grep".to_string(),
-            arguments: r#"{"pattern": "foo", "path": "src/"}"#.to_string(),
+            arguments: serde_json::json!({ "pattern": "foo", "path": "src/" }),
             result: None,
         };
 
@@ -432,7 +358,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "ls".to_string(),
-            arguments: r#"{"path": "/some/dir"}"#.to_string(),
+            arguments: serde_json::json!({ "path": "/some/dir" }),
             result: None,
         };
 
@@ -444,7 +370,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "ls".to_string(),
-            arguments: r#"{}"#.to_string(),
+            arguments: serde_json::json!({}),
             result: None,
         };
 
@@ -456,11 +382,11 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "custom_tool".to_string(),
-            arguments: r#"{"foo": "bar"}"#.to_string(),
+            arguments: serde_json::json!({ "foo": "bar" }),
             result: None,
         };
 
-        assert_eq!(call.human_readable(), r#"{"foo": "bar"}"#);
+        assert_eq!(call.human_readable(), r#"{"foo":"bar"}"#);
     }
 
     #[test]
@@ -468,7 +394,7 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "bash".to_string(),
-            arguments: "not valid json".to_string(),
+            arguments: serde_json::Value::String("not valid json".to_string()),
             result: None,
         };
 
@@ -480,11 +406,11 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "bash".to_string(),
-            arguments: r#"{"timeout_ms": 5000}"#.to_string(),
+            arguments: serde_json::json!({ "timeout_ms": 5000 }),
             result: None,
         };
 
-        assert_eq!(call.human_readable(), r#"{"timeout_ms": 5000}"#);
+        assert_eq!(call.human_readable(), r#"{"timeout_ms":5000}"#);
     }
 
     #[test]
@@ -497,7 +423,7 @@ mod tests {
             tool_calls: vec![ToolCall {
                 id: "call-1".to_string(),
                 name: "bash".to_string(),
-                arguments: "{}".to_string(),
+                arguments: serde_json::json!({}),
                 result: None,
             }],
             timestamp: chrono::Utc::now(),

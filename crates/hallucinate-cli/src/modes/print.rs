@@ -19,7 +19,11 @@ pub async fn run(
     let prompt = cli.print.as_deref().unwrap_or("");
 
     // Resolve model
-    let model = hallucinate_agent::config::resolve_model(settings, cli.model.as_ref(), cli.base_url.as_ref())?;
+    let model = hallucinate_agent::config::resolve_model(
+        settings,
+        cli.model.as_ref(),
+        cli.base_url.as_ref(),
+    )?;
 
     // Build context
     let images = cli
@@ -49,16 +53,23 @@ pub async fn run(
         options = options.with_api_key(api_key);
     }
 
-    if let Some(max_tokens) = hallucinate_agent::config::resolve_max_tokens(&settings, cli.max_tokens, &model) {
+    if let Some(max_tokens) =
+        hallucinate_agent::config::resolve_max_tokens(&settings, cli.max_tokens, &model)
+    {
         options = options.with_max_tokens(max_tokens);
     }
 
-    if let Some(temperature) = cli.temperature {
+    if let Some(temperature) = cli.temperature.or(settings.temperature) {
         options = options.with_temperature(temperature);
     }
 
     // Create provider for the model's provider group.
-    let provider = hallucinate_agent::config::create_provider_for_model(settings, cli.base_url.as_ref(), cli.api_key.as_ref(), &model)?;
+    let provider = hallucinate_agent::config::create_provider_for_model(
+        settings,
+        cli.base_url.as_ref(),
+        cli.api_key.as_ref(),
+        &model,
+    )?;
 
     // Stream the response
     let mut stream = provider.stream(&model, &context, &options).await?;

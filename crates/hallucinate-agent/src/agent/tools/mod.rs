@@ -14,6 +14,7 @@ pub mod edit;
 pub mod find;
 pub mod grep;
 pub mod ls;
+mod paths;
 pub mod read;
 pub mod types;
 pub mod write;

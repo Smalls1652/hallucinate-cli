@@ -85,27 +85,16 @@ pub struct Cli {
     pub debug: bool,
 }
 
-impl Into<hallucinate_agent::config::CommonArgs> for Cli {
-    fn into(self) -> hallucinate_agent::config::CommonArgs {
-        hallucinate_agent::config::CommonArgs {
-            model: self.model,
-            api_key: self.api_key,
-            base_url: self.base_url,
-            shell: self.shell,
-            print: self.print,
-            rpc: self.rpc,
-            interactive: self.interactive,
-            session: self.session,
-            max_tokens: self.max_tokens,
-            thinking: self.thinking,
-            temperature: self.temperature,
-            system_prompt: self.system_prompt,
-            images: self.images,
-            skills: self.skills,
-            no_skills: self.no_skills,
-            prompt_templates: self.prompt_templates,
-            no_prompt_templates: self.no_prompt_templates,
-            debug: self.debug,
+impl From<&Cli> for hallucinate_agent::config::RuntimeOverrides {
+    fn from(cli: &Cli) -> Self {
+        Self {
+            model: cli.model.clone(),
+            api_key: cli.api_key.clone(),
+            base_url: cli.base_url.clone(),
+            shell: cli.shell.clone(),
+            max_tokens: cli.max_tokens,
+            temperature: cli.temperature,
+            system_prompt: cli.system_prompt.clone(),
         }
     }
 }

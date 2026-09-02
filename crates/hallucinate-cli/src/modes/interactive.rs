@@ -4,20 +4,12 @@
 //! live in focused child modules so this module only owns shared state and
 //! terminal setup.
 
-
 use anyhow::Context;
-use hallucinate_agent::{
-    agent::{
-        runtime::Agent,
-        types::{AgentConfig},
-    },
-    config::settings::Settings,
-};
+use hallucinate_agent::{agent::runtime::Agent, config::settings::Settings};
 use hallucinate_session::SessionManager;
 use hallucinate_tui::interactive::InteractiveTui;
 
-use crate::{cli::args::Cli};
-
+use crate::cli::args::Cli;
 
 /// Run interactive mode.
 pub async fn run(
@@ -27,26 +19,16 @@ pub async fn run(
     // Ensure directories exist
     hallucinate_agent::config::paths::ensure_directories()?;
 
-    // Load settings from disk if available
-    let settings = Settings::load().unwrap_or_else(|_| settings.clone());
-
-    // Resolve model
-    let model = hallucinate_agent::config::resolve_model(&settings, cli.model.as_ref(), cli.base_url.as_ref())?;
-
-    // Create the provider belonging to the selected model. This matters when
-    // the model came from a user-defined provider group.
-    let provider = hallucinate_agent::config::create_provider_for_model(&settings, cli.base_url.as_ref(), cli.api_key.as_ref(), &model)?;
-
-    // Create agent config
-    let agent_config = AgentConfig {
-        max_turns: settings.max_turns,
-        max_context_tokens: model.context_window,
-        enable_compaction: settings.enable_compaction,
-        enable_tools: settings.enable_tools,
-        temperature: settings.temperature,
-        max_tokens: hallucinate_agent::config::resolve_max_tokens(&settings, cli.max_tokens, &model),
-        include_tool_definitions: true,
-    };
+    let runtime_overrides = hallucinate_agent::config::RuntimeOverrides::from(cli);
+    let model = hallucinate_agent::config::resolve_model(
+        settings,
+        runtime_overrides.model.as_ref(),
+        runtime_overrides.base_url.as_ref(),
+    )?;
+    let provider =
+        hallucinate_agent::config::create_provider(settings, &runtime_overrides, &model)?;
+    let agent_config =
+        hallucinate_agent::config::agent_config(settings, &model, &runtime_overrides);
 
     // Discover skills before creating the agent so their metadata can be
     // included in the system prompt. Invalid skill files do not prevent the
@@ -95,7 +77,8 @@ pub async fn run(
         model.clone(),
         agent_config,
         settings.auto_resize_images,
-        hallucinate_agent::config::resolve_shell(&settings, cli.shell.clone()).as_deref(),
+        hallucinate_agent::config::resolve_shell(settings, runtime_overrides.shell.clone())
+            .as_deref(),
     )
     .with_cwd(cwd.to_string_lossy().into_owned())
     .with_skills(loaded_skills.clone());
@@ -132,7 +115,7 @@ pub async fn run(
     let event_rx = agent.subscribe();
 
     // Create TUI
-    let mut models = hallucinate_agent::config::available_models(&settings);
+    let mut models = hallucinate_agent::config::available_models(settings);
     if !models
         .iter()
         .any(|candidate| candidate.provider == model.provider && candidate.id == model.id)
@@ -152,7 +135,8 @@ pub async fn run(
         prompt_templates.templates,
         prompt_template_options,
         loaded_skills,
-        cli.clone().into(),
+        runtime_overrides,
+        cli.thinking,
         settings.clone(),
         model,
         models,

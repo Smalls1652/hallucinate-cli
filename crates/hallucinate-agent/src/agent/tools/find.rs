@@ -1,14 +1,10 @@
 //! Find tool: glob-based file search.
 
-use std::{
-    future::Future,
-    path::{Path, PathBuf},
-    pin::Pin,
-};
+use std::{future::Future, pin::Pin};
 
 use serde_json::json;
 
-use super::types::Tool;
+use super::{paths::resolve_path, types::Tool};
 
 /// Glob-based file search tool.
 ///
@@ -81,7 +77,7 @@ impl Tool for FindTool {
                 .get("path")
                 .and_then(|v| v.as_str())
                 .unwrap_or(".");
-            let search_path = resolve_path(search_path, project_dir);
+            let search_path = resolve_path(search_path, Some(project_dir));
 
             let max_results = arguments
                 .get("max_results")
@@ -118,22 +114,6 @@ impl Tool for FindTool {
                 Ok(super::types::ToolResult::success("find", "find", result))
             }
         })
-    }
-}
-
-/// Resolves a potentially relative path against a working directory, expanding
-/// tilde and env vars.
-fn resolve_path(
-    path_str: &str,
-    cwd: &str,
-) -> PathBuf {
-    let expanded = shellexpand::full(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
-
-    let path = Path::new(expanded.as_ref());
-    if path.is_relative() {
-        Path::new(cwd).join(path)
-    } else {
-        path.to_path_buf()
     }
 }
 
