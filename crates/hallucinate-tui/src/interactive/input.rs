@@ -5,14 +5,14 @@ use std::io::{self, Write};
 #[cfg(not(target_os = "macos"))]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use hallucinate_agent::ai::types::Message;
-use hallucinate_tui::{
+use crate::{
     alt_screen::{Message as TuiMessage, MessageRole},
     input::parse_event,
     keys::Key,
 };
 
 use super::{AgentRunCompletion, AutocompleteItem, ChatSelection, InteractiveTui};
-use crate::session::manager::SessionManager;
+use hallucinate_session::manager::SessionManager;
 
 impl InteractiveTui {
     /// Clear the current chat selection state.
@@ -78,7 +78,7 @@ impl InteractiveTui {
         let prefix = prefix.to_ascii_lowercase();
         let mut items = Vec::new();
 
-        for command in crate::modes::commands::BUILTIN_COMMANDS {
+        for command in crate::slash_commands::BUILTIN_COMMANDS {
             if command.name.starts_with("skill:") {
                 continue;
             }
@@ -141,7 +141,7 @@ impl InteractiveTui {
             // normal editor-cancel behavior below.
             if matches!(
                 &input_event,
-                hallucinate_tui::input::InputEvent::Key(Key {
+                crate::input::InputEvent::Key(Key {
                     code: crossterm::event::KeyCode::Esc,
                     ..
                 })
@@ -154,14 +154,14 @@ impl InteractiveTui {
 
             let cancel_edit = matches!(
                 &input_event,
-                hallucinate_tui::input::InputEvent::Key(Key {
+                crate::input::InputEvent::Key(Key {
                     code: crossterm::event::KeyCode::Esc,
                     ..
                 })
             );
 
             match &input_event {
-                hallucinate_tui::input::InputEvent::Resize(width, height) => {
+                crate::input::InputEvent::Resize(width, height) => {
                     // Ratatui recalculates its viewport on the next draw; read
                     // both dimensions so resize events are not discarded.
                     let _ = (width, height);
@@ -171,7 +171,7 @@ impl InteractiveTui {
                     return Ok(false);
                 },
 
-                hallucinate_tui::input::InputEvent::Mouse(mouse) => {
+                crate::input::InputEvent::Mouse(mouse) => {
                     if let Some(picker) = self.model_picker.as_mut() {
                         match mouse.kind {
                             crossterm::event::MouseEventKind::ScrollUp => {
@@ -295,7 +295,7 @@ impl InteractiveTui {
             // The model picker owns keyboard input while it is open. This
             // prevents arrows and Enter from moving/submitting the editor.
             if self.model_picker.is_some() || self.session_picker.is_some() || self.prompt_picker.is_some() {
-                if let hallucinate_tui::input::InputEvent::Key(key) = input_event {
+                if let crate::input::InputEvent::Key(key) = input_event {
                     if self.model_picker.is_some() {
                         self.handle_model_picker_key(key)?;
                     } else if self.session_picker.is_some() {
@@ -308,7 +308,7 @@ impl InteractiveTui {
                 return Ok(false);
             }
 
-            if let hallucinate_tui::input::InputEvent::Key(key) = input_event {
+            if let crate::input::InputEvent::Key(key) = input_event {
                 // Tab accepts the selected slash-command completion. Enter
                 // accepts it and continues through the normal submit path so
                 // the selected command is run immediately. Shift+Enter and

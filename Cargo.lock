@@ -1048,43 +1048,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hallucinate"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.23.1",
- "chrono",
- "clap",
- "comrak",
- "crossterm",
- "directories",
- "futures",
- "glob",
- "hallucinate-agent",
- "hallucinate-tui",
- "image",
- "mockito",
- "path-absolutize",
- "ratatui",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "shellexpand",
- "thiserror 2.0.20",
- "tokio",
- "tokio-stream",
- "tokio-test",
- "toml",
- "tracing",
- "tracing-subscriber",
- "unicode-width",
- "uuid",
- "which",
-]
-
-[[package]]
 name = "hallucinate-agent"
 version = "0.1.0"
 dependencies = [
@@ -1109,15 +1072,73 @@ dependencies = [
 ]
 
 [[package]]
+name = "hallucinate-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "chrono",
+ "clap",
+ "comrak",
+ "crossterm",
+ "directories",
+ "futures",
+ "glob",
+ "hallucinate-agent",
+ "hallucinate-session",
+ "hallucinate-tui",
+ "image",
+ "mockito",
+ "path-absolutize",
+ "ratatui",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "shellexpand",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-stream",
+ "tokio-test",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-width",
+ "uuid",
+ "which",
+]
+
+[[package]]
+name = "hallucinate-macros"
+version = "0.1.0"
+
+[[package]]
+name = "hallucinate-session"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "hallucinate-agent",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "hallucinate-tui"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "base64 0.23.1",
  "chrono",
  "comrak",
  "crossterm",
  "hallucinate-agent",
+ "hallucinate-session",
  "ratatui",
  "serde_json",
+ "tokio",
  "unicode-width",
 ]
 

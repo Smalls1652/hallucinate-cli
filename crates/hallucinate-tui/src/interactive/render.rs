@@ -1,14 +1,14 @@
 //! Ratatui rendering for the interactive transcript and overlays.
 
 use hallucinate_agent::agent::types::AgentState;
-use hallucinate_tui::{alt_screen::MessageRole, components::markdown_to_lines};
+use crate::{alt_screen::MessageRole, components::markdown_to_lines};
 use ratatui::layout::Rect;
 #[cfg(test)]
 use ratatui::{style::Color, text::Line};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{InteractiveTui, short_session_id};
-use crate::session::manager::SessionManager;
+use hallucinate_session::manager::SessionManager;
 
 impl InteractiveTui {
     /// Render the current state.
@@ -590,7 +590,7 @@ impl InteractiveTui {
                                 let marker = if index == picker.selected { "> " } else { "  " };
 
                                 let title =
-                                    crate::session::storage::SessionStorage::new(&session.id)
+                                    hallucinate_session::storage::SessionStorage::new(&session.id)
                                         .load_metadata()
                                         .ok()
                                         .flatten()

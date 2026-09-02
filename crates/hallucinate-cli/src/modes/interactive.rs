@@ -1,0 +1,163 @@
+//! Interactive mode and the terminal application lifecycle.
+//!
+//! Input handling, command dispatch, session synchronization, and rendering
+//! live in focused child modules so this module only owns shared state and
+//! terminal setup.
+
+
+use anyhow::Context;
+use hallucinate_agent::{
+    agent::{
+        runtime::Agent,
+        types::{AgentConfig},
+    },
+    config::settings::Settings,
+};
+use hallucinate_session::SessionManager;
+use hallucinate_tui::interactive::InteractiveTui;
+
+use crate::{cli::args::Cli};
+
+
+/// Run interactive mode.
+pub async fn run(
+    cli: &Cli,
+    settings: &Settings,
+) -> Result<(), anyhow::Error> {
+    // Ensure directories exist
+    hallucinate_agent::config::paths::ensure_directories()?;
+
+    // Load settings from disk if available
+    let settings = Settings::load().unwrap_or_else(|_| settings.clone());
+
+    // Resolve model
+    let model = hallucinate_agent::config::resolve_model(&settings, cli.model.as_ref(), cli.base_url.as_ref())?;
+
+    // Create the provider belonging to the selected model. This matters when
+    // the model came from a user-defined provider group.
+    let provider = hallucinate_agent::config::create_provider_for_model(&settings, cli.base_url.as_ref(), cli.api_key.as_ref(), &model)?;
+
+    // Create agent config
+    let agent_config = AgentConfig {
+        max_turns: settings.max_turns,
+        max_context_tokens: model.context_window,
+        enable_compaction: settings.enable_compaction,
+        enable_tools: settings.enable_tools,
+        temperature: settings.temperature,
+        max_tokens: hallucinate_agent::config::resolve_max_tokens(&settings, cli.max_tokens, &model),
+        include_tool_definitions: true,
+    };
+
+    // Discover skills before creating the agent so their metadata can be
+    // included in the system prompt. Invalid skill files do not prevent the
+    // session from starting.
+    let cwd = std::env::current_dir().context("Failed to determine working directory")?;
+
+    let skills = hallucinate_agent::agent::skills::load_skills(
+        &hallucinate_agent::agent::skills::SkillLoadOptions {
+            cwd: cwd.clone(),
+            skill_paths: cli.skills.clone(),
+            include_defaults: !cli.no_skills,
+        },
+    );
+
+    for diagnostic in &skills.diagnostics {
+        eprintln!(
+            "Warning: could not load skill {}: {}",
+            hallucinate_agent::config::paths::display_path(&diagnostic.path, &cwd),
+            diagnostic.message
+        );
+    }
+
+    let prompt_template_options =
+        hallucinate_agent::agent::prompt_templates::PromptTemplateLoadOptions {
+            cwd: cwd.clone(),
+            prompt_paths: cli.prompt_templates.clone(),
+            include_defaults: !cli.no_prompt_templates,
+        };
+
+    let prompt_templates =
+        hallucinate_agent::agent::prompt_templates::load_prompt_templates(&prompt_template_options);
+
+    for diagnostic in &prompt_templates.diagnostics {
+        eprintln!(
+            "Warning: could not load prompt template {}: {}",
+            hallucinate_agent::config::paths::display_path(&diagnostic.path, &cwd),
+            diagnostic.message
+        );
+    }
+
+    // Create agent with all built-in tools.
+    let loaded_skills = skills.skills;
+
+    let mut agent = Agent::with_all_tools_and_image_resize_and_shell(
+        provider,
+        model.clone(),
+        agent_config,
+        settings.auto_resize_images,
+        hallucinate_agent::config::resolve_shell(&settings, cli.shell.clone()).as_deref(),
+    )
+    .with_cwd(cwd.to_string_lossy().into_owned())
+    .with_skills(loaded_skills.clone());
+
+    // Apply prompt overrides. Provider credentials and endpoint are resolved
+    // when `create_provider` constructs the provider.
+    if let Some(system_prompt) = &cli.system_prompt {
+        agent = agent.with_system_prompt(system_prompt.clone());
+    }
+
+    // Every interactive run has a concrete session before the UI starts, so
+    // user and assistant messages can never be silently discarded. `--session`
+    // restores validated history and the persisted cwd when it still exists.
+    let mut session_manager = SessionManager::new();
+
+    if let Some(session_id) = &cli.session {
+        let session = session_manager.resume(session_id)?;
+        let messages = session_manager
+            .current_storage()
+            .expect("resumed session has storage")
+            .load_messages()?;
+
+        agent.load_history(messages)?;
+        agent.set_cwd(session.cwd);
+    } else {
+        session_manager.create(hallucinate_session::manager::SessionCreateOptions {
+            title: Some("Interactive session".to_string()),
+            parent_session_id: None,
+            cwd: Some(cwd.to_string_lossy().into_owned()),
+        })?;
+    }
+
+    // Subscribe to agent events
+    let event_rx = agent.subscribe();
+
+    // Create TUI
+    let mut models = hallucinate_agent::config::available_models(&settings);
+    if !models
+        .iter()
+        .any(|candidate| candidate.provider == model.provider && candidate.id == model.id)
+    {
+        models.push(model.clone());
+        models.sort_by(|left, right| {
+            left.provider
+                .cmp(&right.provider)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+    }
+
+    let mut tui = InteractiveTui::new(
+        agent,
+        event_rx,
+        session_manager,
+        prompt_templates.templates,
+        prompt_template_options,
+        loaded_skills,
+        cli.clone().into(),
+        settings.clone(),
+        model,
+        models,
+    )?;
+
+    // Run the TUI
+    tui.run().await
+}

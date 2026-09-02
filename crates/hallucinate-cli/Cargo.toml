@@ -1,5 +1,5 @@
 [package]
-name = "hallucinate"
+name = "hallucinate-cli"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
@@ -11,9 +11,14 @@ readme.workspace = true
 homepage.workspace = true
 repository.workspace = true
 
+[[bin]]
+name = "hallucinate"
+path = "src/main.rs"
+
 [dependencies]
 hallucinate-agent.workspace = true
 hallucinate-tui.workspace = true
+hallucinate-session.workspace = true
 
 anyhow.workspace = true
 base64.workspace = true

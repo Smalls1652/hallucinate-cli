@@ -6,7 +6,6 @@
 mod cli;
 mod logging;
 mod modes;
-mod session;
 
 use clap::Parser;
 use cli::args::{Cli, Command};

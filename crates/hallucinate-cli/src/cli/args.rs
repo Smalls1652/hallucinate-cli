@@ -49,12 +49,8 @@ pub struct Cli {
     pub max_tokens: Option<u32>,
 
     /// Show model thinking/reasoning in output. Overrides the settings file.
-    #[arg(long, conflicts_with = "no_thinking")]
+    #[arg(long)]
     pub thinking: bool,
-
-    /// Hide model thinking/reasoning in output. Overrides the settings file.
-    #[arg(long, conflicts_with = "thinking")]
-    pub no_thinking: bool,
 
     /// Temperature for sampling (0.0 - 2.0).
     #[arg(long)]
@@ -87,6 +83,31 @@ pub struct Cli {
     /// Write diagnostic logs to the application cache directory.
     #[arg(long)]
     pub debug: bool,
+}
+
+impl Into<hallucinate_agent::config::CommonArgs> for Cli {
+    fn into(self) -> hallucinate_agent::config::CommonArgs {
+        hallucinate_agent::config::CommonArgs {
+            model: self.model,
+            api_key: self.api_key,
+            base_url: self.base_url,
+            shell: self.shell,
+            print: self.print,
+            rpc: self.rpc,
+            interactive: self.interactive,
+            session: self.session,
+            max_tokens: self.max_tokens,
+            thinking: self.thinking,
+            temperature: self.temperature,
+            system_prompt: self.system_prompt,
+            images: self.images,
+            skills: self.skills,
+            no_skills: self.no_skills,
+            prompt_templates: self.prompt_templates,
+            no_prompt_templates: self.no_prompt_templates,
+            debug: self.debug,
+        }
+    }
 }
 
 /// Top-level subcommands.
@@ -149,7 +170,6 @@ mod tests {
         assert_eq!(cli.session.as_deref(), Some("session-id"));
         assert!(cli.command.is_none());
         assert!(!cli.thinking);
-        assert!(!cli.no_thinking);
     }
 
     #[test]
@@ -173,15 +193,6 @@ mod tests {
                 }
             }) if provider == "openrouter" && api_key == "sk-test"
         ));
-    }
-
-    #[test]
-    fn test_cli_parses_thinking_options() {
-        let cli = Cli::try_parse_from(["hallucinate", "--thinking"]).unwrap();
-
-        assert!(cli.thinking);
-        assert!(!cli.no_thinking);
-        assert!(Cli::try_parse_from(["hallucinate", "--thinking", "--no-thinking"]).is_err());
     }
 
     #[test]

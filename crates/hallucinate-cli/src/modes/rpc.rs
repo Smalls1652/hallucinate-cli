@@ -16,8 +16,9 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     cli::args::Cli,
-    session::manager::{SessionCreateOptions, SessionManager},
 };
+
+use hallucinate_session::manager::{SessionCreateOptions, SessionManager};
 
 /// Run the RPC mode server, reading JSON-RPC requests from stdin and writing
 /// responses to stdout.
@@ -203,18 +204,18 @@ async fn chat(
     };
 
     let show_thinking = match optional_bool(Some(params), "thinking") {
-        Ok(value) => value.unwrap_or_else(|| super::resolve_show_thinking(cli, settings)),
+        Ok(value) => value.unwrap_or_else(|| hallucinate_agent::config::resolve_show_thinking(settings, cli.thinking)),
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
 
-    let model = match super::resolve_model(cli, settings) {
+    let model = match hallucinate_agent::config::resolve_model(settings, cli.model.as_ref(), cli.base_url.as_ref()) {
         Ok(model) => model,
         Err(error) => {
             return RpcResponse::error(-32603, "Model configuration failed", id, error.to_string());
         },
     };
 
-    let provider = match super::create_provider_for_model(cli, settings, &model) {
+    let provider = match hallucinate_agent::config::create_provider_for_model(settings, cli.base_url.as_ref(), cli.api_key.as_ref(), &model) {
         Ok(provider) => provider,
         Err(error) => {
             return RpcResponse::error(
@@ -284,11 +285,11 @@ async fn chat(
             enable_compaction: settings.enable_compaction,
             enable_tools: settings.enable_tools,
             temperature: settings.temperature,
-            max_tokens: super::resolve_max_tokens(cli, settings, &model),
+            max_tokens: hallucinate_agent::config::resolve_max_tokens(settings, cli.max_tokens, &model),
             include_tool_definitions: true,
         },
         settings.auto_resize_images,
-        super::resolve_shell(cli, settings),
+        hallucinate_agent::config::resolve_shell(settings, cli.shell.clone()).as_deref(),
     )
     .with_cwd(session.cwd.clone());
 
@@ -314,7 +315,7 @@ async fn chat(
     // The agent owns the event sequence; drain it after completion so provider,
     // tool, compaction, and terminal-state diagnostics are durable in RPC mode.
     while let Ok(event) = event_rx.try_recv() {
-        if let Some((event_type, data)) = super::interactive::session_event(&event)
+        if let Some((event_type, data)) = hallucinate_tui::interactive::session_event(&event)
             && let Err(error) = manager.save_event(event_type, data)
         {
             return RpcResponse::error(

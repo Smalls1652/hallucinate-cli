@@ -19,7 +19,7 @@ pub async fn run(
     let prompt = cli.print.as_deref().unwrap_or("");
 
     // Resolve model
-    let model = super::resolve_model(cli, settings)?;
+    let model = hallucinate_agent::config::resolve_model(settings, cli.model.as_ref(), cli.base_url.as_ref())?;
 
     // Build context
     let images = cli
@@ -49,7 +49,7 @@ pub async fn run(
         options = options.with_api_key(api_key);
     }
 
-    if let Some(max_tokens) = super::resolve_max_tokens(cli, settings, &model) {
+    if let Some(max_tokens) = hallucinate_agent::config::resolve_max_tokens(&settings, cli.max_tokens, &model) {
         options = options.with_max_tokens(max_tokens);
     }
 
@@ -58,7 +58,7 @@ pub async fn run(
     }
 
     // Create provider for the model's provider group.
-    let provider = super::create_provider_for_model(cli, settings, &model)?;
+    let provider = hallucinate_agent::config::create_provider_for_model(settings, cli.base_url.as_ref(), cli.api_key.as_ref(), &model)?;
 
     // Stream the response
     let mut stream = provider.stream(&model, &context, &options).await?;
@@ -66,7 +66,7 @@ pub async fn run(
     // Markdown needs the complete response in order to parse fenced code
     // blocks and other constructs correctly. Collect deltas and render once
     // the stream is complete instead of printing raw Markdown as it arrives.
-    let show_thinking = super::resolve_show_thinking(cli, settings);
+    let show_thinking = hallucinate_agent::config::resolve_show_thinking(settings, cli.thinking);
 
     let mut response = String::new();
     let mut thinking = String::new();

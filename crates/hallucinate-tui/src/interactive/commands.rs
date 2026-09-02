@@ -3,7 +3,11 @@
 use std::path::PathBuf;
 
 use hallucinate_agent::ai::types::Message;
-use hallucinate_tui::{alt_screen::TranscriptRenderer, keys::Key};
+use hallucinate_session::{
+    commands::{BUILTIN_COMMANDS, resolve_builtin_command, parse},
+    manager::SessionManager,
+};
+use crate::{alt_screen::TranscriptRenderer, keys::Key};
 
 use super::{
     InteractiveTui,
@@ -13,7 +17,6 @@ use super::{
     session::transcript_from_messages,
     short_session_id,
 };
-use crate::session::manager::SessionManager;
 
 impl InteractiveTui {
     /// Load a selected session into both the agent and the visible transcript.
@@ -100,7 +103,7 @@ impl InteractiveTui {
                 if provider == &self.model.provider {
                     let model = self.model.clone();
                     let new_provider =
-                        crate::modes::create_provider_for_model(&self.cli, &self.settings, &model)?;
+                        hallucinate_agent::config::create_provider_for_model(&self.settings, self.common_args.base_url.as_ref(), self.common_args.api_key.as_ref(), &model)?;
 
                     self.agent
                         .as_mut()
@@ -108,9 +111,9 @@ impl InteractiveTui {
                         .set_model(
                             new_provider,
                             model,
-                            crate::modes::resolve_max_tokens(
-                                &self.cli,
+                            hallucinate_agent::config::resolve_max_tokens(
                                 &self.settings,
+                                self.common_args.max_tokens,
                                 &self.model,
                             ),
                         );
@@ -156,11 +159,11 @@ impl InteractiveTui {
         &mut self,
         content: &str,
     ) -> Result<bool, anyhow::Error> {
-        let Some(parsed) = crate::modes::commands::parse(content) else {
+        let Some(parsed) = parse(content) else {
             return Ok(false);
         };
 
-        let Some(command) = crate::modes::commands::resolve_builtin_command(&parsed.name) else {
+        let Some(command) = resolve_builtin_command(&parsed.name) else {
             return Ok(false);
         };
 
@@ -172,7 +175,7 @@ impl InteractiveTui {
             "help" => {
                 let mut lines = vec!["Built-in commands:".to_string()];
                 lines.extend(
-                    crate::modes::commands::BUILTIN_COMMANDS
+                    BUILTIN_COMMANDS
                         .iter()
                         .map(|command| format!("{} — {}", command.usage, command.description)),
                 );
@@ -695,8 +698,8 @@ impl InteractiveTui {
             return Ok(());
         }
 
-        let provider = crate::modes::create_provider_for_model(&self.cli, &self.settings, &model)?;
-        let max_tokens = crate::modes::resolve_max_tokens(&self.cli, &self.settings, &model);
+        let provider = hallucinate_agent::config::create_provider_for_model(&self.settings, self.common_args.base_url.as_ref(), self.common_args.api_key.as_ref(), &model)?;
+        let max_tokens = hallucinate_agent::config::resolve_max_tokens(&self.settings, self.common_args.max_tokens, &model);
 
         self.agent
             .as_mut()
@@ -770,7 +773,7 @@ impl InteractiveTui {
         let cwd_string = cwd.to_string_lossy().into_owned();
 
         self.session_manager
-            .create(crate::session::manager::SessionCreateOptions {
+            .create(hallucinate_session::manager::SessionCreateOptions {
                 title,
                 parent_session_id: None,
                 cwd: Some(cwd_string.clone()),
@@ -815,7 +818,7 @@ fn resolve_session_id(input: &str) -> Result<String, anyhow::Error> {
         return Err(anyhow::anyhow!("session id cannot be empty"));
     }
 
-    if crate::session::storage::SessionStorage::new(input).exists() {
+    if hallucinate_session::storage::SessionStorage::new(input).exists() {
         return Ok(input.to_string());
     }
 

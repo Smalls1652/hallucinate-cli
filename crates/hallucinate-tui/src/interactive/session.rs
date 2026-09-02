@@ -4,7 +4,7 @@ use hallucinate_agent::{
     agent::types::{AgentEvent, AgentState},
     ai::types::{AssistantContent, AssistantMessage, Message},
 };
-use hallucinate_tui::alt_screen::{
+use crate::alt_screen::{
     Message as TuiMessage,
     MessageRole,
     ToolCall as TuiToolCall,
@@ -205,7 +205,7 @@ impl InteractiveTui {
 /// thinking deltas are intentionally omitted: the completed assistant message
 /// is saved as a message entry, while these events preserve operational
 /// history.
-pub(crate) fn session_event(event: &AgentEvent) -> Option<(&'static str, serde_json::Value)> {
+pub fn session_event(event: &AgentEvent) -> Option<(&'static str, serde_json::Value)> {
     match event {
         AgentEvent::StateChanged {
             new_state,

@@ -13,167 +13,25 @@ use anyhow::Context;
 use hallucinate_agent::{
     agent::{
         runtime::Agent,
-        types::{AgentCancellation, AgentConfig, AgentEvent, AgentState},
+        types::{AgentCancellation, AgentEvent, AgentState},
     },
-    config::settings::Settings,
+    config::{CommonArgs, settings::Settings},
 };
-use hallucinate_tui::{
+use hallucinate_session::{
+    manager::{SessionManager},
+};
+use crate::{
     alt_screen::{Message as TuiMessage, MessageRole, TranscriptRenderer},
     components::Editor,
 };
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
-
-use crate::{cli::args::Cli, session::manager::SessionManager};
 
 mod commands;
 mod input;
 mod render;
 mod session;
 
-pub(crate) use session::session_event;
-
-/// Run interactive mode.
-pub async fn run(
-    cli: &Cli,
-    settings: &Settings,
-) -> Result<(), anyhow::Error> {
-    // Ensure directories exist
-    hallucinate_agent::config::paths::ensure_directories()?;
-
-    // Load settings from disk if available
-    let settings = Settings::load().unwrap_or_else(|_| settings.clone());
-
-    // Resolve model
-    let model = super::resolve_model(cli, &settings)?;
-
-    // Create the provider belonging to the selected model. This matters when
-    // the model came from a user-defined provider group.
-    let provider = super::create_provider_for_model(cli, &settings, &model)?;
-
-    // Create agent config
-    let agent_config = AgentConfig {
-        max_turns: settings.max_turns,
-        max_context_tokens: model.context_window,
-        enable_compaction: settings.enable_compaction,
-        enable_tools: settings.enable_tools,
-        temperature: settings.temperature,
-        max_tokens: super::resolve_max_tokens(cli, &settings, &model),
-        include_tool_definitions: true,
-    };
-
-    // Discover skills before creating the agent so their metadata can be
-    // included in the system prompt. Invalid skill files do not prevent the
-    // session from starting.
-    let cwd = std::env::current_dir().context("Failed to determine working directory")?;
-
-    let skills = hallucinate_agent::agent::skills::load_skills(
-        &hallucinate_agent::agent::skills::SkillLoadOptions {
-            cwd: cwd.clone(),
-            skill_paths: cli.skills.clone(),
-            include_defaults: !cli.no_skills,
-        },
-    );
-
-    for diagnostic in &skills.diagnostics {
-        eprintln!(
-            "Warning: could not load skill {}: {}",
-            hallucinate_agent::config::paths::display_path(&diagnostic.path, &cwd),
-            diagnostic.message
-        );
-    }
-
-    let prompt_template_options =
-        hallucinate_agent::agent::prompt_templates::PromptTemplateLoadOptions {
-            cwd: cwd.clone(),
-            prompt_paths: cli.prompt_templates.clone(),
-            include_defaults: !cli.no_prompt_templates,
-        };
-
-    let prompt_templates =
-        hallucinate_agent::agent::prompt_templates::load_prompt_templates(&prompt_template_options);
-
-    for diagnostic in &prompt_templates.diagnostics {
-        eprintln!(
-            "Warning: could not load prompt template {}: {}",
-            hallucinate_agent::config::paths::display_path(&diagnostic.path, &cwd),
-            diagnostic.message
-        );
-    }
-
-    // Create agent with all built-in tools.
-    let loaded_skills = skills.skills;
-
-    let mut agent = Agent::with_all_tools_and_image_resize_and_shell(
-        provider,
-        model.clone(),
-        agent_config,
-        settings.auto_resize_images,
-        super::resolve_shell(cli, &settings),
-    )
-    .with_cwd(cwd.to_string_lossy().into_owned())
-    .with_skills(loaded_skills.clone());
-
-    // Apply prompt overrides. Provider credentials and endpoint are resolved
-    // when `create_provider` constructs the provider.
-    if let Some(system_prompt) = &cli.system_prompt {
-        agent = agent.with_system_prompt(system_prompt.clone());
-    }
-
-    // Every interactive run has a concrete session before the UI starts, so
-    // user and assistant messages can never be silently discarded. `--session`
-    // restores validated history and the persisted cwd when it still exists.
-    let mut session_manager = SessionManager::new();
-
-    if let Some(session_id) = &cli.session {
-        let session = session_manager.resume(session_id)?;
-        let messages = session_manager
-            .current_storage()
-            .expect("resumed session has storage")
-            .load_messages()?;
-
-        agent.load_history(messages)?;
-        agent.set_cwd(session.cwd);
-    } else {
-        session_manager.create(crate::session::manager::SessionCreateOptions {
-            title: Some("Interactive session".to_string()),
-            parent_session_id: None,
-            cwd: Some(cwd.to_string_lossy().into_owned()),
-        })?;
-    }
-
-    // Subscribe to agent events
-    let event_rx = agent.subscribe();
-
-    // Create TUI
-    let mut models = super::available_models(&settings);
-    if !models
-        .iter()
-        .any(|candidate| candidate.provider == model.provider && candidate.id == model.id)
-    {
-        models.push(model.clone());
-        models.sort_by(|left, right| {
-            left.provider
-                .cmp(&right.provider)
-                .then_with(|| left.id.cmp(&right.id))
-        });
-    }
-
-    let mut tui = InteractiveTui::new(
-        agent,
-        event_rx,
-        session_manager,
-        prompt_templates.templates,
-        prompt_template_options,
-        loaded_skills,
-        cli.clone(),
-        settings.clone(),
-        model,
-        models,
-    )?;
-
-    // Run the TUI
-    tui.run().await
-}
+pub use self::session::session_event;
 
 const EPHEMERAL_NOTICE_DURATION: Duration = Duration::from_secs(4);
 
@@ -215,7 +73,7 @@ impl ChatSelection {
 }
 
 /// The interactive TUI application.
-struct InteractiveTui {
+pub struct InteractiveTui {
     terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
     keyboard_enhancement_enabled: bool,
     transcript: TranscriptRenderer,
@@ -260,7 +118,7 @@ struct InteractiveTui {
     skills: Vec<hallucinate_agent::agent::skills::Skill>,
     /// CLI overrides are retained so switching providers uses the same
     /// endpoint/key precedence as the initial model.
-    cli: Cli,
+    common_args: CommonArgs,
     settings: Settings,
     model: hallucinate_agent::ai::types::Model,
     models: Vec<hallucinate_agent::ai::types::Model>,
@@ -313,14 +171,14 @@ struct PromptPicker {
 impl InteractiveTui {
     /// Create a new `InteractiveTui`, setting up the terminal, raw mode, and
     /// alternate screen.
-    fn new(
+    pub fn new(
         agent: Agent,
         event_rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
         session_manager: SessionManager,
         prompt_templates: Vec<hallucinate_agent::agent::prompt_templates::PromptTemplate>,
         prompt_template_options: hallucinate_agent::agent::prompt_templates::PromptTemplateLoadOptions,
         skills: Vec<hallucinate_agent::agent::skills::Skill>,
-        cli: Cli,
+        common_args: CommonArgs,
         settings: Settings,
         model: hallucinate_agent::ai::types::Model,
         models: Vec<hallucinate_agent::ai::types::Model>,
@@ -399,7 +257,7 @@ impl InteractiveTui {
             .unwrap_or_else(|| PathBuf::from("."));
         let agent_state = agent.state().clone();
         let token_count = agent.estimate_tokens();
-        let show_thinking = super::resolve_show_thinking(&cli, &settings);
+        let show_thinking = hallucinate_agent::config::resolve_show_thinking(&settings, common_args.thinking);
 
         let (agent_completion_tx, agent_completion_rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -434,7 +292,7 @@ impl InteractiveTui {
             prompt_templates,
             prompt_template_options,
             skills,
-            cli,
+            common_args,
             settings,
             model,
             models,
@@ -462,7 +320,7 @@ impl InteractiveTui {
 
     /// Run the main TUI event loop. Terminal cleanup is performed even when
     /// rendering or input handling returns an error.
-    async fn run(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn run(&mut self) -> Result<(), anyhow::Error> {
         self.running = true;
 
         let result = self.run_loop();

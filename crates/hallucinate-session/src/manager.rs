@@ -9,7 +9,7 @@ use chrono::Utc;
 use hallucinate_agent::{ai::types::Message, config::paths};
 use uuid::Uuid;
 
-use crate::session::{
+use crate::{
     cwd::SessionCwd,
     storage::{SessionInfo, SessionStorage},
 };
@@ -310,7 +310,7 @@ fn validate_session_id(session_id: &str) -> Result<(), anyhow::Error> {
 impl SessionInfo {
     /// List all sessions (convenience method).
     pub fn list_all() -> Result<Vec<SessionInfo>, anyhow::Error> {
-        crate::session::storage::list_sessions()
+        crate::storage::list_sessions()
     }
 }
 
