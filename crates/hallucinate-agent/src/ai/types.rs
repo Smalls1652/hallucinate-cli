@@ -3,7 +3,7 @@
 //! Message types, tool definitions, model metadata, usage tracking, and event
 //! streams.
 
-use std::{fmt, path::Path};
+use std::{fmt, path::Path, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 
@@ -578,13 +578,19 @@ impl Model {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Context {
     /// System prompt to prepend to messages.
+    ///
+    /// This is reference-counted because an agent reuses the same immutable
+    /// prompt across request contexts in one conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_prompt: Option<String>,
+    pub system_prompt: Option<Arc<String>>,
     /// Conversation messages.
     pub messages: Vec<Message>,
     /// Available tools for the model.
+    ///
+    /// Tool schemas are immutable for a prepared request and are shared with
+    /// the agent's cached context base until tool configuration changes.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<Tool>>,
+    pub tools: Option<Arc<Vec<Tool>>>,
 }
 
 impl Context {
@@ -599,7 +605,7 @@ impl Context {
         mut self,
         prompt: impl Into<String>,
     ) -> Self {
-        self.system_prompt = Some(prompt.into());
+        self.system_prompt = Some(Arc::new(prompt.into()));
         self
     }
 
@@ -607,7 +613,7 @@ impl Context {
         mut self,
         tools: Vec<Tool>,
     ) -> Self {
-        self.tools = Some(tools);
+        self.tools = Some(Arc::new(tools));
         self
     }
 }

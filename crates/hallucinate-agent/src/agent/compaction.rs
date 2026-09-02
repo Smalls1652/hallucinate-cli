@@ -12,7 +12,31 @@ pub fn compact_messages(
     messages: &[Message],
     max_tokens: u32,
 ) -> Result<(Vec<Message>, Vec<String>), anyhow::Error> {
-    let total: u64 = messages.iter().map(estimate_message_tokens).sum();
+    let costs = messages
+        .iter()
+        .map(estimate_message_tokens)
+        .collect::<Vec<_>>();
+
+    compact_messages_with_costs(messages, &costs, max_tokens)
+}
+
+/// Compact history using caller-maintained per-message token costs.
+///
+/// `costs` must be in the same order as `messages`. The agent uses this path
+/// so threshold checks and compaction selection do not re-tokenize the entire
+/// transcript.
+pub fn compact_messages_with_costs(
+    messages: &[Message],
+    costs: &[u64],
+    max_tokens: u32,
+) -> Result<(Vec<Message>, Vec<String>), anyhow::Error> {
+    if messages.len() != costs.len() {
+        return Err(anyhow::anyhow!(
+            "message and token-cost counts differ during context compaction"
+        ));
+    }
+
+    let total: u64 = costs.iter().sum();
 
     if total <= u64::from(max_tokens) {
         return Ok((messages.to_vec(), Vec::new()));
@@ -31,8 +55,6 @@ pub fn compact_messages(
     // result must fit the requested budget even for a very large tool output.
     let summary_budget = u64::from(max_tokens / 3).max(16);
     let retained_budget = u64::from(max_tokens).saturating_sub(summary_budget);
-    let costs: Vec<u64> = messages.iter().map(estimate_message_tokens).collect();
-
     let mut retained_indices = Vec::new();
     let mut used = 0_u64;
 

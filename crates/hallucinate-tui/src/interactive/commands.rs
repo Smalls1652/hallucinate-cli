@@ -38,6 +38,7 @@ impl InteractiveTui {
 
         self.project_cwd = PathBuf::from(&session.cwd);
         agent.set_cwd(session.cwd);
+        agent.reload_system_prompt();
 
         self.transcript = transcript_from_messages(&messages);
         self.transcript.set_show_thinking(self.show_thinking);
@@ -371,8 +372,13 @@ impl InteractiveTui {
 
                 self.prompt_templates = result.templates;
 
+                if let Some(agent) = self.agent.as_mut() {
+                    agent.reload_system_prompt();
+                    self.token_count = agent.estimate_tokens();
+                }
+
                 self.show_notice(format!(
-                    "Reloaded {} prompt template{}.",
+                    "Reloaded {} prompt template{} and system prompt files.",
                     self.prompt_templates.len(),
                     if self.prompt_templates.len() == 1 {
                         ""
@@ -723,18 +729,15 @@ impl InteractiveTui {
         )
         .max_tokens;
 
-        self.agent
+        let agent = self
+            .agent
             .as_mut()
-            .expect("model changes require an idle agent")
-            .set_model(provider, model.clone(), max_tokens);
+            .expect("model changes require an idle agent");
+        agent.set_model(provider, model.clone(), max_tokens);
+        agent.reload_system_prompt();
 
         self.model = model.clone();
-
-        self.token_count = self
-            .agent
-            .as_ref()
-            .expect("agent was not moved")
-            .estimate_tokens();
+        self.token_count = agent.estimate_tokens();
 
         self.show_notice(format!(
             "Switched to {}/{} (context: {}, max output: {}).",

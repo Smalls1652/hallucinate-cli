@@ -2,9 +2,11 @@
 
 use std::{fmt, sync::Arc};
 
+use base64::Engine;
+use image::GenericImageView;
 use tokio::sync::Notify;
 
-use crate::ai::types::{AssistantMessage, Context, Message, StopReason};
+use crate::ai::types::{AssistantMessage, Context, ImageContent, Message, Model, StopReason, Tool};
 
 // ── Agent State ──────────────────────────────────────────────────────────────
 
@@ -321,97 +323,162 @@ pub struct PendingToolCall {
 
 // ── Message History ──────────────────────────────────────────────────────────
 
-/// Estimate the number of tokens in a message.
+/// Provider-neutral token estimator used for context pressure decisions.
 ///
-/// This is a rough approximation using character-based heuristics.
-/// For more accurate estimates, a proper tokenizer should be used.
-pub fn estimate_message_tokens(message: &Message) -> u64 {
-    match message {
-        crate::ai::types::Message::User(msg) => {
-            estimate_text_tokens(&msg.content) + estimate_image_tokens(msg.images.len())
-        },
+/// There is no dependable universal tokenizer for the OpenAI-compatible and
+/// custom models supported by this crate. This estimator deliberately uses the
+/// same conservative byte-based policy for every provider, so compaction
+/// occurs before an unknown provider context window is exceeded rather than
+/// after it.
+#[derive(Debug, Default)]
+pub struct TokenEstimator;
 
-        crate::ai::types::Message::Assistant(msg) => {
-            let mut tokens: u64 = 0;
-            for content in &msg.content {
-                match content {
-                    crate::ai::types::AssistantContent::Text(t) => {
-                        tokens += estimate_text_tokens(&t.text);
+impl TokenEstimator {
+    /// Create an estimator for `model`.
+    ///
+    /// The model is accepted to keep cache invalidation explicit at model
+    /// switches, even though the provider-neutral fallback is currently used
+    /// for all model families.
+    pub fn for_model(_model: &Model) -> Self {
+        Self
+    }
+
+    /// Return the conservative estimator for callers without model metadata,
+    /// including compatibility helpers and generic compaction.
+    pub fn fallback() -> Self {
+        Self
+    }
+
+    /// Estimate the number of tokens in one message, including wire framing.
+    pub fn estimate_message_tokens(
+        &self,
+        message: &Message,
+    ) -> u64 {
+        const MESSAGE_FRAMING_TOKENS: u64 = 4;
+
+        let content_tokens = match message {
+            Message::User(message) => {
+                self.estimate_text_tokens(&message.content)
+                    + message
+                        .images
+                        .iter()
+                        .map(estimate_image_tokens)
+                        .sum::<u64>()
+            },
+            Message::Assistant(message) => message
+                .content
+                .iter()
+                .map(|content| match content {
+                    crate::ai::types::AssistantContent::Text(text) => {
+                        self.estimate_text_tokens(&text.text)
                     },
-
-                    crate::ai::types::AssistantContent::Thinking(t) => {
-                        tokens += estimate_text_tokens(&t.thinking);
+                    crate::ai::types::AssistantContent::Thinking(thinking) => {
+                        self.estimate_text_tokens(&thinking.thinking)
                     },
-
-                    crate::ai::types::AssistantContent::ToolCall(tc) => {
-                        // Tool calls have overhead
-                        tokens += 10
-                            + estimate_text_tokens(&tc.name)
-                            + estimate_json_tokens(&tc.arguments);
+                    crate::ai::types::AssistantContent::ToolCall(call) => {
+                        10 + self.estimate_text_tokens(&call.name)
+                            + self.estimate_json_tokens(&call.arguments)
                     },
-                }
-            }
+                })
+                .sum(),
+            Message::ToolResult(message) => {
+                message
+                    .content
+                    .iter()
+                    .map(|content| self.estimate_text_tokens(&content.text))
+                    .sum::<u64>()
+                    + message
+                        .images
+                        .iter()
+                        .map(estimate_image_tokens)
+                        .sum::<u64>()
+            },
+        };
 
-            tokens
-        },
-
-        crate::ai::types::Message::ToolResult(msg) => {
-            let mut tokens: u64 = 0;
-
-            for content in &msg.content {
-                tokens += estimate_text_tokens(&content.text);
-            }
-
-            tokens + estimate_image_tokens(msg.images.len())
-        },
-    }
-}
-
-/// Estimate image-token usage conservatively when exact image dimensions are
-/// unavailable.
-fn estimate_image_tokens(count: usize) -> u64 {
-    count as u64 * 1_000
-}
-
-/// Estimate tokens from text using a simple heuristic (~4 chars per token).
-fn estimate_text_tokens(text: &str) -> u64 {
-    if text.is_empty() {
-        return 0;
+        MESSAGE_FRAMING_TOKENS + content_tokens
     }
 
-    (text.chars().count() as u64).div_ceil(4)
-}
+    /// Estimate system-prompt and tool-definition tokens which do not vary
+    /// with conversation history.
+    pub fn estimate_static_context_tokens(
+        &self,
+        system_prompt: Option<&str>,
+        tools: Option<&[Tool]>,
+    ) -> u64 {
+        let system_tokens = system_prompt.map_or(0, |prompt| self.estimate_text_tokens(prompt) + 4);
+        let tool_tokens = tools
+            .unwrap_or_default()
+            .iter()
+            .map(|tool| {
+                20 + self.estimate_text_tokens(&tool.name)
+                    + self.estimate_text_tokens(&tool.description)
+                    + self.estimate_json_tokens(&tool.parameters)
+            })
+            .sum::<u64>();
 
-/// Estimate tokens from a JSON value by serializing it to a string first.
-fn estimate_json_tokens(value: &serde_json::Value) -> u64 {
-    estimate_text_tokens(&value.to_string())
-}
-
-/// Estimate total tokens in a context.
-pub fn estimate_context_tokens(context: &Context) -> u64 {
-    let mut total: u64 = 0;
-
-    // System prompt overhead
-    if let Some(system) = &context.system_prompt {
-        total += estimate_text_tokens(system) + 4; // system message overhead
+        system_tokens + tool_tokens
     }
 
-    // Message overhead
-    for msg in &context.messages {
-        total += estimate_message_tokens(msg);
-    }
-
-    // Tool definitions overhead
-    if let Some(tools) = &context.tools {
-        for tool in tools {
-            total += 20
-                + estimate_text_tokens(&tool.name)
-                + estimate_text_tokens(&tool.description)
-                + estimate_json_tokens(&tool.parameters);
+    /// Estimate tokens with a provider-neutral conservative byte policy.
+    fn estimate_text_tokens(
+        &self,
+        text: &str,
+    ) -> u64 {
+        if text.is_empty() {
+            return 0;
         }
+
+        // Three bytes per token is intentionally more conservative than the
+        // legacy four-character approximation, especially for CJK text,
+        // emoji, JSON, and provider-specific tokenizers.
+        (text.len() as u64).div_ceil(3)
     }
 
-    total
+    /// Estimate a serialized JSON value without retaining the temporary
+    /// representation beyond this calculation.
+    fn estimate_json_tokens(
+        &self,
+        value: &serde_json::Value,
+    ) -> u64 {
+        self.estimate_text_tokens(&value.to_string())
+    }
+}
+
+/// Estimate visual input from dimensions using OpenAI's documented tiled-image
+/// approximation. If bytes cannot be decoded, reserve 1,000 tokens, the
+/// conservative fallback used for opaque or provider-specific image inputs.
+fn estimate_image_tokens(image: &ImageContent) -> u64 {
+    let decoded = base64::engine::general_purpose::STANDARD.decode(&image.data);
+    let Ok(bytes) = decoded else {
+        return 1_000;
+    };
+    let Ok(image) = image::load_from_memory(&bytes) else {
+        return 1_000;
+    };
+
+    let (width, height) = image.dimensions();
+    let tiles_wide = u64::from(width).div_ceil(512).max(1);
+    let tiles_high = u64::from(height).div_ceil(512).max(1);
+
+    85 + tiles_wide.saturating_mul(tiles_high).saturating_mul(170)
+}
+
+/// Estimate the number of tokens in a message with the conservative fallback.
+pub fn estimate_message_tokens(message: &Message) -> u64 {
+    TokenEstimator::fallback().estimate_message_tokens(message)
+}
+
+/// Estimate total tokens in a context with the conservative fallback.
+pub fn estimate_context_tokens(context: &Context) -> u64 {
+    let estimator = TokenEstimator::fallback();
+    estimator.estimate_static_context_tokens(
+        context.system_prompt.as_deref().map(String::as_str),
+        context.tools.as_deref().map(Vec::as_slice),
+    ) + context
+        .messages
+        .iter()
+        .map(|message| estimator.estimate_message_tokens(message))
+        .sum::<u64>()
 }
 
 #[cfg(test)]
@@ -420,11 +487,33 @@ mod tests {
     use crate::ai::types::{Api, AssistantContent, StopReason, TextContent, UserMessage};
 
     #[test]
-    fn test_estimate_text_tokens() {
-        // ~4 chars per token heuristic
-        assert_eq!(estimate_text_tokens("Hello"), 2);
-        assert_eq!(estimate_text_tokens("Hello, World!"), 4);
-        assert_eq!(estimate_text_tokens(""), 0);
+    fn fallback_estimator_handles_ascii_cjk_emoji_and_json() {
+        let estimator = TokenEstimator::fallback();
+
+        assert_eq!(estimator.estimate_text_tokens("Hello"), 2);
+        assert_eq!(estimator.estimate_text_tokens(""), 0);
+        assert!(estimator.estimate_text_tokens("こんにちは") >= 5);
+        assert!(estimator.estimate_text_tokens("😀😀😀") >= 4);
+        assert!(estimator.estimate_json_tokens(&serde_json::json!({"command": "echo hello"})) > 0);
+    }
+
+    #[test]
+    fn image_estimation_uses_decoded_dimensions_when_available() {
+        // A one-pixel PNG exercises the dimension-aware tiled estimate rather
+        // than the opaque-image fallback.
+        let mut bytes = Vec::new();
+        image::DynamicImage::new_rgb8(1, 1)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        let image = ImageContent::new(
+            base64::engine::general_purpose::STANDARD.encode(bytes),
+            "image/png",
+        );
+
+        assert_eq!(estimate_image_tokens(&image), 255);
     }
 
     #[test]

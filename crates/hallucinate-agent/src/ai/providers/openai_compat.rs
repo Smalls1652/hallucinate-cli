@@ -60,6 +60,11 @@ impl Default for OpenaiCompatConfig {
 pub struct OpenaiCompatProvider {
     /// Provider configuration (base URL, API key, timeout, etc.).
     config: OpenaiCompatConfig,
+    /// Validated custom and content-type headers shared by all requests.
+    ///
+    /// Header validation happens once at provider construction. Authorization
+    /// remains per request because command-line options may override the key.
+    static_headers: Result<HeaderMap, String>,
     /// HTTP client for making API requests.
     client: reqwest::Client,
 }
@@ -1063,7 +1068,31 @@ impl OpenaiCompatProvider {
             .build()
             .expect("Failed to create HTTP client");
 
-        Self { config, client }
+        let static_headers = Self::build_static_headers(&config);
+
+        Self {
+            config,
+            static_headers,
+            client,
+        }
+    }
+
+    /// Validate headers that are independent of the request API key.
+    fn build_static_headers(config: &OpenaiCompatConfig) -> Result<HeaderMap, String> {
+        let mut headers = HeaderMap::new();
+
+        for (key, value) in &config.headers {
+            let name = HeaderName::from_bytes(key.as_bytes())
+                .map_err(|error| format!("invalid header name {key:?}: {error}"))?;
+            let value = HeaderValue::from_str(value)
+                .map_err(|error| format!("invalid value for header {key:?}: {error}"))?;
+            headers.insert(name, value);
+        }
+        // Authentication and content type are controlled by the provider so a
+        // custom header cannot shadow the per-request credentials.
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+        Ok(headers)
     }
 
     /// Build the authorization header value.
@@ -1079,22 +1108,11 @@ impl OpenaiCompatProvider {
         &self,
         api_key: &str,
     ) -> Result<HeaderMap, ProviderError> {
-        let mut headers = HeaderMap::new();
-
-        for (key, value) in &self.config.headers {
-            let name = HeaderName::from_bytes(key.as_bytes()).map_err(|error| {
-                ProviderError::Configuration(format!("invalid header name {key:?}: {error}"))
-            })?;
-
-            let value = HeaderValue::from_str(value).map_err(|error| {
-                ProviderError::Configuration(format!("invalid value for header {key:?}: {error}"))
-            })?;
-
-            headers.insert(name, value);
-        }
-        // Authentication and content type are controlled by the provider so a
-        // per-request API-key override cannot be shadowed by a custom header.
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let mut headers = self
+            .static_headers
+            .as_ref()
+            .map_err(|error| ProviderError::Configuration(error.clone()))?
+            .clone();
         headers.insert(AUTHORIZATION, Self::auth_header(api_key)?);
 
         Ok(headers)
@@ -1501,6 +1519,7 @@ impl Provider for OpenaiCompatProvider {
         options: &StreamOptions,
     ) -> Pin<Box<dyn Future<Output = ProviderResult<AssistantMessageEventStream>> + Send + '_>>
     {
+        let request_build_started_at = std::time::Instant::now();
         let base_url = self.config.base_url.clone();
         let api_key = options
             .api_key
@@ -1517,6 +1536,13 @@ impl Provider for OpenaiCompatProvider {
                 self.build_responses_request_body(model, context, options),
             ),
         };
+        tracing::debug!(
+            elapsed_ms = request_build_started_at.elapsed().as_millis(),
+            message_count = context.messages.len(),
+            tool_count = context.tools.as_ref().map_or(0, |tools| tools.len()),
+            "built OpenAI-compatible request JSON"
+        );
+
         let model_id = model.id.clone();
         let model_api = model.api.clone();
         let model_provider = model.provider.clone();
@@ -1570,6 +1596,8 @@ impl Provider for OpenaiCompatProvider {
                     Err(error) => return Err(ProviderError::Http(error)),
                 }
             };
+
+            tracing::debug!(retry_count = attempt, "OpenAI-compatible request accepted");
 
             let stream = create_assistant_message_event_stream();
             let producer_stream = stream.clone();

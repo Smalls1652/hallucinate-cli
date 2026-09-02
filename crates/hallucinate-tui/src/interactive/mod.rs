@@ -232,7 +232,7 @@ impl InteractiveTui {
     /// Create a new `InteractiveTui`, setting up the terminal, raw mode, and
     /// alternate screen.
     pub fn new(
-        agent: Agent,
+        mut agent: Agent,
         event_rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
         session_manager: SessionManager,
         prompt_templates: Vec<hallucinate_agent::agent::prompt_templates::PromptTemplate>,
@@ -316,6 +316,9 @@ impl InteractiveTui {
             .map(PathBuf::from)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
+        // Initialize the immutable context once so the status-bar estimate
+        // and the first provider turn share the same prompt-file snapshot.
+        agent.reload_system_prompt();
         let agent_state = agent.state().clone();
         let token_count = agent.estimate_tokens();
         let show_thinking =

@@ -4,7 +4,11 @@
 //! with an LLM provider, including state transitions, event emission,
 //! and tool execution coordination.
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    cell::{Ref, RefCell},
+    sync::Arc,
+    time::Instant,
+};
 
 use futures::{StreamExt, stream};
 use tokio::sync::{Notify, mpsc};
@@ -12,16 +16,27 @@ use tokio::sync::{Notify, mpsc};
 use crate::{
     agent::{
         skills::Skill,
-        tools::ToolRegistry,
+        tools::{ToolRegistry, types::Tool as AgentTool},
         types::{
-            AgentCancellation, AgentConfig, AgentEvent, AgentState, PendingToolCall, TurnContext,
+            AgentCancellation, AgentConfig, AgentEvent, AgentState, PendingToolCall,
+            TokenEstimator, TurnContext,
         },
     },
     ai::{
         provider::Provider,
-        types::{AssistantContent, Context, Message, Model, StopReason, StreamOptions},
+        types::{AssistantContent, Context, Message, Model, StopReason, StreamOptions, Tool},
     },
 };
+
+/// Immutable request data shared by every turn until agent configuration
+/// changes. Keeping it separate prevents prompt-file reads and tool-schema
+/// conversion during ordinary context-pressure checks.
+#[derive(Debug, Clone)]
+struct ContextBase {
+    system_prompt: Arc<String>,
+    tools: Option<Arc<Vec<Tool>>>,
+    static_token_cost: u64,
+}
 
 /// The main agent struct that manages multi-turn conversations.
 ///
@@ -41,7 +56,15 @@ pub struct Agent {
     tool_registry: ToolRegistry,
     /// Message history.
     messages: Vec<Message>,
-    /// System prompt.
+    /// Cached token cost for each item in `messages`.
+    message_token_costs: Vec<u64>,
+    /// Sum of `message_token_costs`, maintained on every history mutation.
+    message_token_total: u64,
+    /// Token estimator used for the active model.
+    token_estimator: TokenEstimator,
+    /// Immutable request data, built lazily after configuration is complete.
+    context_base: RefCell<Option<ContextBase>>,
+    /// Explicit system-prompt override.
     system_prompt: Option<String>,
     /// Skills available for model-directed loading.
     skills: Vec<Skill>,
@@ -62,6 +85,8 @@ impl Agent {
         model: Model,
         config: AgentConfig,
     ) -> Self {
+        let token_estimator = TokenEstimator::for_model(&model);
+
         Self {
             config,
             state: AgentState::Idle,
@@ -69,6 +94,10 @@ impl Agent {
             model,
             tool_registry: ToolRegistry::new(),
             messages: Vec::new(),
+            message_token_costs: Vec::new(),
+            message_token_total: 0,
+            token_estimator,
+            context_base: RefCell::new(None),
             system_prompt: None,
             skills: Vec::new(),
             event_senders: Vec::new(),
@@ -87,6 +116,7 @@ impl Agent {
     ) -> Self {
         let mut agent = Self::new(provider, model, config);
         agent.tool_registry = ToolRegistry::with_all_builtins_and_image_resize(auto_resize_images);
+        agent.invalidate_context_base();
 
         agent
     }
@@ -112,6 +142,7 @@ impl Agent {
         let mut agent = Self::new(provider, model, config);
         agent.tool_registry =
             ToolRegistry::with_all_builtins_and_image_resize_and_shell(auto_resize_images, shell);
+        agent.invalidate_context_base();
 
         agent
     }
@@ -122,6 +153,7 @@ impl Agent {
         prompt: String,
     ) -> Self {
         self.system_prompt = Some(prompt);
+        self.invalidate_context_base();
 
         self
     }
@@ -132,6 +164,7 @@ impl Agent {
         skills: Vec<Skill>,
     ) -> Self {
         self.skills = skills;
+        self.invalidate_context_base();
 
         self
     }
@@ -142,8 +175,36 @@ impl Agent {
         cwd: String,
     ) -> Self {
         self.cwd = Some(cwd);
+        self.invalidate_context_base();
 
         self
+    }
+
+    /// Replace the explicit system-prompt override for future requests.
+    pub fn set_system_prompt(
+        &mut self,
+        prompt: Option<String>,
+    ) {
+        self.system_prompt = prompt;
+        self.invalidate_context_base();
+    }
+
+    /// Replace the skills available for model-directed loading.
+    pub fn set_skills(
+        &mut self,
+        skills: Vec<Skill>,
+    ) {
+        self.skills = skills;
+        self.invalidate_context_base();
+    }
+
+    /// Add a model-invocable tool and invalidate cached tool schemas.
+    pub fn add_tool(
+        &mut self,
+        tool: Arc<dyn AgentTool + Send + Sync>,
+    ) {
+        self.tool_registry.add_tool(tool);
+        self.invalidate_context_base();
     }
 
     /// Update the working directory when resuming a session.
@@ -152,6 +213,17 @@ impl Agent {
         cwd: String,
     ) {
         self.cwd = Some(cwd);
+        self.invalidate_context_base();
+    }
+
+    /// Reload `SYSTEM.md` and `AGENTS.md` for the current directory.
+    ///
+    /// Prompt files are otherwise read only when cached context data is
+    /// invalidated. This explicit operation makes external prompt edits
+    /// visible without adding filesystem metadata checks to every turn.
+    pub fn reload_system_prompt(&mut self) {
+        self.invalidate_context_base();
+        self.refresh_context_base();
     }
 
     /// Return the working directory used for project-local context files.
@@ -194,6 +266,9 @@ impl Agent {
         self.model = model.clone();
         self.config.max_context_tokens = model.context_window;
         self.config.max_tokens = max_tokens;
+        self.token_estimator = TokenEstimator::for_model(&model);
+        self.recalculate_message_token_costs();
+        self.invalidate_context_base();
     }
 
     /// Get the message history.
@@ -240,6 +315,7 @@ impl Agent {
         }
 
         self.messages = messages;
+        self.recalculate_message_token_costs();
         self.turn_context = None;
         self.cancellation = AgentCancellation::fresh();
 
@@ -276,10 +352,16 @@ impl Agent {
         });
     }
 
-    /// Build the context for an LLM request.
-    fn build_context(&self) -> Context {
-        let mut context = Context::new(self.messages.clone());
+    /// Mark immutable request data as stale after an agent configuration
+    /// change.
+    fn invalidate_context_base(&mut self) {
+        *self.context_base.borrow_mut() = None;
+    }
 
+    /// Build the immutable request data on demand.
+    fn refresh_context_base(&self) {
+        let started_at = Instant::now();
+        let prompt_refresh_started_at = Instant::now();
         let cwd = self.cwd.as_deref().map(std::path::Path::new);
         let mut system_prompt = crate::agent::system_prompt::build_system_prompt_for_cwd(
             self.system_prompt.as_deref(),
@@ -291,16 +373,94 @@ impl Agent {
                 &self.skills,
             ));
         }
-        context = context.with_system_prompt(system_prompt);
+        let prompt_refresh_ms = prompt_refresh_started_at.elapsed().as_millis();
 
-        if self.config.enable_tools
+        let tools = (self.config.enable_tools
             && self.config.include_tool_definitions
-            && !self.tool_registry.is_empty()
-        {
-            context = context.with_tools(self.tool_registry.to_ai_tools());
+            && !self.tool_registry.is_empty())
+        .then(|| self.tool_registry.to_ai_tools());
+        let token_estimation_started_at = Instant::now();
+        let static_token_cost = self
+            .token_estimator
+            .estimate_static_context_tokens(Some(&system_prompt), tools.as_deref());
+        let token_estimation_ms = token_estimation_started_at.elapsed().as_millis();
+
+        tracing::debug!(
+            elapsed_ms = started_at.elapsed().as_millis(),
+            prompt_refresh_ms,
+            token_estimation_ms,
+            system_prompt_chars = system_prompt.len(),
+            tool_count = tools.as_ref().map_or(0, Vec::len),
+            static_token_cost,
+            "refreshed cached agent context base"
+        );
+
+        *self.context_base.borrow_mut() = Some(ContextBase {
+            system_prompt: Arc::new(system_prompt),
+            tools: tools.map(Arc::new),
+            static_token_cost,
+        });
+    }
+
+    /// Return cached immutable request data, refreshing it after invalidation.
+    fn context_base(&self) -> Ref<'_, ContextBase> {
+        if self.context_base.borrow().is_none() {
+            self.refresh_context_base();
         }
 
+        Ref::map(self.context_base.borrow(), |context_base| {
+            context_base
+                .as_ref()
+                .expect("context base is initialized by refresh_context_base")
+        })
+    }
+
+    /// Build the context for one provider request.
+    fn build_context(&mut self) -> Context {
+        let started_at = Instant::now();
+        let context_base = self.context_base();
+        let context = Context {
+            system_prompt: Some(context_base.system_prompt.clone()),
+            messages: self.messages.clone(),
+            tools: context_base.tools.clone(),
+        };
+
+        tracing::debug!(
+            elapsed_ms = started_at.elapsed().as_millis(),
+            message_count = context.messages.len(),
+            "assembled request context"
+        );
+
         context
+    }
+
+    /// Recalculate cached message costs after bulk history replacement.
+    fn recalculate_message_token_costs(&mut self) {
+        let started_at = Instant::now();
+        self.message_token_costs = self
+            .messages
+            .iter()
+            .map(|message| self.token_estimator.estimate_message_tokens(message))
+            .collect();
+        self.message_token_total = self.message_token_costs.iter().sum();
+
+        tracing::debug!(
+            elapsed_ms = started_at.elapsed().as_millis(),
+            message_count = self.messages.len(),
+            message_token_total = self.message_token_total,
+            "recalculated cached message token costs"
+        );
+    }
+
+    /// Add a message and maintain its cached token cost.
+    fn push_message(
+        &mut self,
+        message: Message,
+    ) {
+        let token_cost = self.token_estimator.estimate_message_tokens(&message);
+        self.messages.push(message);
+        self.message_token_costs.push(token_cost);
+        self.message_token_total = self.message_token_total.saturating_add(token_cost);
     }
 
     /// Add a user message to the history.
@@ -310,7 +470,7 @@ impl Agent {
     ) {
         let msg = Message::User(crate::ai::types::UserMessage::new(content));
 
-        self.messages.push(msg);
+        self.push_message(msg);
     }
 
     /// Add an assistant message to the history.
@@ -318,7 +478,7 @@ impl Agent {
         &mut self,
         message: crate::ai::types::AssistantMessage,
     ) {
-        self.messages.push(Message::Assistant(message.clone()));
+        self.push_message(Message::Assistant(message.clone()));
     }
 
     /// Add a tool result message to the history.
@@ -326,8 +486,7 @@ impl Agent {
         &mut self,
         result: &crate::agent::tools::ToolResult,
     ) {
-        self.messages
-            .push(crate::agent::tools::types::tool_result_to_message_for_context(result));
+        self.push_message(crate::agent::tools::types::tool_result_to_message_for_context(result));
     }
 
     /// Extract tool calls from an assistant message.
@@ -354,13 +513,11 @@ impl Agent {
     async fn process_turn(
         &mut self,
         turn_number: u32,
+        context: Context,
     ) -> Result<StopReason, anyhow::Error> {
         // Emit turn started event
         self.emit(AgentEvent::TurnStarted { turn_number });
         self.turn_context = Some(TurnContext::new(turn_number));
-
-        // Build context
-        let context = self.build_context();
 
         // Build stream options
         let mut options = StreamOptions::new();
@@ -646,10 +803,14 @@ impl Agent {
                 return Err(anyhow::anyhow!(message));
             }
 
-            // Check context size for compaction
+            // Context pressure is an O(1) cached static cost plus cached
+            // history total. Only build the owned provider context once after
+            // any required compaction has completed.
             if self.config.enable_compaction {
-                let context = self.build_context();
-                let token_count = crate::agent::types::estimate_context_tokens(&context);
+                let token_count = self
+                    .context_base()
+                    .static_token_cost
+                    .saturating_add(self.message_token_total);
 
                 if token_count > u64::from(self.config.max_context_tokens)
                     && let Err(error) = self.compact_context()
@@ -663,9 +824,11 @@ impl Agent {
                 }
             }
 
+            let context = self.build_context();
+
             // Process the turn. Provider and stream failures are observable
             // state transitions, not merely errors returned to the caller.
-            let stop_reason = match self.process_turn(turn_number).await {
+            let stop_reason = match self.process_turn(turn_number, context).await {
                 Ok(reason) => reason,
                 Err(error) => {
                     if self.cancellation.is_cancelled() {
@@ -697,15 +860,9 @@ impl Agent {
     /// Compact the message context by summarizing older messages when the
     /// token budget is exceeded.
     fn compact_context(&mut self) -> Result<(), anyhow::Error> {
-        let before_tokens = crate::agent::types::estimate_context_tokens(&self.build_context());
-
-        let message_tokens: u64 = self
-            .messages
-            .iter()
-            .map(crate::agent::types::estimate_message_tokens)
-            .sum();
-
-        let non_message_tokens = before_tokens.saturating_sub(message_tokens);
+        let started_at = Instant::now();
+        let non_message_tokens = self.context_base().static_token_cost;
+        let before_tokens = non_message_tokens.saturating_add(self.message_token_total);
 
         let message_budget = u64::from(self.config.max_context_tokens)
             .saturating_sub(non_message_tokens)
@@ -717,8 +874,11 @@ impl Agent {
 
         // Compact only the message portion. The system prompt and tool
         // definitions remain in the context and consume their own budget.
-        let (remaining, summaries) =
-            crate::agent::compaction::compact_messages(&self.messages, message_budget as u32)?;
+        let (remaining, summaries) = crate::agent::compaction::compact_messages_with_costs(
+            &self.messages,
+            &self.message_token_costs,
+            message_budget as u32,
+        )?;
 
         // `compact_messages` returns retained history and summary text, not
         // pre-inserted messages. Insert the summary exactly once before the
@@ -732,8 +892,15 @@ impl Agent {
             })
             .chain(remaining)
             .collect();
+        self.recalculate_message_token_costs();
 
-        let after_tokens = crate::agent::types::estimate_context_tokens(&self.build_context());
+        let after_tokens = non_message_tokens.saturating_add(self.message_token_total);
+        tracing::debug!(
+            elapsed_ms = started_at.elapsed().as_millis(),
+            tokens_before = before_tokens,
+            tokens_after = after_tokens,
+            "compacted cached agent context"
+        );
 
         self.emit(AgentEvent::CompactionPerformed {
             tokens_before: before_tokens,
@@ -746,9 +913,9 @@ impl Agent {
 
     /// Get the estimated token count of the current context.
     pub fn estimate_tokens(&self) -> u64 {
-        let context = self.build_context();
-
-        crate::agent::types::estimate_context_tokens(&context)
+        self.context_base()
+            .static_token_cost
+            .saturating_add(self.message_token_total)
     }
 }
 
@@ -1064,7 +1231,7 @@ mod tests {
             test_model(),
             config,
         );
-        agent.tool_registry.add_tool(Arc::new(tool));
+        agent.add_tool(Arc::new(tool));
         let mut events = agent.subscribe();
         agent.add_user_message("run both calls");
 
@@ -1110,7 +1277,7 @@ mod tests {
             test_model(),
             config,
         );
-        agent.tool_registry.add_tool(Arc::new(tool));
+        agent.add_tool(Arc::new(tool));
         agent.add_user_message("run both calls");
         let cancellation = agent.cancellation();
         let run = tokio::spawn(async move {
@@ -1171,13 +1338,112 @@ mod tests {
     }
 
     #[test]
+    fn caches_prompt_files_until_explicit_reload() {
+        let directory =
+            std::env::temp_dir().join(format!("hallucinate-context-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("AGENTS.md"), "Initial instructions.").unwrap();
+
+        let mut agent = Agent::new(
+            Box::new(FauxProvider::new()),
+            test_model(),
+            AgentConfig::default(),
+        )
+        .with_system_prompt("Base prompt.".to_string())
+        .with_cwd(directory.to_string_lossy().into_owned());
+        let first = agent.build_context();
+        let first_prompt = first.system_prompt.as_ref().unwrap().clone();
+
+        std::fs::write(directory.join("AGENTS.md"), "Changed instructions.").unwrap();
+        let second = agent.build_context();
+
+        assert!(
+            second
+                .system_prompt
+                .as_ref()
+                .unwrap()
+                .contains("Initial instructions.")
+        );
+        assert!(Arc::ptr_eq(
+            first.system_prompt.as_ref().unwrap(),
+            second.system_prompt.as_ref().unwrap()
+        ));
+
+        agent.reload_system_prompt();
+        let refreshed = agent.build_context();
+        assert_ne!(refreshed.system_prompt.as_ref().unwrap(), &first_prompt);
+        assert!(
+            refreshed
+                .system_prompt
+                .as_ref()
+                .unwrap()
+                .contains("Changed instructions.")
+        );
+
+        let alternate_directory = directory.with_file_name(format!(
+            "hallucinate-context-cache-other-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&alternate_directory);
+        std::fs::create_dir_all(&alternate_directory).unwrap();
+        std::fs::write(alternate_directory.join("AGENTS.md"), "Other instructions.").unwrap();
+        agent.set_cwd(alternate_directory.to_string_lossy().into_owned());
+        let changed_cwd = agent.build_context();
+        assert!(
+            changed_cwd
+                .system_prompt
+                .as_ref()
+                .unwrap()
+                .contains("Other instructions.")
+        );
+
+        let _ = std::fs::remove_dir_all(directory);
+        let _ = std::fs::remove_dir_all(alternate_directory);
+    }
+
+    #[test]
+    fn cached_token_total_matches_a_full_context_recomputation() {
+        let config = AgentConfig {
+            max_context_tokens: 1_000,
+            ..AgentConfig::default()
+        };
+        let mut agent = Agent::new(Box::new(FauxProvider::new()), test_model(), config)
+            .with_system_prompt("Base prompt.".to_string());
+        agent.add_user_message("first message");
+        agent.add_assistant_message(AssistantMessage::new(
+            vec![AssistantContent::Text(crate::ai::types::TextContent::new(
+                "second message",
+            ))],
+            Api::OpenaiCompletions,
+            "test",
+            "test-model",
+            StopReason::Stop,
+        ));
+        agent.add_user_message("x".repeat(8_000));
+
+        let context = agent.build_context();
+        assert_eq!(
+            agent.message_token_total + agent.context_base().static_token_cost,
+            crate::agent::types::estimate_context_tokens(&context)
+        );
+
+        agent.compact().unwrap();
+        let compacted_context = agent.build_context();
+        assert_eq!(
+            agent.message_token_total + agent.context_base().static_token_cost,
+            crate::agent::types::estimate_context_tokens(&compacted_context)
+        );
+    }
+
+    #[test]
     fn excludes_tool_definitions_when_disabled() {
         let config = AgentConfig {
             include_tool_definitions: false,
             ..AgentConfig::default()
         };
 
-        let agent = Agent::with_all_tools_and_image_resize(
+        let mut agent = Agent::with_all_tools_and_image_resize(
             Box::new(FauxProvider::new()),
             test_model(),
             config,
@@ -1189,7 +1455,7 @@ mod tests {
 
     #[test]
     fn advertises_skills_when_the_read_tool_is_enabled() {
-        let agent = Agent::with_all_tools_and_image_resize(
+        let mut agent = Agent::with_all_tools_and_image_resize(
             Box::new(FauxProvider::new()),
             test_model(),
             AgentConfig::default(),
