@@ -5,8 +5,7 @@
 
 use std::{
     collections::HashMap,
-    fs,
-    io,
+    fs, io,
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -94,6 +93,42 @@ pub struct ProviderSettings {
     pub models: HashMap<String, ModelSettings>,
 }
 
+/// Select when a generated session title is requested.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SessionTitleGenerationMode {
+    /// Generate the title at the same time as the first agent response.
+    #[default]
+    Parallel,
+    /// Generate and save the title before the first agent response begins.
+    Before,
+}
+
+/// Configuration for generating titles from the first user message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionTitleSettings {
+    /// Whether new sessions receive an LLM-generated title.
+    #[serde(default = "default_enable_session_titles")]
+    pub enabled: bool,
+    /// Model selector used for title generation. When omitted, the active
+    /// conversation model is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Whether title generation runs alongside or before the first response.
+    #[serde(default)]
+    pub generation_mode: SessionTitleGenerationMode,
+}
+
+impl Default for SessionTitleSettings {
+    fn default() -> Self {
+        Self {
+            enabled: default_enable_session_titles(),
+            model: None,
+            generation_mode: SessionTitleGenerationMode::default(),
+        }
+    }
+}
+
 /// Application-wide settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -167,6 +202,10 @@ pub struct Settings {
     /// Default max tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+
+    /// Settings for generating a session title from its first user message.
+    #[serde(default, skip_serializing_if = "session_title_settings_is_default")]
+    pub session_title: SessionTitleSettings,
 
     /// Whether these settings include a project-local override. This is kept
     /// out of serialization so credential commands can update the global
@@ -262,6 +301,18 @@ fn default_max_concurrent_tool_calls() -> usize {
     4
 }
 
+/// Whether LLM-generated session titles are enabled by default.
+fn default_enable_session_titles() -> bool {
+    true
+}
+
+/// Return whether session-title settings are their default values.
+fn session_title_settings_is_default(settings: &SessionTitleSettings) -> bool {
+    settings.enabled == default_enable_session_titles()
+        && settings.model.is_none()
+        && settings.generation_mode == SessionTitleGenerationMode::default()
+}
+
 /// Merge a settings file into an already parsed TOML table.
 fn merge_settings_file(
     merged: &mut toml::Table,
@@ -339,6 +390,7 @@ impl Default for Settings {
             show_thinking: false,
             temperature: None,
             max_tokens: None,
+            session_title: SessionTitleSettings::default(),
             project_override_loaded: false,
         }
     }
@@ -690,6 +742,11 @@ mod tests {
             temperature = 0.2
             max_tokens = 256
 
+            [session_title]
+            enabled = true
+            model = "example/title-model"
+            generation_mode = "before"
+
             [credential_store.credentials.example]
             provider_id = "example"
             api_key = "sk-test"
@@ -713,6 +770,15 @@ mod tests {
         assert!(settings.show_thinking);
         assert_eq!(settings.max_concurrent_tool_calls, 2);
         assert_eq!(settings.max_tokens, Some(256));
+        assert!(settings.session_title.enabled);
+        assert_eq!(
+            settings.session_title.model.as_deref(),
+            Some("example/title-model")
+        );
+        assert_eq!(
+            settings.session_title.generation_mode,
+            SessionTitleGenerationMode::Before
+        );
         assert_eq!(
             settings.provider_headers.get("x-test"),
             Some(&"enabled".to_string())

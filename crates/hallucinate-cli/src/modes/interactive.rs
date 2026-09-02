@@ -94,6 +94,8 @@ pub async fn run(
     // restores validated history and the persisted cwd when it still exists.
     let mut session_manager = SessionManager::new();
 
+    let is_new_session = cli.session.is_none();
+
     if let Some(session_id) = &cli.session {
         let session = session_manager.resume(session_id)?;
         let storage = session_manager
@@ -109,7 +111,7 @@ pub async fn run(
         agent.set_cwd(session.cwd);
     } else {
         session_manager.create(hallucinate_session::manager::SessionCreateOptions {
-            title: Some("Interactive session".to_string()),
+            title: None,
             parent_session_id: None,
             cwd: Some(cwd.to_string_lossy().into_owned()),
         })?;
@@ -144,6 +146,8 @@ pub async fn run(
         settings.clone(),
         model,
         models,
+        settings.session_title.clone(),
+        is_new_session,
     )?;
 
     // Run the TUI

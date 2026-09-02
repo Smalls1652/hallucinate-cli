@@ -16,7 +16,10 @@ use hallucinate_agent::{
         runtime::Agent,
         types::{AgentCancellation, AgentEvent, AgentState},
     },
-    config::{RuntimeOverrides, settings::Settings},
+    config::{
+        RuntimeOverrides,
+        settings::{SessionTitleSettings, Settings},
+    },
 };
 use hallucinate_session::manager::SessionManager;
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
@@ -95,6 +98,14 @@ pub struct InteractiveTui {
     event_rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
     agent_completion_tx: tokio::sync::mpsc::UnboundedSender<AgentRunCompletion>,
     agent_completion_rx: tokio::sync::mpsc::UnboundedReceiver<AgentRunCompletion>,
+    title_completion_tx: tokio::sync::mpsc::UnboundedSender<SessionTitleCompletion>,
+    title_completion_rx: tokio::sync::mpsc::UnboundedReceiver<SessionTitleCompletion>,
+    /// Settings used to create a fresh provider for each generated title.
+    session_title_settings: SessionTitleSettings,
+    /// Agent waiting for a before-response title request to complete.
+    pending_title_agent: Option<Agent>,
+    /// Whether the current session is eligible to receive a generated title.
+    title_generation_pending: bool,
     /// The transcript entry receiving content from the current assistant
     /// stream.
     streaming_message_index: Option<usize>,
@@ -155,6 +166,12 @@ struct AgentRunCompletion {
     operation: Option<AgentRunOperation>,
 }
 
+/// The outcome of a background session-title request.
+struct SessionTitleCompletion {
+    /// The generated title, or an error suitable for a non-blocking notice.
+    result: Result<String, String>,
+}
+
 /// A completion shown for a slash command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AutocompleteItem {
@@ -183,9 +200,13 @@ struct SessionPicker {
 /// Display-ready data for one session-picker row.
 #[derive(Debug, Clone)]
 struct SessionPickerRow {
+    /// Full session ID used when the row is selected.
     id: String,
-    modified: String,
-    display_path: String,
+    /// Short session ID displayed in the picker.
+    short_id: String,
+    /// Last session activity time displayed in the picker.
+    datetime: String,
+    /// Human-readable session title.
     title: String,
 }
 
@@ -259,6 +280,8 @@ impl InteractiveTui {
         settings: Settings,
         model: hallucinate_agent::ai::types::Model,
         models: Vec<hallucinate_agent::ai::types::Model>,
+        session_title_settings: SessionTitleSettings,
+        title_generation_pending: bool,
     ) -> Result<Self, anyhow::Error> {
         // Use a raw stdout writer that we own
         let stdout = std::io::stdout();
@@ -341,6 +364,7 @@ impl InteractiveTui {
             hallucinate_agent::config::resolve_show_thinking(&settings, show_thinking_override);
 
         let (agent_completion_tx, agent_completion_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (title_completion_tx, title_completion_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let mut tui = Self {
             terminal,
@@ -362,6 +386,11 @@ impl InteractiveTui {
             event_rx,
             agent_completion_tx,
             agent_completion_rx,
+            title_completion_tx,
+            title_completion_rx,
+            session_title_settings,
+            pending_title_agent: None,
+            title_generation_pending,
             streaming_message_index: None,
             streaming_tool_call_indices: HashMap::new(),
             show_thinking,
@@ -425,13 +454,14 @@ impl InteractiveTui {
         while self.running {
             let received_delta = self.process_events();
             let completed_run = self.process_completed_runs();
+            let completed_title = self.process_completed_titles();
             if received_delta {
                 self.render_state.transcript = true;
                 self.render_state.status = true;
                 next_stream_render
                     .get_or_insert_with(|| Instant::now() + Duration::from_millis(16));
             }
-            if completed_run {
+            if completed_run || completed_title {
                 self.render_state.mark_all();
             }
 

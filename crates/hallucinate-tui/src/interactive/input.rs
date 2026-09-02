@@ -7,7 +7,7 @@ use std::{
 
 #[cfg(not(target_os = "macos"))]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use hallucinate_agent::ai::types::Message;
+use hallucinate_agent::{ai::types::Message, config::settings::SessionTitleGenerationMode};
 
 use super::{AgentRunCompletion, AutocompleteItem, ChatSelection, InteractiveTui};
 use crate::{
@@ -567,6 +567,11 @@ impl InteractiveTui {
         self.session_manager.save_message(&Message::User(
             hallucinate_agent::ai::types::UserMessage::new(&content),
         ))?;
+        let should_generate_title = self.title_generation_pending
+            && self
+                .session_manager
+                .current()
+                .is_some_and(|session| session.message_count == 1);
 
         // Save to history for navigation
         self.message_history.push(content.clone());
@@ -584,6 +589,52 @@ impl InteractiveTui {
         self.token_count = agent.estimate_tokens();
 
         self.agent_cancellation = Some(agent.cancellation());
+        if should_generate_title {
+            self.title_generation_pending = false;
+            let title_completion_tx = self.title_completion_tx.clone();
+            let title_content = content.clone();
+            let title_settings = self.session_title_settings.clone();
+            let settings = self.settings.clone();
+            let runtime_overrides = self.runtime_overrides.clone();
+            let conversation_model = self.model.clone();
+
+            let generate_title = async move {
+                let title_model = resolve_title_model(
+                    &title_settings,
+                    &settings,
+                    &runtime_overrides,
+                    &conversation_model,
+                )?;
+                let provider = hallucinate_agent::config::create_provider(
+                    &settings,
+                    &runtime_overrides,
+                    &title_model,
+                )?;
+
+                hallucinate_agent::ai::title::generate_session_title(
+                    provider.as_ref(),
+                    &title_model,
+                    &title_content,
+                )
+                .await
+            };
+
+            if self.session_title_settings.generation_mode == SessionTitleGenerationMode::Before {
+                self.pending_title_agent = Some(agent);
+                tokio::spawn(async move {
+                    let result = generate_title.await.map_err(|error| error.to_string());
+                    let _ = title_completion_tx.send(super::SessionTitleCompletion { result });
+                });
+
+                return Ok(());
+            }
+
+            tokio::spawn(async move {
+                let result = generate_title.await.map_err(|error| error.to_string());
+                let _ = title_completion_tx.send(super::SessionTitleCompletion { result });
+            });
+        }
+
         let completion_tx = self.agent_completion_tx.clone();
         tokio::spawn(async move {
             let result = agent
@@ -601,6 +652,25 @@ impl InteractiveTui {
 
         Ok(())
     }
+}
+
+/// Resolve the model used for a session-title request.
+fn resolve_title_model(
+    title_settings: &hallucinate_agent::config::settings::SessionTitleSettings,
+    settings: &hallucinate_agent::config::settings::Settings,
+    runtime_overrides: &hallucinate_agent::config::RuntimeOverrides,
+    conversation_model: &hallucinate_agent::ai::types::Model,
+) -> Result<hallucinate_agent::ai::types::Model, anyhow::Error> {
+    let Some(selector) = &title_settings.model else {
+        return Ok(conversation_model.clone());
+    };
+
+    hallucinate_agent::config::resolve_model_selector(
+        selector,
+        settings,
+        runtime_overrides.base_url.as_ref(),
+    )
+    .ok_or_else(|| anyhow::anyhow!("No title-generation model matches '{selector}'"))
 }
 
 /// Enable mouse reporting so the application can constrain selections to

@@ -6,15 +6,8 @@ use hallucinate_agent::ai::types::Message;
 use hallucinate_session::manager::SessionManager;
 
 use super::{
-    AgentRunCompletion,
-    AgentRunOperation,
-    InteractiveTui,
-    ModelPicker,
-    PromptPicker,
-    SessionPicker,
-    SessionPickerRow,
-    session::transcript_from_messages,
-    short_session_id,
+    AgentRunCompletion, AgentRunOperation, InteractiveTui, ModelPicker, PromptPicker,
+    SessionPicker, SessionPickerRow, session::transcript_from_messages, short_session_id,
 };
 use crate::{
     alt_screen::TranscriptRenderer,
@@ -57,6 +50,7 @@ impl InteractiveTui {
 
         self.streaming_message_index = None;
         self.streaming_tool_call_indices.clear();
+        self.title_generation_pending = false;
 
         self.message_history = messages
             .iter()
@@ -210,10 +204,12 @@ impl InteractiveTui {
                     return Ok(true);
                 }
 
-                let title = command_arguments(&arguments)
-                    .or_else(|| Some("Interactive session".to_string()));
-
-                self.create_empty_session(title)?;
+                let title = command_arguments(&arguments);
+                let title_generation_pending = title.is_none();
+                self.create_empty_session(
+                    title.or_else(|| Some("Interactive session".to_string())),
+                    title_generation_pending,
+                )?;
                 self.show_notice("Created a new session.");
             },
 
@@ -271,7 +267,7 @@ impl InteractiveTui {
 
                 SessionManager::delete_session(&session_id)?;
                 if deleting_current {
-                    self.create_empty_session(Some("Interactive session".to_string()))?;
+                    self.create_empty_session(Some("Interactive session".to_string()), true)?;
                 }
 
                 self.show_notice(format!(
@@ -470,12 +466,9 @@ impl InteractiveTui {
                     .unwrap_or_else(|| "untitled".to_string());
 
                 SessionPickerRow {
+                    short_id: short_session_id(&session.id).to_string(),
                     id: session.id.clone(),
-                    modified: session.modified_str(),
-                    display_path: hallucinate_agent::config::paths::display_path(
-                        &session.path,
-                        &self.project_cwd,
-                    ),
+                    datetime: session.modified_str(),
                     title,
                 }
             })
@@ -813,6 +806,7 @@ impl InteractiveTui {
     fn create_empty_session(
         &mut self,
         title: Option<String>,
+        title_generation_pending: bool,
     ) -> Result<(), anyhow::Error> {
         let cwd = std::env::current_dir()?;
         let cwd_string = cwd.to_string_lossy().into_owned();
@@ -839,6 +833,8 @@ impl InteractiveTui {
 
         self.streaming_message_index = None;
         self.streaming_tool_call_indices.clear();
+        self.title_generation_pending =
+            title_generation_pending && self.session_title_settings.enabled;
         self.message_history.clear();
         self.history_index = 0;
         self.token_count = agent.estimate_tokens();

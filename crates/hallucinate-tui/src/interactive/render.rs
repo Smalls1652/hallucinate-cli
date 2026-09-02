@@ -8,7 +8,7 @@ use ratatui::layout::Rect;
 use ratatui::{style::Color, text::Line};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::{InteractiveTui, short_session_id};
+use super::InteractiveTui;
 use crate::{
     alt_screen::{MessageRole, ToolCall, TranscriptRenderer},
     components::markdown_to_lines,
@@ -168,6 +168,11 @@ impl InteractiveTui {
                 .current_id()
                 .map(|id| &id[..8.min(id.len())])
                 .unwrap_or("none");
+            let session_title = self
+                .session_manager
+                .current()
+                .and_then(|session| session.title.as_deref())
+                .filter(|title| !title.trim().is_empty());
 
             let token_count = self.token_count;
 
@@ -190,7 +195,14 @@ impl InteractiveTui {
                 Span::styled(state_str, Style::default().fg(Color::Yellow)),
                 Span::styled("] ", Style::default().fg(Color::DarkGray)),
                 Span::styled("session:", Style::default().fg(Color::DarkGray)),
-                Span::styled(session_id, Style::default().fg(Color::Green)),
+                if let Some(title) = session_title {
+                    Span::styled(
+                        truncate_one_line(title, 48),
+                        Style::default().fg(Color::White),
+                    )
+                } else {
+                    Span::styled(session_id, Style::default().fg(Color::Green))
+                },
                 Span::styled(" | ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     format!("{} tokens", token_count),
@@ -749,9 +761,10 @@ impl InteractiveTui {
                             .map(|(index, session)| {
                                 let marker = if index == picker.selected { "> " } else { "  " };
 
-                                let metadata = format!(
-                                    "{} · {} · {}",
-                                    session.modified, session.display_path, session.title
+                                let datetime = &session.datetime;
+                                let title = truncate_one_line(
+                                    &session.title,
+                                    usize::from(popup_width.saturating_sub(34)),
                                 );
 
                                 Line::from(vec![
@@ -764,10 +777,14 @@ impl InteractiveTui {
                                         }),
                                     ),
                                     Span::styled(
-                                        format!("{} — ", short_session_id(&session.id)),
+                                        format!("{:<8}  ", session.short_id),
                                         Style::default().fg(Color::Cyan),
                                     ),
-                                    Span::styled(metadata, Style::default().fg(Color::DarkGray)),
+                                    Span::styled(
+                                        format!("{datetime:<16}  "),
+                                        Style::default().fg(Color::DarkGray),
+                                    ),
+                                    Span::styled(title, Style::default().fg(Color::White)),
                                 ])
                             })
                             .collect::<Vec<_>>();

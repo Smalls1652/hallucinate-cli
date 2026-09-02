@@ -5,12 +5,9 @@ use hallucinate_agent::{
     ai::types::{AssistantContent, AssistantMessage, Message, ToolCall as AgentToolCall},
 };
 
-use super::{AgentRunOperation, InteractiveTui};
+use super::{AgentRunCompletion, AgentRunOperation, InteractiveTui};
 use crate::alt_screen::{
-    Message as TuiMessage,
-    MessageRole,
-    ToolCall as TuiToolCall,
-    TranscriptRenderer,
+    Message as TuiMessage, MessageRole, ToolCall as TuiToolCall, TranscriptRenderer,
 };
 
 impl InteractiveTui {
@@ -192,6 +189,48 @@ impl InteractiveTui {
             self.streaming_tool_call_indices
                 .insert(content_index, tool_call_index);
         }
+    }
+
+    /// Restore completed agents and display their responses without blocking
+    /// terminal input or rendering.
+    pub(super) fn process_completed_titles(&mut self) -> bool {
+        let mut completed_title = false;
+
+        while let Ok(completion) = self.title_completion_rx.try_recv() {
+            completed_title = true;
+
+            match completion.result {
+                Ok(title) => {
+                    if let Err(error) = self.session_manager.rename_current(Some(title)) {
+                        self.show_notice(format!(
+                            "Could not save generated session title: {error}"
+                        ));
+                    }
+                },
+                Err(error) => {
+                    self.show_notice(format!("Could not generate session title: {error}"))
+                },
+            }
+
+            if let Some(agent) = self.pending_title_agent.take() {
+                let completion_tx = self.agent_completion_tx.clone();
+                tokio::spawn(async move {
+                    let mut agent = agent;
+                    let result = agent
+                        .run()
+                        .await
+                        .map(|_| ())
+                        .map_err(|error| error.to_string());
+                    let _ = completion_tx.send(AgentRunCompletion {
+                        agent,
+                        result,
+                        operation: None,
+                    });
+                });
+            }
+        }
+
+        completed_title
     }
 
     /// Restore completed agents and display their responses without blocking

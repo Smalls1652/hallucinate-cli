@@ -78,7 +78,7 @@ impl SessionManager {
         // Create initial session file
         let storage = SessionStorage::new(&session_id);
 
-        let title = options.title.or_else(|| Some("New Session".to_string()));
+        let title = options.title;
 
         storage.save_metadata(
             title.clone(),

@@ -22,6 +22,9 @@ Complete reference for all configuration options in `hallucinate`.
 | `show_thinking` | `bool` | `false` | Show model reasoning output to the user. |
 | `temperature` | `number` | — | Default sampling temperature. |
 | `max_tokens` | `number` | — | Default maximum output tokens. |
+| `session_title.enabled` | `bool` | `true` | Generate a title from a session's first user message. |
+| `session_title.model` | `string` | Active model | Model selector used to generate session titles. |
+| `session_title.generation_mode` | `string` | `"parallel"` | Generate alongside (`parallel`) or before (`before`) the first response. |
 | `providers` | `table` | — | Multi-provider model definitions. |
 | `credential_store` | `table` | — | Stored API keys per provider. |
 | `provider_headers` | `table` | — | Extra HTTP headers for the default provider. |
@@ -219,6 +222,25 @@ Default maximum output tokens for LLM calls.
 ```toml
 max_tokens = 4096
 ```
+
+### `session_title`
+
+Controls automatic titles for interactive sessions. A title is generated only
+for the first user message in a session; existing titles and later messages
+are not changed. Failures leave the current title unchanged and are shown as a
+non-blocking notice.
+
+```toml
+[session_title]
+enabled = true
+model = "openai/gpt-4o-mini"
+generation_mode = "parallel" # or "before"
+```
+
+`model` defaults to the model selected for the conversation. With
+`generation_mode = "parallel"` (the default), title generation and the first
+agent response run concurrently. `"before"` saves the generated title before
+starting the first agent response.
 
 ### `provider_headers`
 
@@ -422,6 +444,11 @@ enable_compaction = true
 show_thinking = false
 temperature = 0.7
 max_tokens = 32_768
+
+[session_title]
+enabled = true
+model = "openai/gpt-4o"
+generation_mode = "parallel"
 
 [provider_headers]
 x-request-source = "hallucinate"
