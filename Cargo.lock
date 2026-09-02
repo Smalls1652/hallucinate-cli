@@ -1090,10 +1090,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hallucinate-macros"
-version = "0.1.0"
-
-[[package]]
 name = "hallucinate-session"
 version = "0.1.0"
 dependencies = [

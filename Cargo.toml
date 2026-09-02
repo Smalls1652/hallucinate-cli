@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/hallucinate-cli", "crates/hallucinate-agent", "crates/hallucinate-macros", "crates/hallucinate-session", "crates/hallucinate-tui"]
+members = ["crates/hallucinate-cli", "crates/hallucinate-agent", "crates/hallucinate-session", "crates/hallucinate-tui"]
 resolver = "3"
 
 [workspace.package]
