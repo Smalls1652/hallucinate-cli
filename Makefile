@@ -149,7 +149,7 @@ build-release-artifacts:
 
 # Perform a release install from the repo.
 install:
-	@cargo install --path "./crates/hallucinate" --locked
+	@cargo install --path "./crates/hallucinate-cli" --locked
 
 # Clean the Rust target directory.
 clean:
