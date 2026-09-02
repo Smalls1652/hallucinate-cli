@@ -1076,37 +1076,17 @@ name = "hallucinate-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.23.1",
- "chrono",
  "clap",
- "comrak",
- "crossterm",
- "directories",
  "futures",
- "glob",
  "hallucinate-agent",
  "hallucinate-session",
  "hallucinate-tui",
- "image",
  "mockito",
- "path-absolutize",
- "ratatui",
- "regex",
- "reqwest",
  "serde",
  "serde_json",
- "serde_yaml",
- "shellexpand",
- "thiserror 2.0.20",
  "tokio",
- "tokio-stream",
- "tokio-test",
- "toml",
  "tracing",
  "tracing-subscriber",
- "unicode-width",
- "uuid",
- "which",
 ]
 
 [[package]]
@@ -1983,21 +1963,6 @@ dependencies = [
  "smallvec",
  "windows-link",
 ]
-
-[[package]]
-name = "path-absolutize"
-version = "4.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f808742975794703469f67a28dd14b1d1009a1743c18b0353b4b951dbb0068ad"
-dependencies = [
- "path-dedot",
-]
-
-[[package]]
-name = "path-dedot"
-version = "4.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03351d0f1c066c114015408dc6a3e101f080fc03ef9d8d799aa58ec760cac5a6"
 
 [[package]]
 name = "percent-encoding"
@@ -3346,28 +3311,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-stream"
-version = "0.1.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3d06f0b082ba57c26b79407372e57cf2a1e28124f78e9479fe80322cf53420b"
-dependencies = [
- "futures-core",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
-name = "tokio-test"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f6d24790a10a7af737693a3e8f1d03faef7e6ca0cc99aae5066f533766de545"
-dependencies = [
- "futures-core",
- "tokio",
- "tokio-stream",
-]
-
-[[package]]
 name = "tokio-util"
 version = "0.7.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3865,15 +3808,6 @@ dependencies = [
  "lazy_static",
  "serde",
  "wezterm-dynamic",
-]
-
-[[package]]
-name = "which"
-version = "8.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bae2f2b2b816647a1cab1acc91f5bd20812d53cb344382635ec2181940c8034f"
-dependencies = [
- "libc",
 ]
 
 [[package]]

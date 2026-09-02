@@ -21,33 +21,13 @@ hallucinate-tui.workspace = true
 hallucinate-session.workspace = true
 
 anyhow.workspace = true
-base64.workspace = true
-chrono.workspace = true
 clap.workspace = true
-comrak.workspace = true
-crossterm.workspace = true
-directories.workspace = true
 futures.workspace = true
-glob.workspace = true
-image = { workspace = true, default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
-path-absolutize.workspace = true
-ratatui.workspace = true
-regex.workspace = true
-reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_yaml.workspace = true
-shellexpand.workspace = true
-thiserror.workspace = true
 tokio = { workspace = true, default-features = false, features = ["fs", "macros", "process", "rt", "rt-multi-thread"] }
-tokio-stream.workspace = true
-toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-unicode-width.workspace = true
-uuid.workspace = true
-which.workspace = true
 
 [dev-dependencies]
 mockito.workspace = true
-tokio-test.workspace = true
