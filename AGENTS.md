@@ -19,6 +19,7 @@ Key features:
 
 - **LLM Provider Abstraction**: OpenAI API-compatible provider supporting any compatible endpoint (OpenAI, Azure, Ollama, vLLM, LM Studio, etc.) with multi-provider model support via `providers` config section
 - **Agent Runtime**: Single `Agent` struct in `hallucinate-agent::agent::runtime` owns the production turn-loop, builds context, executes tool calls, and emits lifecycle events
+- **Context Compaction**: Context-history selection at turn boundaries with serialization for LLM-backed summarization; preserves complete user turns
 - **Terminal UI**: Built on `ratatui` with alternate screen, multi-line editor with keyboard enhancements, undo support, model picker overlay, and markdown rendering
 - **Multiple Modes**: Interactive (TUI), print (`-p "prompt"`), and RPC (newline-delimited JSON-RPC 2.0 over stdin/stdout)
 - **Session Management**: CLI-oriented JSONL persistence with CRUD operations and lifecycle archival (via `hallucinate-session`)
@@ -107,6 +108,7 @@ crates/
 │   │   │   ├── provider.rs  # Provider trait + dispatch
 │   │   │   ├── streaming.rs # Event stream protocol
 │   │   │   ├── images.rs    # Image support (base64, auto-resize)
+│   │   │   ├── title.rs     # Session title generation
 │   │   │   ├── auth.rs      # OAuth, credential store (multi-provider)
 │   │   │   └── providers/
 │   │   │       ├── mod.rs
@@ -116,7 +118,7 @@ crates/
 │   │   │   ├── mod.rs
 │   │   │   ├── runtime.rs   # Agent struct, turn-loop, tool execution, events
 │   │   │   ├── types.rs     # Agent-specific types
-│   │   │   ├── compaction.rs    # Context window management
+│   │   │   ├── compaction.rs    # Context-history selection and serialization
 │   │   │   ├── system_prompt.rs # System prompt assembly
 │   │   │   ├── prompt_templates.rs # Prompt template system
 │   │   │   ├── skills.rs        # Skills loading and execution (.agents protocol)
@@ -129,6 +131,8 @@ crates/
 │   │   │       ├── grep.rs      # Pattern-based search
 │   │   │       ├── ls.rs        # Directory listing
 │   │   │       ├── paths.rs     # Shared filesystem path resolution
+│   │   │       ├── limits.rs    # Tool output size limits
+│   │   │       ├── walker.rs    # Filesystem traversal
 │   │   │       ├── read.rs      # File read
 │   │   │       └── write.rs     # File write
 │   │   └── config/          # Settings and paths
@@ -138,12 +142,21 @@ crates/
 │   └── Cargo.toml
 ├── hallucinate-session/     # CLI-oriented JSONL session persistence
 │   ├── src/
+│   │   ├── lib.rs           # Crate root, re-exports
 │   │   ├── manager.rs       # Session lifecycle and event archival
-│   │   └── storage.rs       # JSONL records and metadata
+│   │   ├── storage.rs       # JSONL records and metadata
+│   │   ├── cwd.rs           # Legacy .cwd.json sidecar migration
+│   │   └── events.rs        # Session event types and serialization
 │   └── Cargo.toml
 └── hallucinate-tui/         # Terminal UI and interactive controller
     ├── src/
+    │   ├── lib.rs           # Crate root, re-exports
     │   ├── interactive/     # Controller, commands, input, render, session sync
+    │   │   ├── mod.rs
+    │   │   ├── commands.rs  # Interactive command handling
+    │   │   ├── input.rs     # Interactive input processing
+    │   │   ├── render.rs    # Interactive rendering
+    │   │   └── session.rs   # Session sync and management
     │   ├── slash_commands.rs # Canonical interactive command catalog
     │   ├── alt_screen.rs    # Alternate screen renderer
     │   ├── components/      # UI components
