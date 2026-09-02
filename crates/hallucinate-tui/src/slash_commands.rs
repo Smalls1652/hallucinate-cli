@@ -66,14 +66,9 @@ pub const BUILTIN_COMMANDS: &[CommandInfo] = &[
         description: "Create and switch to a new session",
     },
     CommandInfo {
-        name: "sessions",
-        usage: "/sessions",
-        description: "List saved sessions",
-    },
-    CommandInfo {
         name: "resume",
-        usage: "/resume <id>",
-        description: "Resume a saved session",
+        usage: "/resume [id]",
+        description: "List saved sessions or resume one by ID",
     },
     CommandInfo {
         name: "fork",

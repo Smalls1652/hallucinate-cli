@@ -221,13 +221,11 @@ impl InteractiveTui {
                 self.show_notice("Created a new session.");
             },
 
-            "sessions" => self.open_session_picker(),
-
             "resume" => {
                 let Some(session_id) = command_arguments(&arguments)
                     .and_then(|value| value.split_whitespace().next().map(str::to_owned))
                 else {
-                    self.show_notice("Usage: /resume <session-id>");
+                    self.open_session_picker();
                     return Ok(true);
                 };
 
