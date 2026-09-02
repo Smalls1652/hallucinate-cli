@@ -14,7 +14,12 @@ use futures::stream::Stream;
 use tokio::sync::mpsc;
 
 use crate::ai::types::{
-    AssistantContent, AssistantMessage, StopReason, TextContent, ThinkingContent, ToolCall,
+    AssistantContent,
+    AssistantMessage,
+    StopReason,
+    TextContent,
+    ThinkingContent,
+    ToolCall,
 };
 
 // ── Event Types ──────────────────────────────────────────────────────────────

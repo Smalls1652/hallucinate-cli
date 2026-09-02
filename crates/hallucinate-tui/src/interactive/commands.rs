@@ -6,8 +6,13 @@ use hallucinate_agent::ai::types::Message;
 use hallucinate_session::manager::SessionManager;
 
 use super::{
-    InteractiveTui, ModelPicker, PromptPicker, SessionPicker, SessionPickerRow,
-    session::transcript_from_messages, short_session_id,
+    InteractiveTui,
+    ModelPicker,
+    PromptPicker,
+    SessionPicker,
+    SessionPickerRow,
+    session::transcript_from_messages,
+    short_session_id,
 };
 use crate::{
     alt_screen::TranscriptRenderer,

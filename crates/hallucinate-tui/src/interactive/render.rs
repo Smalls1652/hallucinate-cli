@@ -270,8 +270,9 @@ impl InteractiveTui {
 
                         if self.show_thinking && !msg.thinking.is_empty() {
                             // Reasoning is deliberately styled as a secondary
-                            // surface: muted text plus a subtle background makes
-                            // it visually distinct from the answer while keeping
+                            // surface: muted text plus a subtle background
+                            // makes it visually
+                            // distinct from the answer while keeping
                             // it readable during long streams.
                             let thinking_style = Style::default()
                                 .fg(Color::Gray)
@@ -333,8 +334,10 @@ impl InteractiveTui {
                                 {
                                     lines.push(prefix_message_line(line, role_color));
 
-                                    // The first two cells are the decorative rail;
-                                    // only user and assistant message bodies are
+                                    // The first two cells are the decorative
+                                    // rail;
+                                    // only user and assistant message bodies
+                                    // are
                                     // selectable.
                                     line_starts.push(selectable_start);
                                 }
@@ -352,8 +355,9 @@ impl InteractiveTui {
                             // If the previous line is not an empty card rail,
                             // push an empty card rail. This may seem
                             // counter-intuitive,
-                            // considering the last thing done is removing an empty
-                            // card rail from a body; however, this is genuinely
+                            // considering the last thing done is removing an
+                            // empty card rail from
+                            // a body; however, this is genuinely
                             // a tough one to keep track of.
                             if !lines.last().is_some_and(line_is_empty_card_rail) {
                                 lines.push(Line::from(Span::styled("│ ", role_color)));
@@ -407,8 +411,9 @@ impl InteractiveTui {
                             lines.push(Line::from(""));
                             line_starts.push(None);
                         } else {
-                            // Consecutive assistant turns share this card; leave
-                            // a quiet in-card divider between their content.
+                            // Consecutive assistant turns share this card;
+                            // leave a quiet in-card
+                            // divider between their content.
                             lines.push(Line::from(Span::styled("│ ", role_color)));
                             line_starts.push(None);
                         }

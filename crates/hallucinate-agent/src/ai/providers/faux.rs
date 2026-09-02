@@ -14,8 +14,15 @@ use crate::ai::{
     provider::{Provider, ProviderResult},
     streaming::{AssistantMessageEvent, create_assistant_message_event_stream},
     types::{
-        Api, AssistantContent, AssistantMessage, Context, Model, StopReason, StreamOptions,
-        TextContent, ToolCall,
+        Api,
+        AssistantContent,
+        AssistantMessage,
+        Context,
+        Model,
+        StopReason,
+        StreamOptions,
+        TextContent,
+        ToolCall,
     },
 };
 

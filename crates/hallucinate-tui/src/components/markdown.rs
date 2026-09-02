@@ -6,7 +6,8 @@
 //! when it wraps a line.
 
 use comrak::{
-    Arena, Options,
+    Arena,
+    Options,
     nodes::{ListType, NodeValue, TableAlignment},
     parse_document,
 };

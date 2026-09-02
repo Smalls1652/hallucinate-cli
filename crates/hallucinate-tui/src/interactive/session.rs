@@ -7,7 +7,10 @@ use hallucinate_agent::{
 
 use super::InteractiveTui;
 use crate::alt_screen::{
-    Message as TuiMessage, MessageRole, ToolCall as TuiToolCall, TranscriptRenderer,
+    Message as TuiMessage,
+    MessageRole,
+    ToolCall as TuiToolCall,
+    TranscriptRenderer,
 };
 
 impl InteractiveTui {

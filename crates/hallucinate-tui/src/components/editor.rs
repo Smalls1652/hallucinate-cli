@@ -1099,7 +1099,8 @@ mod tests {
 
         assert_eq!(editor.cursor_pos, 0);
 
-        // Skip past "ab😀" (bytes 0..5) → should land at byte offset 6 (the space).
+        // Skip past "ab😀" (bytes 0..5) → should land at byte offset 6 (the
+        // space).
         editor.handle_key(Key::with_modifiers(KeyCode::Right, KeyModifiers::ALT));
         assert_eq!(editor.cursor_pos, 6);
 

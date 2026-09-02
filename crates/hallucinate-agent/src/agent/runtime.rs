@@ -18,8 +18,13 @@ use crate::{
         skills::Skill,
         tools::{ToolRegistry, types::Tool as AgentTool},
         types::{
-            AgentCancellation, AgentConfig, AgentEvent, AgentState, PendingToolCall,
-            TokenEstimator, TurnContext,
+            AgentCancellation,
+            AgentConfig,
+            AgentEvent,
+            AgentState,
+            PendingToolCall,
+            TokenEstimator,
+            TurnContext,
         },
     },
     ai::{

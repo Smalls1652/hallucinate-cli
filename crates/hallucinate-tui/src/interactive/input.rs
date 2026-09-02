@@ -5,16 +5,16 @@ use std::{
     time::Duration,
 };
 
-use crate::{
-    alt_screen::{Message as TuiMessage, MessageRole},
-    input::parse_event,
-    keys::Key,
-};
 #[cfg(not(target_os = "macos"))]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use hallucinate_agent::ai::types::Message;
 
 use super::{AgentRunCompletion, AutocompleteItem, ChatSelection, InteractiveTui};
+use crate::{
+    alt_screen::{Message as TuiMessage, MessageRole},
+    input::parse_event,
+    keys::Key,
+};
 
 impl InteractiveTui {
     /// Clear the current chat selection state.
