@@ -832,7 +832,7 @@ impl Agent {
                     .saturating_add(self.message_token_total);
 
                 if token_count > u64::from(self.config.max_context_tokens)
-                    && let Err(error) = self.compact_context()
+                    && let Err(error) = self.compact_context(false)
                 {
                     let message = error.to_string();
 
@@ -872,20 +872,42 @@ impl Agent {
     }
 
     /// Compact the context by summarizing older messages.
+    ///
+    /// Unlike automatic compaction, an explicit request always creates a
+    /// compacted history when there are messages to summarize.
     pub fn compact(&mut self) -> Result<(), anyhow::Error> {
-        self.compact_context()
+        self.compact_context(true)
     }
 
-    /// Compact the message context by summarizing older messages when the
-    /// token budget is exceeded.
-    fn compact_context(&mut self) -> Result<(), anyhow::Error> {
+    /// Compact the message context by summarizing older messages.
+    ///
+    /// Automatic compaction only modifies history once it exceeds the message
+    /// budget. Manual compaction reserves one third of the current message
+    /// history for a summary and retains the most recent messages, so
+    /// `/compact` has an observable effect before the context window is full.
+    fn compact_context(
+        &mut self,
+        force: bool,
+    ) -> Result<(), anyhow::Error> {
         let started_at = Instant::now();
         let non_message_tokens = self.context_base().static_token_cost;
         let before_tokens = non_message_tokens.saturating_add(self.message_token_total);
 
-        let message_budget = u64::from(self.config.max_context_tokens)
+        let maximum_message_budget = u64::from(self.config.max_context_tokens)
             .saturating_sub(non_message_tokens)
             .min(u64::from(self.config.max_context_tokens));
+        let message_budget = if force {
+            // Retain approximately two thirds of the existing message
+            // history. The lower bound lets the compactor safely represent a
+            // small conversation without returning an invalid tiny budget.
+            self.message_token_total
+                .saturating_mul(2)
+                .saturating_div(3)
+                .max(32)
+                .min(maximum_message_budget)
+        } else {
+            maximum_message_budget
+        };
 
         if message_budget > u64::from(u32::MAX) {
             return Err(anyhow::anyhow!("context budget is too large to compact"));
@@ -1461,6 +1483,26 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(directory);
         let _ = std::fs::remove_dir_all(alternate_directory);
+    }
+
+    #[test]
+    fn manual_compaction_reduces_history_before_context_limit() {
+        let mut agent = Agent::new(
+            Box::new(FauxProvider::new()),
+            test_model(),
+            AgentConfig::default(),
+        );
+        agent.add_user_message("first ".repeat(200));
+        agent.add_user_message("second ".repeat(200));
+        agent.add_user_message("latest ".repeat(200));
+
+        let tokens_before = agent.estimate_tokens();
+        agent.compact().unwrap();
+
+        assert!(agent.estimate_tokens() < tokens_before);
+        assert!(agent.messages().iter().any(|message| {
+            matches!(message, Message::User(message) if message.content.starts_with("[Context Summary]"))
+        }));
     }
 
     #[test]
