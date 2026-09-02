@@ -295,13 +295,6 @@ lto = true
 - Release builds: `target/<target-triple>/release/hallucinate`
 - Cross-compiled artifacts: `artifacts/<os>_<arch>/hallucinate`
 
-### CI/CD
-
-Forgejo CI workflows:
-
-- **Build** (`.forgejo/workflows/build.yml`): Runs on push to `main` and on PRs. Executes `make build`, `cargo check --all-targets`, and `cargo test --all-targets` on Ubuntu.
-- **Publish** (`.forgejo/workflows/publish_release.yml`): Runs on tag push (`*.*.*` or `*.*.*-*`). Adds the `smalls-personal` cargo registry and publishes all workspace crates.
-
 ## Pull Request Guidelines
 
 - **Title format**: `[component] Brief description` (e.g., `[agent] Add tool execution loop`)
@@ -311,15 +304,6 @@ Forgejo CI workflows:
 - **PR template**: Defined in `.forgejo/pull_request_template.md`
 
 ## Debugging and Troubleshooting
-
-### Common Issues
-
-1. **Cross-compilation failures on Linux**: Ensure `x86_64-linux-gnu-gcc` or `aarch64-linux-gnu-gcc` is installed
-2. **Terminal rendering issues**: Check `TERM` environment variable; ensure terminal supports alternate screen
-3. **LLM API errors**: Verify API key via `--api-key` flag, `HALLUCINATE_API_KEY` env var, or config file
-4. **Keyboard enhancement failures**: If keyboard enhancement (Kitty protocol) fails, the TUI falls back gracefully — check `RUST_LOG=debug` for details
-5. **Multi-line editor not working**: Shift+Enter inserts a newline; Enter submits. In terminals without Shift+Enter support, use Ctrl+J for newlines
-6. **Bash tool quoting issues**: Commands are passed to the shell via `-c` (not split on whitespace) — this preserves quoting and shell operators like `|`, `&&`, `||`, `>`
 
 ### Logging
 
@@ -335,103 +319,6 @@ Custom registries are configured in `.cargo/config.toml`:
 
 ## Additional Notes
 
-- The project is a reimplementation of the TypeScript `pi` agent harness.
 - Configuration files: `.editorconfig`, `rustfmt.toml`, `renovate.json`
 - Git workflow: Git Town for branch management, Forgejo for PRs
 - Full configuration reference: `docs/config.md`
-
-### Configuration File Format
-
-Settings are stored in **TOML** format (`settings.toml`), not JSON. A project-local override may be placed at `.hallucinate/settings.toml` (merged on top of the global file).
-
-**Key settings**:
-
-| Setting | Type | Default | Description |
-| --- | --- | --- | --- |
-| `default_model` | `string` | — | Default model selector (`provider/model`) |
-| `provider` | `string` | `"openai"` | Credential namespace for the default provider |
-| `base_url` | `string` | — | Global API endpoint for the default provider |
-| `shell` | `string` | `$SHELL` | Shell executable used by the bash tool |
-| `timeout_ms` | `number` | `600000` | Request timeout in milliseconds |
-| `max_retries` | `number` | `3` | Retries for transient LLM API failures |
-| `auto_resize_images` | `bool` | `true` | Automatically resize image attachments |
-| `max_turns` | `number` | `120` | Maximum conversation turns per prompt |
-| `enable_tools` | `bool` | `true` | Enable tool use by default |
-| `enable_compaction` | `bool` | `true` | Enable automatic context compaction |
-| `show_thinking` | `bool` | `false` | Show model reasoning output to the user |
-| `temperature` | `number` | — | Default sampling temperature |
-| `max_tokens` | `number` | — | Default maximum output tokens |
-| `providers` | `table` | — | Multi-provider model definitions |
-| `credential_store` | `table` | — | Stored API keys per provider |
-| `provider_headers` | `table` | — | Extra HTTP headers for the default provider |
-
-**Multi-provider models**: Define providers with their own `base_url`, `api_key`, `headers`, and nested models.
-
-**Credential store**: API keys stored per-provider in `[credential_store.credentials.<provider>]`. Use `auth set <provider>` to populate.
-
-**Configurable shell**: Optional `shell = "/bin/bash"` setting for the bash tool.
-
-**Model picker**: Models can be selected interactively with `/model` or via `provider/model` selector.
-
-### Skills Discovery
-
-Skills are Markdown files with YAML frontmatter, discovered from multiple locations (first match wins):
-
-| Priority | Location | Description |
-| --- | --- | --- |
-| 1 | `~/.hallucinate/skills` | User config directory |
-| 2 | `<cwd>/.hallucinate/skills` | Project-local skills |
-| 3 | `~/.agents/skills` | Shared `.agents` protocol |
-| 4 | `<cwd>/.agents/skills` (and ancestors to git root) | Shared `.agents` protocol per-project |
-
-**Command-line override**: `hallucinate --skill path/to/skill.md --skill another-skill/`
-
-**Disable auto-discovery**: `hallucinate --no-skills`
-
-### Prompt Templates
-
-Prompt templates are Markdown files with YAML frontmatter that expand slash commands with argument substitution.
-
-**Discovery locations**:
-
-| Priority | Location | Description |
-| --- | --- | --- |
-| 1 | `~/.hallucinate/prompts` | User config directory |
-| 2 | `<cwd>/.hallucinate/prompts` | Project-local templates |
-
-**Command-line override**: `hallucinate --prompt-template path/to/template.md`
-
-**Disable auto-discovery**: `hallucinate --no-prompt-templates`
-
-**Argument substitution**: Templates support shell-like syntax: `$1`, `$2`, `@N` (positional), `$@`, `@`, `$ARGUMENTS` (all arguments), `${N:-default}` (default value).
-
-### System Prompt
-
-**Global override**: Place a `SYSTEM.md` in the config directory to replace the built-in system prompt entirely.
-
-**Project instructions**: Place an `AGENTS.md` at the project root — its contents are appended under a `## Project Instructions` heading to every system prompt.
-
-### Session Management
-
-Sessions are stored as append-only JSONL files with CLI CRUD and lifecycle archival. `hallucinate-session` is intentionally CLI-oriented rather than a generic cross-frontend storage abstraction; legacy `.cwd.json` sidecars remain readable for migration.
-
-### Multi-line Editor
-
-The interactive editor supports multi-line input:
-
-- **Shift+Enter** or **Ctrl+J**: Insert a new line
-- **Enter**: Submit the complete message
-- **Up/Down**: Move through lines in multi-line mode (scroll transcript in single-line mode)
-- **Bracketed paste**: Enabled; line endings normalized to `\n`
-- **Keyboard enhancement**: Kitty protocol enabled for enhanced key reporting (graceful fallback if unavailable)
-
-### Environment Variables
-
-| Variable | Description |
-| --- | --- |
-| `HALLUCINATE_API_KEY` | API key fallback (overridden by `--api-key`) |
-| `OPENAI_API_KEY` | Fallback when the default provider is `"openai"` |
-| `HALLUCINATE_<PROVIDER>_API_KEY` | Provider-specific key (e.g., `HALLUCINATE_OPENROUTER_API_KEY`) |
-| `SHELL` | Shell executable for the bash tool (overridden by `shell` setting) |
-
-Key resolution order: `--api-key` flag → `HALLUCINATE_API_KEY` → `OPENAI_API_KEY` (for default provider) → `HALLUCINATE_<PROVIDER>_API_KEY` → inline `api_key` in provider settings → stored credential.
