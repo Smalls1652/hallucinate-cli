@@ -63,6 +63,7 @@ pub const BUILTIN_INVOCATIONS: &[(&str, &str)] = &[
     ("models", "model"),
     ("thinking", "thinking"),
     ("compact", "compact"),
+    ("reload", "reload"),
     ("stop", "stop"),
     ("cancel", "stop"),
     ("quit", "quit"),
@@ -178,6 +179,11 @@ pub const BUILTIN_COMMANDS: &[CommandInfo] = &[
         name: "compact",
         usage: "/compact",
         description: "Compact the current context",
+    },
+    CommandInfo {
+        name: "reload",
+        usage: "/reload",
+        description: "Reload prompt templates and system prompt files",
     },
     CommandInfo {
         name: "stop",
