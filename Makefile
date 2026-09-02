@@ -154,6 +154,7 @@ install:
 # Clean the Rust target directory.
 clean:
 	@echo "Cleaning target directory -> $(RUST_TARGET_DIR)/"
+	@cargo clean --workspace
 	@rm -rf $(RUST_TARGET_DIR)
 
 # Format all code in the project.
