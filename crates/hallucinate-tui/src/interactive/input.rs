@@ -23,6 +23,13 @@ impl InteractiveTui {
         self.selected_text.clear();
     }
 
+    /// Return the largest scroll offset represented by the rendered viewport.
+    fn transcript_scroll_limit(&self) -> usize {
+        self.transcript_layout_cache
+            .line_count()
+            .saturating_sub(usize::from(self.transcript_area.height))
+    }
+
     /// Map a mouse column/row to a transcript coordinate, or `None` if the
     /// point lies outside the transcript area.
     fn chat_point(
@@ -152,9 +159,28 @@ impl InteractiveTui {
         // block for a full notice lifetime while idle, and only uses a short
         // bound while an agent stream needs draining.
         if crossterm::event::poll(timeout)? {
-            self.render_state.mark_all();
             let event = crossterm::event::read()?;
             let input_event = parse_event(event);
+            let is_transcript_scroll = self.model_picker.is_none()
+                && self.session_picker.is_none()
+                && self.prompt_picker.is_none()
+                && matches!(
+                    &input_event,
+                    crate::input::InputEvent::Mouse(mouse)
+                        if matches!(
+                            mouse.kind,
+                            crossterm::event::MouseEventKind::ScrollUp
+                                | crossterm::event::MouseEventKind::ScrollDown
+                        )
+                );
+
+            // Trackpad momentum can queue a large number of wheel events at
+            // a transcript boundary. Those no-op events must be drained
+            // without scheduling full terminal redraws, or the visible
+            // viewport appears to lock until the queue empties.
+            if !is_transcript_scroll {
+                self.render_state.mark_all();
+            }
 
             // Esc cancels the active agent task instead of being passed to the
             // editor. Keep the editor contents intact so a draft can be sent
@@ -293,13 +319,26 @@ impl InteractiveTui {
                         },
 
                         MouseEventKind::ScrollUp => {
+                            let selection_cleared = self.chat_selection.is_some();
                             self.clear_chat_selection();
-                            self.transcript.scroll_up(3);
+                            let scroll_limit = self.transcript_scroll_limit();
+                            let scroll_changed = self.transcript.scroll_up(3, scroll_limit);
+
+                            if selection_cleared || scroll_changed {
+                                self.render_state.transcript = true;
+                                self.render_state.selection = true;
+                            }
                         },
 
                         MouseEventKind::ScrollDown => {
+                            let selection_cleared = self.chat_selection.is_some();
                             self.clear_chat_selection();
-                            self.transcript.scroll_down(3);
+                            let scroll_changed = self.transcript.scroll_down(3);
+
+                            if selection_cleared || scroll_changed {
+                                self.render_state.transcript = true;
+                                self.render_state.selection = true;
+                            }
                         },
 
                         _ => {},
@@ -419,7 +458,8 @@ impl InteractiveTui {
                 if matches!(key.code, crossterm::event::KeyCode::Up) && !self.editor.is_multiline()
                 {
                     self.clear_chat_selection();
-                    self.transcript.scroll_up(3);
+                    let scroll_limit = self.transcript_scroll_limit();
+                    self.transcript.scroll_up(3, scroll_limit);
 
                     return Ok(false);
                 }

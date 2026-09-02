@@ -15,12 +15,9 @@ use crate::{
 };
 
 /// Cached visual transcript layout for a particular content width and display
-/// configuration. It intentionally excludes scrolling: `Paragraph::scroll`
-/// can move this layout without reparsing Markdown or rewrapping cards.
-///
-/// A very large transcript is rendered correctly but is not retained twice:
-/// the cache is dropped once it exceeds this visual-line budget.
-const TRANSCRIPT_LAYOUT_CACHE_LINE_BUDGET: usize = 20_000;
+/// configuration. It intentionally excludes scrolling so viewport redraws can
+/// reuse the complete layout without reparsing historic Markdown or cloning
+/// every visual line.
 const COMPACT_TOOL_RESULT_WIDTH: usize = 100;
 
 #[derive(Default)]
@@ -30,12 +27,46 @@ pub(super) struct TranscriptLayoutCache {
     show_timestamps: bool,
     show_full_tool_output: bool,
     streaming_message_index: Option<usize>,
-    message_revisions: Vec<u64>,
+    transcript_revision: u64,
     lines: Vec<ratatui::text::Line<'static>>,
     selection_line_starts: Vec<Option<usize>>,
 }
 
+/// Render only the visible rows from a cached, already-wrapped transcript.
+///
+/// `Paragraph` owns its text, which would require cloning every cached line on
+/// a scroll-only redraw. This widget borrows the cache and draws only the
+/// viewport, making scroll work proportional to the terminal height.
+struct TranscriptViewport<'a> {
+    lines: &'a [ratatui::text::Line<'static>],
+    scroll: usize,
+}
+
+impl ratatui::widgets::Widget for TranscriptViewport<'_> {
+    fn render(
+        self,
+        area: Rect,
+        buffer: &mut ratatui::buffer::Buffer,
+    ) {
+        for (row, line) in self
+            .lines
+            .iter()
+            .skip(self.scroll)
+            .take(usize::from(area.height))
+            .enumerate()
+        {
+            let row_area = Rect::new(area.x, area.y.saturating_add(row as u16), area.width, 1);
+            ratatui::widgets::Widget::render(line, row_area, buffer);
+        }
+    }
+}
+
 impl TranscriptLayoutCache {
+    /// Return the number of cached visual transcript rows.
+    pub(super) fn line_count(&self) -> usize {
+        self.lines.len()
+    }
+
     fn matches(
         &self,
         transcript: &TranscriptRenderer,
@@ -48,12 +79,7 @@ impl TranscriptLayoutCache {
             && self.show_timestamps == transcript.show_timestamps()
             && self.show_full_tool_output == show_full_tool_output
             && self.streaming_message_index == streaming_message_index
-            && self.message_revisions.len() == transcript.messages().len()
-            && self
-                .message_revisions
-                .iter()
-                .enumerate()
-                .all(|(index, revision)| transcript.message_revision(index) == Some(*revision))
+            && self.transcript_revision == transcript.layout_revision()
     }
 
     fn replace(
@@ -65,19 +91,12 @@ impl TranscriptLayoutCache {
         lines: Vec<ratatui::text::Line<'static>>,
         selection_line_starts: Vec<Option<usize>>,
     ) {
-        if lines.len() > TRANSCRIPT_LAYOUT_CACHE_LINE_BUDGET {
-            *self = Self::default();
-            return;
-        }
-
         self.width = width;
         self.show_thinking = transcript.show_thinking();
         self.show_timestamps = transcript.show_timestamps();
         self.show_full_tool_output = show_full_tool_output;
         self.streaming_message_index = streaming_message_index;
-        self.message_revisions = (0..transcript.messages().len())
-            .filter_map(|index| transcript.message_revision(index))
-            .collect();
+        self.transcript_revision = transcript.layout_revision();
         self.lines = lines;
         self.selection_line_starts = selection_line_starts;
     }
@@ -97,7 +116,7 @@ impl InteractiveTui {
                 layout::{Constraint, Layout},
                 style::{Color, Modifier, Style},
                 text::{Line, Span},
-                widgets::{Block, Borders, Clear, Padding, Paragraph, Widget, Wrap},
+                widgets::{Block, Borders, Clear, Padding, Paragraph, Widget},
             };
 
             let autocomplete_height = if self.autocomplete_items.is_empty() {
@@ -222,12 +241,7 @@ impl InteractiveTui {
                 self.streaming_message_index,
             );
 
-            let (lines, selection_line_starts) = if cache_matches {
-                (
-                    self.transcript_layout_cache.lines.clone(),
-                    self.transcript_layout_cache.selection_line_starts.clone(),
-                )
-            } else {
+            if !cache_matches {
                 let mut selection_line_starts = Vec::new();
                 let messages = self.transcript.messages();
 
@@ -383,6 +397,7 @@ impl InteractiveTui {
                                 "│  ",
                                 Style::default().fg(Color::LightBlue),
                                 Style::default().fg(Color::LightBlue),
+                                transcript_width,
                             );
 
                             line_starts.extend(vec![None; lines.len() - previous_len]);
@@ -404,6 +419,7 @@ impl InteractiveTui {
                                     "│  ",
                                     Style::default().fg(Color::LightBlue),
                                     result_style,
+                                    transcript_width,
                                 );
 
                                 line_starts.extend(vec![None; lines.len() - previous_len]);
@@ -471,39 +487,32 @@ impl InteractiveTui {
                     transcript_width,
                     self.show_full_tool_output,
                     self.streaming_message_index,
-                    lines.clone(),
-                    selection_line_starts.clone(),
+                    lines,
+                    selection_line_starts,
                 );
+            }
 
-                (lines, selection_line_starts)
-            };
-
+            let lines = &self.transcript_layout_cache.lines;
+            let selection_line_starts = &self.transcript_layout_cache.selection_line_starts;
             debug_assert_eq!(lines.len(), selection_line_starts.len());
 
             // A Line is deliberately a single visual line in ratatui: an
-            // embedded newline in a message would otherwise not create a new
-            // row. The helpers above expand those newlines and pre-wrap
-            // message content, while Paragraph's wrapping keeps any bounded
-            // tool output inside the viewport. A little horizontal breathing
-            // room makes the transcript read like a conversation rather than
-            // a log file.
-            // Retain the cached lines for selection-mask generation only
-            // during an active drag. Ordinary frames move the owned layout
-            // directly into the paragraph without a second line tree.
+            // embedded newline in a message would otherwise not create a row.
+            // The helpers above expand and pre-wrap every message and tool
+            // row, allowing this renderer to borrow just the visible cache
+            // entries rather than cloning the full transcript into a
+            // `Paragraph` for every scroll event.
             let active_selection = selection.filter(|selection| selection.has_range());
-            let selection_lines = active_selection.is_some().then(|| lines.clone());
-            let transcript = Paragraph::new(lines)
-                .wrap(Wrap { trim: false })
-                .block(transcript_block);
-
-            let scroll = self.transcript.scroll_position(
-                transcript.line_count(transcript_width),
-                chunks[1].height as usize,
+            let scroll = self
+                .transcript
+                .scroll_position(lines.len(), usize::from(transcript_inner_area.height));
+            frame.render_widget(
+                TranscriptViewport {
+                    lines,
+                    scroll: usize::from(scroll),
+                },
+                transcript_inner_area,
             );
-
-            let transcript = transcript.scroll((scroll, 0));
-
-            frame.render_widget(transcript, chunks[1]);
 
             rendered_transcript_area = chunks[1];
 
@@ -518,20 +527,23 @@ impl InteractiveTui {
 
                 let selection_style = Style::default().fg(Color::Black).bg(Color::White);
 
-                // The duplicate marker tree is needed only while a real drag
-                // selection is active; ordinary transcript frames retain one
-                // cached layout.
-                let selection_mask_lines = selection_lines
-                    .as_ref()
-                    .expect("active selection retains transcript lines")
+                // A marker tree is needed only while a real drag selection
+                // is active. Build it for visible rows only, rather than
+                // cloning every historic transcript line.
+                let selection_mask_lines = lines
                     .iter()
-                    .zip(selection_line_starts.iter().copied())
+                    .skip(usize::from(scroll))
+                    .zip(
+                        selection_line_starts
+                            .iter()
+                            .skip(usize::from(scroll))
+                            .copied(),
+                    )
+                    .take(usize::from(transcript_inner_area.height))
                     .map(|(line, start)| selection_mask_line(line, start))
                     .collect::<Vec<_>>();
                 let mut mask_buffer = ratatui::buffer::Buffer::empty(area);
-                let mask = Paragraph::new(selection_mask_lines)
-                    .wrap(Wrap { trim: false })
-                    .scroll((scroll, 0));
+                let mask = Paragraph::new(selection_mask_lines);
                 mask.render(transcript_inner_area, &mut mask_buffer);
 
                 let buffer = frame.buffer_mut();
@@ -1127,26 +1139,43 @@ fn muted_thinking_line(
 
 /// Append text that may contain newlines, using the supplied visual prefix on
 /// continuation lines (useful for tool calls and results).
-fn append_prefixed_lines<'a>(
-    lines: &mut Vec<ratatui::text::Line<'a>>,
+fn append_prefixed_lines(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
     text: &str,
-    prefix: &'a str,
-    continuation_prefix: &'a str,
+    prefix: &'static str,
+    continuation_prefix: &'static str,
     prefix_style: ratatui::style::Style,
     text_style: ratatui::style::Style,
+    width: u16,
 ) {
-    for (index, line) in text.split('\n').enumerate() {
-        let line = line.trim_end();
+    let prefix_width = prefix.width().max(continuation_prefix.width());
+    let prefix_width = u16::try_from(prefix_width).unwrap_or(u16::MAX);
+    let content_width = width.saturating_sub(prefix_width);
 
-        let prefix_span = if index == 0 {
-            ratatui::text::Span::styled(prefix, prefix_style)
+    for (index, physical_line) in text.split('\n').enumerate() {
+        let initial_prefix = if index == 0 {
+            prefix
         } else {
-            ratatui::text::Span::styled(continuation_prefix, prefix_style)
+            continuation_prefix
         };
+        let wrapped_lines = wrap_line_to_width(
+            ratatui::text::Line::from(ratatui::text::Span::styled(
+                physical_line.trim_end().to_string(),
+                text_style,
+            )),
+            content_width,
+        );
 
-        let line_span = ratatui::text::Span::styled(line.to_string(), text_style);
-
-        lines.push(ratatui::text::Line::from(vec![prefix_span, line_span]));
+        for (wrapped_index, line) in wrapped_lines.into_iter().enumerate() {
+            let line_prefix = if wrapped_index == 0 {
+                initial_prefix
+            } else {
+                continuation_prefix
+            };
+            let mut spans = vec![ratatui::text::Span::styled(line_prefix, prefix_style)];
+            spans.extend(line.spans);
+            lines.push(ratatui::text::Line::from(spans));
+        }
     }
 }
 
@@ -1357,14 +1386,14 @@ mod tests {
             vec![Some(0)],
         );
 
-        transcript.scroll_up(3);
+        assert!(transcript.scroll_up(3, 3));
 
         assert!(cache.matches(&transcript, 80, false, None));
         assert!(!cache.matches(&transcript, 80, true, None));
     }
 
     #[test]
-    fn cache_invalidates_when_a_message_revision_changes() {
+    fn cache_invalidates_when_the_transcript_layout_changes() {
         let mut transcript = TranscriptRenderer::new();
         transcript.add_message(Message {
             role: MessageRole::Assistant,
@@ -1387,5 +1416,47 @@ mod tests {
 
         assert_eq!(truncated, "first line …");
         assert!(!truncated.contains('\n'));
+    }
+
+    #[test]
+    fn cached_viewport_renders_only_the_scrolled_visible_rows() {
+        let lines = vec![
+            Line::from("first"),
+            Line::from("second"),
+            Line::from("third"),
+        ];
+        let area = Rect::new(0, 0, 10, 2);
+        let mut buffer = ratatui::buffer::Buffer::empty(area);
+
+        ratatui::widgets::Widget::render(
+            TranscriptViewport {
+                lines: &lines,
+                scroll: 1,
+            },
+            area,
+            &mut buffer,
+        );
+
+        assert_eq!(buffer.cell((0, 0)).unwrap().symbol(), "s");
+        assert_eq!(buffer.cell((0, 1)).unwrap().symbol(), "t");
+    }
+
+    #[test]
+    fn prefixed_tool_rows_wrap_without_losing_the_continuation_rail() {
+        let mut lines = Vec::new();
+        append_prefixed_lines(
+            &mut lines,
+            "one two three",
+            "├─ ",
+            "│  ",
+            ratatui::style::Style::default(),
+            ratatui::style::Style::default(),
+            8,
+        );
+
+        assert!(lines.len() > 1);
+        assert_eq!(lines[0].spans[0].content, "├─ ");
+        assert_eq!(lines[1].spans[0].content, "│  ");
+        assert!(lines.iter().all(|line| line.width() <= 8));
     }
 }

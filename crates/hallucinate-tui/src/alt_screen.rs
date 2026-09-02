@@ -16,10 +16,10 @@ pub struct TranscriptRenderer {
     show_timestamps: bool,
     /// Whether to display thinking blocks.
     show_thinking: bool,
-    /// A monotonically increasing revision for each stored message. Layout
-    /// caches use this to avoid treating scroll-only changes as content edits.
-    message_revisions: Vec<u64>,
-    next_message_revision: u64,
+    /// A monotonically increasing content revision. Layout caches use this to
+    /// avoid treating scroll-only changes as content edits without scanning
+    /// every historic message on each redraw.
+    layout_revision: u64,
     /// IDs of calls actively executing. This ephemeral state is deliberately
     /// separate from persisted tool results.
     running_tool_call_ids: HashSet<String>,
@@ -100,8 +100,7 @@ impl TranscriptRenderer {
             scroll_offset: 0,
             show_timestamps: std::env::var_os("HALLUCINATE_SHOW_TIMESTAMPS").is_some(),
             show_thinking: false,
-            message_revisions: Vec::new(),
-            next_message_revision: 1,
+            layout_revision: 0,
             running_tool_call_ids: HashSet::new(),
         }
     }
@@ -112,37 +111,56 @@ impl TranscriptRenderer {
         message: Message,
     ) {
         self.messages.push(message);
-        let revision = self.allocate_message_revision();
-        self.message_revisions.push(revision);
+        self.bump_layout_revision();
     }
 
-    /// Return a message's current content revision.
-    pub fn message_revision(
-        &self,
-        index: usize,
-    ) -> Option<u64> {
-        self.message_revisions.get(index).copied()
+    /// Return the revision of the complete visual transcript layout.
+    ///
+    /// This changes when stored transcript content or transient tool execution
+    /// state changes, but not when the viewport scrolls.
+    pub fn layout_revision(&self) -> u64 {
+        self.layout_revision
     }
 
     /// Scroll toward older messages and leave follow mode.
+    ///
+    /// The caller supplies the current viewport's maximum scroll offset so
+    /// repeated wheel events at the top cannot accumulate unreachable offset.
+    /// Return whether the visible scroll state changed.
     pub fn scroll_up(
         &mut self,
         lines: usize,
-    ) {
+        maximum_offset: usize,
+    ) -> bool {
+        let previous_offset = self.scroll_offset;
+        let next_offset = self.scroll_offset.saturating_add(lines).min(maximum_offset);
+
+        if next_offset == previous_offset {
+            return false;
+        }
+
+        self.scroll_offset = next_offset;
         self.follow_mode = false;
-        self.scroll_offset = self.scroll_offset.saturating_add(lines);
+
+        true
     }
 
     /// Scroll toward newer messages. Reaching the bottom restores follow mode.
+    ///
+    /// Return whether the visible scroll state or follow state changed.
     pub fn scroll_down(
         &mut self,
         lines: usize,
-    ) {
+    ) -> bool {
+        let was_following = self.follow_mode;
+        let previous_offset = self.scroll_offset;
         self.scroll_offset = self.scroll_offset.saturating_sub(lines);
 
         if self.scroll_offset == 0 {
             self.follow_mode = true;
         }
+
+        self.scroll_offset != previous_offset || self.follow_mode != was_following
     }
 
     /// Compute the vertical scroll position for the given viewport.
@@ -194,7 +212,7 @@ impl TranscriptRenderer {
     ) {
         if let Some(message) = self.messages.get_mut(index) {
             message.content.push_str(content);
-            self.bump_message_revision(index);
+            self.bump_layout_revision();
         }
     }
 
@@ -206,7 +224,7 @@ impl TranscriptRenderer {
     ) {
         if let Some(message) = self.messages.get_mut(index) {
             message.thinking.push_str(thinking);
-            self.bump_message_revision(index);
+            self.bump_layout_revision();
         }
     }
 
@@ -221,7 +239,7 @@ impl TranscriptRenderer {
         let message = self.messages.get_mut(message_index)?;
         message.tool_calls.push(tool_call);
         let tool_call_index = message.tool_calls.len() - 1;
-        self.bump_message_revision(message_index);
+        self.bump_layout_revision();
 
         Some(tool_call_index)
     }
@@ -241,7 +259,7 @@ impl TranscriptRenderer {
         };
 
         *current_tool_call = tool_call;
-        self.bump_message_revision(message_index);
+        self.bump_layout_revision();
 
         true
     }
@@ -259,7 +277,7 @@ impl TranscriptRenderer {
             message.content = content;
             message.thinking = thinking;
             message.tool_calls = tool_calls;
-            self.bump_message_revision(index);
+            self.bump_layout_revision();
         }
     }
 
@@ -279,7 +297,7 @@ impl TranscriptRenderer {
                 .any(|call| call.id == tool_call_id)
             {
                 self.running_tool_call_ids.insert(tool_call_id.to_string());
-                self.bump_message_revision(index);
+                self.bump_layout_revision();
 
                 return true;
             }
@@ -316,7 +334,7 @@ impl TranscriptRenderer {
             {
                 let prefix = if is_error { "❌" } else { "✅" };
                 call.result = Some(format!("{prefix} {result}"));
-                self.bump_message_revision(index);
+                self.bump_layout_revision();
 
                 return true;
             }
@@ -330,20 +348,8 @@ impl TranscriptRenderer {
         &self.messages
     }
 
-    fn allocate_message_revision(&mut self) -> u64 {
-        let revision = self.next_message_revision;
-        self.next_message_revision = self.next_message_revision.saturating_add(1);
-        revision
-    }
-
-    fn bump_message_revision(
-        &mut self,
-        index: usize,
-    ) {
-        let revision = self.allocate_message_revision();
-        if let Some(message_revision) = self.message_revisions.get_mut(index) {
-            *message_revision = revision;
-        }
+    fn bump_layout_revision(&mut self) {
+        self.layout_revision = self.layout_revision.saturating_add(1);
     }
 }
 
@@ -624,9 +630,11 @@ mod tests {
     #[test]
     fn scroll_position_clamps_to_the_available_history() {
         let mut transcript = TranscriptRenderer::new();
-        transcript.scroll_up(100);
-
+        assert!(transcript.scroll_up(100, 15));
         assert_eq!(transcript.scroll_position(20, 5), 0);
-        transcript.scroll_down(100);
+        assert!(!transcript.scroll_up(3, 15));
+
+        assert!(transcript.scroll_down(100));
+        assert_eq!(transcript.scroll_position(20, 5), 15);
     }
 }
