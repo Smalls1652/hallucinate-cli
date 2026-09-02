@@ -18,6 +18,10 @@ pub async fn run(
 ) -> Result<(), anyhow::Error> {
     // Ensure directories exist
     hallucinate_agent::config::paths::ensure_directories()?;
+    let discarded_sessions = SessionManager::discard_historical_empty_sessions()?;
+    if discarded_sessions > 0 {
+        tracing::debug!(discarded_sessions, "discarded historical empty sessions");
+    }
 
     let runtime_overrides = hallucinate_agent::config::RuntimeOverrides::from(cli);
     let model = hallucinate_agent::config::resolve_model(

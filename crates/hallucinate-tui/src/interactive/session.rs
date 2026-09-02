@@ -7,7 +7,10 @@ use hallucinate_agent::{
 
 use super::{AgentRunCompletion, AgentRunOperation, InteractiveTui};
 use crate::alt_screen::{
-    Message as TuiMessage, MessageRole, ToolCall as TuiToolCall, TranscriptRenderer,
+    Message as TuiMessage,
+    MessageRole,
+    ToolCall as TuiToolCall,
+    TranscriptRenderer,
 };
 
 impl InteractiveTui {
@@ -293,8 +296,9 @@ impl InteractiveTui {
                 }
 
                 if !matches!(self.agent_state, AgentState::Aborted | AgentState::Error(_)) {
-                    // The matching Error/Aborted event has already been consumed
-                    // by process_events; the status bar is the single visible
+                    // The matching Error/Aborted event has already been
+                    // consumed by process_events; the
+                    // status bar is the single visible
                     // error presentation here.
                     self.agent_state = AgentState::Error(error);
                 }

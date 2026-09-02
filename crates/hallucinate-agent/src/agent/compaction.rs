@@ -143,6 +143,8 @@ mod tests {
             split_messages_at_turn_boundary(&messages, &[10, 10, 10, 10], 10).unwrap();
 
         assert_eq!(omitted.len(), 3);
-        assert!(matches!(retained.as_slice(), [Message::User(message)] if message.content == "second"));
+        assert!(
+            matches!(retained.as_slice(), [Message::User(message)] if message.content == "second")
+        );
     }
 }

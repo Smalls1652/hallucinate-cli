@@ -277,7 +277,12 @@ async fn chat(
     let checkpoint = match storage.load_compaction_checkpoint() {
         Ok(checkpoint) => checkpoint,
         Err(error) => {
-            return RpcResponse::error(-32603, "Could not load compaction checkpoint", id, error.to_string());
+            return RpcResponse::error(
+                -32603,
+                "Could not load compaction checkpoint",
+                id,
+                error.to_string(),
+            );
         },
     };
     let mut agent = Agent::with_all_tools_and_image_resize_and_shell(
@@ -362,10 +367,8 @@ async fn chat(
     }
 
     if let Some(summary) = agent.compaction_summary()
-        && let Err(error) = manager.save_compaction_checkpoint(
-            summary,
-            agent.compaction_archived_message_count(),
-        )
+        && let Err(error) =
+            manager.save_compaction_checkpoint(summary, agent.compaction_archived_message_count())
     {
         return RpcResponse::error(
             -32603,

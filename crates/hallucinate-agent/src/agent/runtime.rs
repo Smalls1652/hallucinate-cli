@@ -338,11 +338,10 @@ impl Agent {
 
         self.messages.drain(..archived_message_count);
         self.compaction_archived_message_count = archived_message_count;
-        self.compaction_summary_token_cost = self.token_estimator.estimate_message_tokens(
-            &Message::User(crate::ai::types::UserMessage::new(format!(
-                "[Context Summary]\n{summary}"
-            ))),
-        );
+        self.compaction_summary_token_cost =
+            self.token_estimator.estimate_message_tokens(&Message::User(
+                crate::ai::types::UserMessage::new(format!("[Context Summary]\n{summary}")),
+            ));
         self.compaction_summary = Some(summary);
         self.recalculate_message_token_costs();
 
@@ -531,7 +530,10 @@ impl Agent {
             .iter()
             .map(|message| self.token_estimator.estimate_message_tokens(message))
             .collect();
-        self.message_token_total = self.message_token_costs.iter().sum::<u64>()
+        self.message_token_total = self
+            .message_token_costs
+            .iter()
+            .sum::<u64>()
             .saturating_add(self.compaction_summary_token_cost);
 
         tracing::debug!(
@@ -916,11 +918,8 @@ impl Agent {
                     .static_token_cost
                     .saturating_add(self.message_token_total);
 
-                let reserved_output_tokens = u64::from(
-                    self.config
-                        .max_tokens
-                        .unwrap_or(self.model.max_tokens),
-                );
+                let reserved_output_tokens =
+                    u64::from(self.config.max_tokens.unwrap_or(self.model.max_tokens));
                 let compaction_threshold = u64::from(self.config.max_context_tokens)
                     .saturating_sub(reserved_output_tokens);
 
@@ -1046,11 +1045,10 @@ impl Agent {
         // has returned a complete, tool-free replacement summary.
         self.messages = remaining;
         self.compaction_archived_message_count = archived_message_count;
-        self.compaction_summary_token_cost = self.token_estimator.estimate_message_tokens(
-            &Message::User(crate::ai::types::UserMessage::new(format!(
-                "[Context Summary]\n{summary}"
-            ))),
-        );
+        self.compaction_summary_token_cost =
+            self.token_estimator.estimate_message_tokens(&Message::User(
+                crate::ai::types::UserMessage::new(format!("[Context Summary]\n{summary}")),
+            ));
         self.compaction_summary = Some(summary);
         self.recalculate_message_token_costs();
 
@@ -1082,9 +1080,9 @@ impl Agent {
         const UPDATE_SUMMARY_PROMPT: &str = "Update the previous checkpoint with the newly archived conversation. Retain still-relevant facts from the previous checkpoint, remove superseded facts, and use exactly the required headings. Preserve exact file paths, function names, commands, and error messages.";
 
         let conversation = crate::agent::compaction::serialize_messages(messages);
-        let previous_summary = previous_summary.map(|summary| {
-            format!("\n\n<previous-checkpoint>\n{summary}\n</previous-checkpoint>")
-        }).unwrap_or_default();
+        let previous_summary = previous_summary
+            .map(|summary| format!("\n\n<previous-checkpoint>\n{summary}\n</previous-checkpoint>"))
+            .unwrap_or_default();
         let instructions = if previous_summary.is_empty() {
             SUMMARY_PROMPT
         } else {
@@ -1117,29 +1115,47 @@ impl Agent {
             match event {
                 crate::ai::streaming::AssistantMessageEvent::Done { reason, message } => {
                     if reason == StopReason::Length {
-                        return Err(anyhow::anyhow!("context summarization stopped at its token limit"));
+                        return Err(anyhow::anyhow!(
+                            "context summarization stopped at its token limit"
+                        ));
                     }
                     if reason == StopReason::Error {
                         return Err(anyhow::anyhow!("context summarization failed"));
                     }
-                    if message.content.iter().any(|content| matches!(content, AssistantContent::ToolCall(_))) {
-                        return Err(anyhow::anyhow!("context summarization attempted to call a tool"));
+                    if message
+                        .content
+                        .iter()
+                        .any(|content| matches!(content, AssistantContent::ToolCall(_)))
+                    {
+                        return Err(anyhow::anyhow!(
+                            "context summarization attempted to call a tool"
+                        ));
                     }
 
-                    let summary = message.content.iter().filter_map(AssistantContent::text_content).collect::<Vec<_>>().join("\n");
+                    let summary = message
+                        .content
+                        .iter()
+                        .filter_map(AssistantContent::text_content)
+                        .collect::<Vec<_>>()
+                        .join("\n");
                     if summary.trim().is_empty() {
                         return Err(anyhow::anyhow!("context summarization returned no text"));
                     }
                     return Ok(summary);
                 },
                 crate::ai::streaming::AssistantMessageEvent::Error { error, .. } => {
-                    return Err(anyhow::anyhow!("context summarization failed: {}", error.error_message.unwrap_or_default()));
+                    return Err(anyhow::anyhow!(
+                        "context summarization failed: {}",
+                        error.error_message.unwrap_or_default()
+                    ));
                 },
                 _ => {},
             }
         }
 
-        Err(anyhow::anyhow!("context summarization stream ended without a result"))
+        Err(anyhow::anyhow!(
+            "context summarization stream ended without a result"
+        ))
     }
 
     /// Get the estimated token count of the current context.
@@ -1772,7 +1788,10 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(summaries, vec!["[Context Summary]\n## Goal\nUpdated checkpoint."]);
+        assert_eq!(
+            summaries,
+            vec!["[Context Summary]\n## Goal\nUpdated checkpoint."]
+        );
     }
 
     #[tokio::test]

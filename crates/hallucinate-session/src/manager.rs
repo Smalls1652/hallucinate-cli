@@ -335,7 +335,8 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Delete the current session when it has no persisted conversation messages.
+    /// Delete the current session when it has no persisted conversation
+    /// messages.
     ///
     /// Session metadata and lifecycle events do not make a session non-empty:
     /// only user, assistant, or tool messages represent a conversation worth

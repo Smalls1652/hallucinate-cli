@@ -219,10 +219,9 @@ impl SessionStorage {
 
         for entry in self.load_all()? {
             let SessionEntry::Event {
-                event_type,
-                data,
-                ..
-            } = entry else {
+                event_type, data, ..
+            } = entry
+            else {
                 continue;
             };
             if event_type != "compaction_checkpoint" {
@@ -236,9 +235,13 @@ impl SessionStorage {
             let archived_message_count = data
                 .get("archived_message_count")
                 .and_then(serde_json::Value::as_u64)
-                .ok_or_else(|| anyhow::anyhow!("compaction checkpoint has no archived message count"))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("compaction checkpoint has no archived message count")
+                })?
                 .try_into()
-                .map_err(|_| anyhow::anyhow!("compaction checkpoint archived message count is too large"))?;
+                .map_err(|_| {
+                    anyhow::anyhow!("compaction checkpoint archived message count is too large")
+                })?;
 
             checkpoint = Some((summary.to_string(), archived_message_count));
         }
