@@ -40,67 +40,12 @@ pub struct CommandInfo {
     pub description: &'static str,
 }
 
-/// Every accepted built-in invocation and its canonical command name.
-///
-/// Keeping aliases here makes abbreviated commands resolve consistently with
-/// the autocomplete list and the dispatcher.
-pub const BUILTIN_INVOCATIONS: &[(&str, &str)] = &[
-    ("help", "help"),
-    ("auth", "auth"),
-    ("new", "new"),
-    ("clear", "new"),
-    ("sessions", "sessions"),
-    ("list", "sessions"),
-    ("resume", "resume"),
-    ("fork", "fork"),
-    ("delete", "delete"),
-    ("name", "name"),
-    ("session", "session"),
-    ("status", "session"),
-    ("prompts", "prompts"),
-    ("skills", "skills"),
-    ("model", "model"),
-    ("models", "model"),
-    ("thinking", "thinking"),
-    ("compact", "compact"),
-    ("reload", "reload"),
-    ("stop", "stop"),
-    ("cancel", "stop"),
-    ("quit", "quit"),
-    ("exit", "quit"),
-];
-
-/// Resolve a complete command or an unambiguous abbreviation.
-///
-/// Exact matches win over longer commands. An abbreviation which maps to more
-/// than one canonical command is rejected rather than choosing arbitrarily.
-pub fn resolve_builtin_command(name: &str) -> Option<&'static str> {
-    let name = name.to_ascii_lowercase();
-
-    if let Some((_, command)) = BUILTIN_INVOCATIONS
+/// Return whether `name` is an exact built-in command name.
+pub fn is_builtin_command(name: &str) -> bool {
+    BUILTIN_COMMANDS
         .iter()
-        .find(|(invocation, _)| *invocation == name)
-    {
-        return Some(command);
-    }
-
-    let mut resolved = None;
-
-    for (invocation, command) in BUILTIN_INVOCATIONS {
-        if !invocation.starts_with(&name) {
-            continue;
-        }
-
-        if let Some(previous) = resolved
-            && previous != *command
-        {
-            return None;
-        }
-
-        resolved = Some(*command);
-    }
-
-    resolved
+        .filter(|command| !command.name.starts_with("skill:"))
+        .any(|command| command.name.eq_ignore_ascii_case(name))
 }
 
 /// Interactive commands provided by hallucinate.
@@ -226,10 +171,10 @@ mod tests {
     }
 
     #[test]
-    fn resolves_only_unambiguous_abbreviations() {
-        assert_eq!(resolve_builtin_command("q"), Some("quit"));
-        assert_eq!(resolve_builtin_command("qui"), Some("quit"));
-        assert_eq!(resolve_builtin_command("n"), None);
-        assert_eq!(resolve_builtin_command("new"), Some("new"));
+    fn recognizes_built_in_command_names_case_insensitively() {
+        assert!(is_builtin_command("quit"));
+        assert!(is_builtin_command("QUIT"));
+        assert!(!is_builtin_command("q"));
+        assert!(!is_builtin_command("unknown"));
     }
 }

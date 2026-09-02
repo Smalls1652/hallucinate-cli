@@ -19,7 +19,7 @@ use super::{
 use crate::{
     alt_screen::TranscriptRenderer,
     keys::Key,
-    slash_commands::{BUILTIN_COMMANDS, parse, resolve_builtin_command},
+    slash_commands::{BUILTIN_COMMANDS, is_builtin_command, parse},
 };
 
 impl InteractiveTui {
@@ -179,13 +179,14 @@ impl InteractiveTui {
             return Ok(false);
         };
 
-        let Some(command) = resolve_builtin_command(&parsed.name) else {
+        if !is_builtin_command(&parsed.name) {
             return Ok(false);
-        };
+        }
 
+        let command = parsed.name.to_ascii_lowercase();
         let arguments = parsed.arguments;
 
-        match command {
+        match command.as_str() {
             "auth" => self.handle_auth_command(&arguments)?,
 
             "help" => {
@@ -206,7 +207,7 @@ impl InteractiveTui {
                 self.add_system_messages(lines);
             },
 
-            "new" | "clear" => {
+            "new" => {
                 if !self.ensure_idle("creating a session") {
                     return Ok(true);
                 }
@@ -220,7 +221,7 @@ impl InteractiveTui {
                 self.show_notice("Created a new session.");
             },
 
-            "sessions" | "list" => self.open_session_picker(),
+            "sessions" => self.open_session_picker(),
 
             "resume" => {
                 let Some(session_id) = command_arguments(&arguments)
@@ -298,7 +299,7 @@ impl InteractiveTui {
                 }
             },
 
-            "session" | "status" => {
+            "session" => {
                 if let Some(session) = self.session_manager.current() {
                     self.add_system_message(format!(
                         "Session {} — {} — {} messages — {} tokens — cwd: {} — parent: {}",
@@ -411,13 +412,13 @@ impl InteractiveTui {
                 ));
             },
 
-            "stop" | "cancel" => {
+            "stop" => {
                 if !self.cancel_running_response() {
                     self.show_notice("There is no response running.");
                 }
             },
 
-            "quit" | "exit" => {
+            "quit" => {
                 if let Some(cancellation) = &self.agent_cancellation {
                     cancellation.cancel();
                 }
