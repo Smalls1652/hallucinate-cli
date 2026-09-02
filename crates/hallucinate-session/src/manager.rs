@@ -61,6 +61,8 @@ impl SessionManager {
         &mut self,
         options: SessionCreateOptions,
     ) -> Result<Session, anyhow::Error> {
+        self.discard_empty_current()?;
+
         let session_id = Uuid::new_v4().to_string();
 
         // Ensure sessions directory exists
@@ -194,6 +196,9 @@ impl SessionManager {
             modified: Utc::now().timestamp_millis() as u64,
         };
 
+        if self.current_id() != Some(session_id) {
+            self.discard_empty_current()?;
+        }
         self.current_session = Some(session.clone());
 
         Ok(session)
@@ -212,6 +217,25 @@ impl SessionManager {
     /// List all sessions.
     pub fn list() -> Result<Vec<SessionInfo>, anyhow::Error> {
         SessionInfo::list_all()
+    }
+
+    /// Remove persisted sessions that contain no conversation messages.
+    ///
+    /// Metadata and lifecycle events alone do not make a session resumable as a
+    /// conversation. Malformed or unreadable session files are reported rather
+    /// than being treated as empty.
+    pub fn discard_historical_empty_sessions() -> Result<usize, anyhow::Error> {
+        let mut discarded_count = 0;
+
+        for session in Self::list()? {
+            let storage = SessionStorage::new(&session.id);
+            if storage.message_count()? == 0 {
+                Self::delete_session(&session.id)?;
+                discarded_count += 1;
+            }
+        }
+
+        Ok(discarded_count)
     }
 
     /// Get the storage for the current session.
@@ -311,6 +335,26 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Delete the current session when it has no persisted conversation messages.
+    ///
+    /// Session metadata and lifecycle events do not make a session non-empty:
+    /// only user, assistant, or tool messages represent a conversation worth
+    /// retaining. The current session is cleared whether or not it was empty.
+    pub fn discard_empty_current(&mut self) -> Result<bool, anyhow::Error> {
+        let Some(session) = self.current_session.take() else {
+            return Ok(false);
+        };
+
+        if session.message_count != 0 {
+            self.current_session = Some(session);
+            return Ok(false);
+        }
+
+        Self::delete_session(&session.id)?;
+
+        Ok(true)
+    }
+
     /// Delete a session.
     pub fn delete_session(session_id: &str) -> Result<(), anyhow::Error> {
         validate_session_id(session_id)?;
@@ -373,6 +417,59 @@ mod tests {
         assert_eq!(manager.current().unwrap().id, session.id);
 
         SessionManager::delete_session(&session.id).unwrap();
+    }
+
+    #[test]
+    fn discarding_historical_empty_sessions_removes_only_empty_sessions() {
+        let empty_session_id = format!("empty-history-{}", Uuid::new_v4());
+        let populated_session_id = format!("populated-history-{}", Uuid::new_v4());
+        let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+
+        SessionStorage::new(&empty_session_id)
+            .save_metadata(None, None, cwd.clone())
+            .unwrap();
+        SessionStorage::new(&populated_session_id)
+            .save_metadata(None, None, cwd)
+            .unwrap();
+        SessionStorage::new(&populated_session_id)
+            .save_message(&Message::User(
+                hallucinate_agent::ai::types::UserMessage::new("keep me"),
+            ))
+            .unwrap();
+
+        let discarded_count = SessionManager::discard_historical_empty_sessions().unwrap();
+
+        assert!(discarded_count >= 1);
+        assert!(!SessionStorage::new(&empty_session_id).exists());
+        assert!(SessionStorage::new(&populated_session_id).exists());
+
+        SessionManager::delete_session(&populated_session_id).unwrap();
+    }
+
+    #[test]
+    fn creating_a_session_discards_the_previous_empty_session() {
+        let mut manager = SessionManager::new();
+        let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+
+        let empty_session = manager
+            .create(SessionCreateOptions {
+                title: None,
+                parent_session_id: None,
+                cwd: Some(cwd.clone()),
+            })
+            .unwrap();
+        let next_session = manager
+            .create(SessionCreateOptions {
+                title: None,
+                parent_session_id: None,
+                cwd: Some(cwd),
+            })
+            .unwrap();
+
+        assert!(!SessionStorage::new(&empty_session.id).exists());
+        assert!(SessionStorage::new(&next_session.id).exists());
+
+        SessionManager::delete_session(&next_session.id).unwrap();
     }
 
     #[test]

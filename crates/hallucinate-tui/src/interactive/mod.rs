@@ -441,9 +441,11 @@ impl InteractiveTui {
         self.running = true;
 
         let result = self.run_loop();
+        let cleanup_result = self.session_manager.discard_empty_current();
         self.exit_raw_mode();
 
-        result
+        result?;
+        cleanup_result.map(|_| ())
     }
 
     /// Run the event loop until `running` is set to `false` or an error
