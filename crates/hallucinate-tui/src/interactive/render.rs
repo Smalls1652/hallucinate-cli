@@ -1,5 +1,7 @@
 //! Ratatui rendering for the interactive transcript and overlays.
 
+use std::path::Path;
+
 use hallucinate_agent::agent::types::AgentState;
 use ratatui::layout::Rect;
 #[cfg(test)]
@@ -8,7 +10,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{InteractiveTui, short_session_id};
 use crate::{
-    alt_screen::{MessageRole, TranscriptRenderer},
+    alt_screen::{MessageRole, ToolCall, TranscriptRenderer},
     components::markdown_to_lines,
 };
 
@@ -365,7 +367,7 @@ impl InteractiveTui {
                             }
 
                             let previous_len = lines.len();
-                            let readable = tool_call.human_readable_with_cwd(&self.project_cwd);
+                            let readable = streamed_tool_call_summary(tool_call, &self.project_cwd);
 
                             append_prefixed_lines(
                                 &mut lines,
@@ -396,6 +398,30 @@ impl InteractiveTui {
                                 );
 
                                 line_starts.extend(vec![None; lines.len() - previous_len]);
+                            } else if self.streaming_message_index == Some(message_index)
+                                && tool_call.arguments.is_string()
+                            {
+                                lines.push(Line::from(vec![
+                                    Span::styled("│  ", Style::default().fg(Color::LightBlue)),
+                                    Span::styled(
+                                        "✍ Writing…",
+                                        Style::default()
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::ITALIC),
+                                    ),
+                                ]));
+                                line_starts.push(None);
+                            } else if self.transcript.is_tool_call_running(&tool_call.id) {
+                                lines.push(Line::from(vec![
+                                    Span::styled("│  ", Style::default().fg(Color::LightBlue)),
+                                    Span::styled(
+                                        "⏳ Running…",
+                                        Style::default()
+                                            .fg(Color::Yellow)
+                                            .add_modifier(Modifier::ITALIC),
+                                    ),
+                                ]));
+                                line_starts.push(None);
                             }
 
                             lines.push(Line::from(Span::styled(
@@ -828,6 +854,80 @@ impl InteractiveTui {
     }
 }
 
+/// Return a concise tool-call summary while the provider streams raw JSON.
+///
+/// Write and edit payloads commonly contain an entire file, so displaying the
+/// incomplete JSON would flood the transcript. Instead, show only an argument
+/// that identifies the operation and wait for the complete call to use the
+/// normal tool-specific summary.
+fn streamed_tool_call_summary(
+    tool_call: &ToolCall,
+    cwd: &Path,
+) -> String {
+    let Some(arguments) = tool_call.arguments.as_str() else {
+        return tool_call.human_readable_with_cwd(cwd);
+    };
+
+    let tool_name = if tool_call.name.is_empty() {
+        "tool call"
+    } else {
+        tool_call.name.as_str()
+    };
+
+    let summary = match tool_name {
+        "bash" => partial_json_string_value(arguments, "command")
+            .map(|command| format!("bash {}", truncate_one_line(&command, 100))),
+        "read" | "write" | "edit" | "ls" => {
+            partial_json_string_value(arguments, "path").map(|path| {
+                format!(
+                    "{tool_name} {}",
+                    hallucinate_agent::config::paths::display_path(&path, cwd)
+                )
+            })
+        },
+        "find" | "grep" => partial_json_string_value(arguments, "pattern")
+            .map(|pattern| format!("{tool_name} {}", truncate_one_line(&pattern, 100))),
+        _ => None,
+    };
+
+    summary.unwrap_or_else(|| format!("{tool_name} …"))
+}
+
+/// Extract a complete JSON string value for `field` from an incomplete object.
+///
+/// Tool-call arguments arrive as JSON fragments. A field that closed before a
+/// later, large field (for example, `path` before write `content`) is still a
+/// valid standalone JSON string and can be decoded without accepting or
+/// displaying the unfinished payload.
+fn partial_json_string_value(
+    arguments: &str,
+    field: &str,
+) -> Option<String> {
+    let field_key = format!(r#""{field}""#);
+    let field_start = arguments.find(&field_key)? + field_key.len();
+    let value = arguments[field_start..].trim_start();
+    let value = value.strip_prefix(':')?.trim_start();
+    if !value.starts_with('"') {
+        return None;
+    }
+
+    let mut escaped = false;
+    for (index, character) in value[1..].char_indices() {
+        if character == '"' && !escaped {
+            let encoded_value = &value[..=index + 1];
+
+            return serde_json::from_str(encoded_value).ok();
+        }
+
+        escaped = character == '\\' && !escaped;
+        if character != '\\' {
+            escaped = false;
+        }
+    }
+
+    None
+}
+
 /// Return whether `role` begins a new visual transcript card.
 ///
 /// Tool-result messages are attached to their originating assistant message,
@@ -1139,6 +1239,38 @@ mod tests {
             .map(String::from)
             .collect::<Vec<_>>();
         assert_eq!(rendered, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn streamed_write_call_shows_its_path_without_file_content() {
+        let tool_call = ToolCall {
+            id: "call-1".to_string(),
+            name: "write".to_string(),
+            arguments: serde_json::Value::String(
+                r#"{"path":"plans/example.md","content":"a very large payload"#.to_string(),
+            ),
+            result: None,
+        };
+
+        assert_eq!(
+            streamed_tool_call_summary(&tool_call, Path::new(".")),
+            "write plans/example.md"
+        );
+    }
+
+    #[test]
+    fn streamed_tool_without_an_identifying_argument_uses_a_short_placeholder() {
+        let tool_call = ToolCall {
+            id: "call-1".to_string(),
+            name: "write".to_string(),
+            arguments: serde_json::Value::String(r#"{"content":"large"#.to_string()),
+            result: None,
+        };
+
+        assert_eq!(
+            streamed_tool_call_summary(&tool_call, Path::new(".")),
+            "write …"
+        );
     }
 
     #[test]

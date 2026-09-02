@@ -50,6 +50,7 @@ impl InteractiveTui {
         self.transcript_layout_cache = Default::default();
 
         self.streaming_message_index = None;
+        self.streaming_tool_call_indices.clear();
 
         self.message_history = messages
             .iter()
@@ -823,6 +824,7 @@ impl InteractiveTui {
         self.transcript_layout_cache = Default::default();
 
         self.streaming_message_index = None;
+        self.streaming_tool_call_indices.clear();
         self.message_history.clear();
         self.history_index = 0;
         self.token_count = agent.estimate_tokens();

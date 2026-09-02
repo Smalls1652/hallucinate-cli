@@ -54,11 +54,24 @@ pub enum AssistantMessageEvent {
         content: String,
     },
 
-    /// Tool call started.
-    ToolcallStart { content_index: usize },
+    /// Tool call started with the metadata known at this point in the stream.
+    ///
+    /// Arguments remain a raw JSON string until the call is complete.
+    ToolcallStart {
+        content_index: usize,
+        tool_call: ToolCall,
+    },
 
-    /// Tool call argument delta.
-    ToolcallDelta { content_index: usize, delta: String },
+    /// Tool call metadata or arguments were updated.
+    ///
+    /// `tool_call` contains the complete accumulated call state, including
+    /// raw, possibly incomplete JSON arguments. `delta` is empty when only
+    /// the identifier or name changed.
+    ToolcallDelta {
+        content_index: usize,
+        delta: String,
+        tool_call: ToolCall,
+    },
 
     /// Tool call completed.
     ToolcallEnd {
@@ -123,12 +136,26 @@ impl fmt::Display for AssistantMessageEvent {
                 )
             },
 
-            AssistantMessageEvent::ToolcallStart { content_index, .. } => {
-                write!(f, "[toolcall_start idx={content_index}]")
+            AssistantMessageEvent::ToolcallStart {
+                content_index,
+                tool_call,
+            } => {
+                write!(
+                    f,
+                    "[toolcall_start idx={content_index} name={}]",
+                    tool_call.name
+                )
             },
 
-            AssistantMessageEvent::ToolcallDelta { delta, .. } => {
-                write!(f, "[toolcall_delta len={}]", delta.len())
+            AssistantMessageEvent::ToolcallDelta {
+                delta, tool_call, ..
+            } => {
+                write!(
+                    f,
+                    "[toolcall_delta name={} len={}]",
+                    tool_call.name,
+                    delta.len()
+                )
             },
 
             AssistantMessageEvent::ToolcallEnd {
@@ -385,29 +412,43 @@ impl AssistantMessageBuilder {
                 .push(AssistantContent::ToolCall(ToolCall::new(
                     id.unwrap_or_default(),
                     name.unwrap_or_default(),
-                    serde_json::Value::Null,
+                    // Raw arguments remain a string until the complete JSON
+                    // payload can be validated at the end of the call.
+                    serde_json::Value::String(String::new()),
                 )));
 
             self.tool_indices.insert(provider_index, index);
             self.tool_arguments.insert(provider_index, String::new());
 
+            let tool_call = match &self.message.content[index] {
+                AssistantContent::ToolCall(tool_call) => tool_call.clone(),
+                _ => unreachable!("tool index must reference a tool call"),
+            };
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::ToolcallStart {
                     content_index: index,
+                    tool_call,
                 })
                 .await;
 
             index
         };
 
+        let mut metadata_changed = false;
         if let AssistantContent::ToolCall(call) = &mut self.message.content[index] {
-            if let Some(id) = id.filter(|value| !value.is_empty()) {
+            if let Some(id) = id.filter(|value| !value.is_empty())
+                && call.id != id
+            {
                 call.id = id.to_string();
+                metadata_changed = true;
             }
 
-            if let Some(name) = name.filter(|value| !value.is_empty()) {
+            if let Some(name) = name.filter(|value| !value.is_empty())
+                && call.name != name
+            {
                 call.name = name.to_string();
+                metadata_changed = true;
             }
         }
 
@@ -422,11 +463,29 @@ impl AssistantMessageBuilder {
                 call.arguments = serde_json::Value::String(argument_buffer.clone());
             }
 
+            let tool_call = match &self.message.content[index] {
+                AssistantContent::ToolCall(tool_call) => tool_call.clone(),
+                _ => unreachable!("tool index must reference a tool call"),
+            };
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::ToolcallDelta {
                     content_index: index,
                     delta: delta.to_string(),
+                    tool_call,
+                })
+                .await;
+        } else if metadata_changed {
+            let tool_call = match &self.message.content[index] {
+                AssistantContent::ToolCall(tool_call) => tool_call.clone(),
+                _ => unreachable!("tool index must reference a tool call"),
+            };
+            let _ = self
+                .stream
+                .push(AssistantMessageEvent::ToolcallDelta {
+                    content_index: index,
+                    delta: String::new(),
+                    tool_call,
                 })
                 .await;
         }
@@ -623,13 +682,23 @@ mod tests {
 
         let events: Vec<_> = stream.collect().await;
         assert!(events.iter().any(|event| {
+            matches!(event, AssistantMessageEvent::ToolcallStart { tool_call, .. }
+                if tool_call.id == "call-1"
+                    && tool_call.name == "bash"
+                    && tool_call.arguments == serde_json::Value::String(String::new()))
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(event, AssistantMessageEvent::ToolcallDelta { tool_call, .. }
+                if tool_call.arguments == serde_json::Value::String(r#"{"command":"hello"}"#.to_string()))
+        }));
+        assert!(events.iter().any(|event| {
             matches!(event, AssistantMessageEvent::ToolcallEnd { tool_call, .. }
                 if tool_call.arguments == serde_json::json!({ "command": "hello" }))
         }));
     }
 
     #[tokio::test]
-    async fn incremental_events_only_contain_deltas_and_terminal_event_has_message() {
+    async fn stream_events_incrementally_build_a_message_and_terminal_event_has_message() {
         let stream = create_assistant_message_event_stream();
         let mut builder =
             AssistantMessageBuilder::new(stream.clone(), Api::OpenaiCompletions, "test-model");
@@ -659,8 +728,8 @@ mod tests {
         );
 
         // The event type intentionally exposes the full AssistantMessage only
-        // from Done/Error; all preceding events carry an index plus their
-        // local delta or completed block value.
+        // from Done/Error. Earlier tool events expose only that call's partial
+        // state, allowing consumers to render it while it is being written.
         let terminal_message = events
             .into_iter()
             .find_map(|event| match event {

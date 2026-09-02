@@ -5,6 +5,7 @@
 //! terminal setup.
 
 use std::{
+    collections::HashMap,
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -97,6 +98,10 @@ pub struct InteractiveTui {
     /// The transcript entry receiving content from the current assistant
     /// stream.
     streaming_message_index: Option<usize>,
+    /// Maps streamed assistant content indices to tool-call positions in the
+    /// current transcript entry. Content indices are stable for a provider
+    /// response while the visible tool-call list contains tool blocks only.
+    streaming_tool_call_indices: HashMap<usize, usize>,
     /// Whether reasoning blocks are visible in the transcript.
     show_thinking: bool,
     /// Project directory used to shorten paths in the transcript.
@@ -346,6 +351,7 @@ impl InteractiveTui {
             agent_completion_tx,
             agent_completion_rx,
             streaming_message_index: None,
+            streaming_tool_call_indices: HashMap::new(),
             show_thinking,
             project_cwd,
             notice: None,
@@ -457,16 +463,11 @@ impl InteractiveTui {
         let stream_timeout =
             next_stream_render.map(|deadline| deadline.saturating_duration_since(now));
 
-        if self.agent_cancellation.is_some() {
-            [notice_timeout, stream_timeout]
-                .into_iter()
-                .flatten()
-                .min()
-                .unwrap_or(Duration::from_millis(16))
-                .min(Duration::from_millis(16))
-        } else {
-            notice_timeout.unwrap_or(Duration::from_secs(60 * 60))
-        }
+        input_poll_timeout(
+            self.agent_cancellation.is_some(),
+            notice_timeout,
+            stream_timeout,
+        )
     }
 
     /// Exit raw mode and restore terminal.
@@ -628,6 +629,28 @@ impl InteractiveTui {
     }
 }
 
+/// Select how long crossterm may block before the next UI-loop iteration.
+///
+/// A scheduled stream redraw must wake the loop even after the agent task has
+/// completed. The final text delta and completion can arrive in the same loop
+/// iteration; otherwise clearing the cancellation handle would let input poll
+/// block until unrelated terminal input occurs.
+fn input_poll_timeout(
+    response_active: bool,
+    notice_timeout: Option<Duration>,
+    stream_timeout: Option<Duration>,
+) -> Duration {
+    let scheduled_timeout = [notice_timeout, stream_timeout].into_iter().flatten().min();
+
+    if response_active {
+        scheduled_timeout
+            .unwrap_or(Duration::from_millis(16))
+            .min(Duration::from_millis(16))
+    } else {
+        scheduled_timeout.unwrap_or(Duration::from_secs(60 * 60))
+    }
+}
+
 /// Truncate a session ID to at most 8 characters for display.
 fn short_session_id(id: &str) -> &str {
     &id[..id.len().min(8)]
@@ -648,4 +671,23 @@ fn push_loaded_system_items_string(
     message.push_str(section_items);
     message.push_str("\n```\n");
     message.push_str("\n\n");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completed_response_keeps_the_scheduled_stream_redraw() {
+        let timeout = input_poll_timeout(false, None, Some(Duration::from_millis(16)));
+
+        assert_eq!(timeout, Duration::from_millis(16));
+    }
+
+    #[test]
+    fn active_response_polls_often_without_a_scheduled_redraw() {
+        let timeout = input_poll_timeout(true, None, None);
+
+        assert_eq!(timeout, Duration::from_millis(16));
+    }
 }

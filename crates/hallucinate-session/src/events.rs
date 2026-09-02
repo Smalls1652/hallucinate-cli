@@ -68,9 +68,14 @@ pub(crate) fn archive_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             serde_json::json!({ "tokens_before": tokens_before, "tokens_after": tokens_after, "summaries_added": summaries_added }),
         )),
         AgentEvent::Aborted => Some(("aborted", serde_json::json!({}))),
+        // Tool-call construction is high-frequency streamed presentation
+        // state. The validated ToolCallDetected event records the durable
+        // lifecycle entry once the provider has completed its JSON payload.
         AgentEvent::AssistantTextDelta { .. }
         | AgentEvent::AssistantThinkingDelta { .. }
-        | AgentEvent::AssistantMessageCompleted { .. } => None,
+        | AgentEvent::AssistantMessageCompleted { .. }
+        | AgentEvent::ToolCallStarted { .. }
+        | AgentEvent::ToolCallDelta { .. } => None,
     }
 }
 

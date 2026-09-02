@@ -2,7 +2,7 @@
 
 use hallucinate_agent::{
     agent::types::{AgentEvent, AgentState},
-    ai::types::{AssistantContent, AssistantMessage, Message},
+    ai::types::{AssistantContent, AssistantMessage, Message, ToolCall as AgentToolCall},
 };
 
 use super::InteractiveTui;
@@ -25,6 +25,15 @@ impl InteractiveTui {
             if let Err(error) = self.session_manager.save_agent_event(&event) {
                 eprintln!("Warning: could not persist session event: {error}");
             }
+
+            // Render these state boundaries before processing later queued
+            // events. Fast tools can otherwise start and finish between two
+            // TUI draws, leaving users with no visible indication that their
+            // call was being assembled or executed.
+            let render_before_next_event = matches!(
+                event,
+                AgentEvent::ToolCallStarted { .. } | AgentEvent::ToolExecutionStarted { .. }
+            );
 
             match &event {
                 AgentEvent::StateChanged { new_state, .. } => {
@@ -65,6 +74,7 @@ impl InteractiveTui {
 
                 AgentEvent::AssistantMessageCompleted { message, .. } => {
                     let (content, thinking, tool_calls) = display_assistant_message(message);
+                    self.streaming_tool_call_indices.clear();
 
                     if let Some(index) = self.streaming_message_index.take() {
                         self.transcript
@@ -80,7 +90,22 @@ impl InteractiveTui {
                     }
                 },
 
-                AgentEvent::ToolCallDetected { .. } | AgentEvent::ToolExecutionStarted { .. } => {},
+                AgentEvent::ToolCallStarted {
+                    content_index,
+                    tool_call,
+                }
+                | AgentEvent::ToolCallDelta {
+                    content_index,
+                    tool_call,
+                } => {
+                    self.update_streaming_tool_call(*content_index, tool_call);
+                },
+
+                AgentEvent::ToolCallDetected { .. } => {},
+
+                AgentEvent::ToolExecutionStarted { tool_call_id, .. } => {
+                    self.transcript.start_tool_call(tool_call_id);
+                },
 
                 AgentEvent::ToolExecutionCompleted {
                     tool_call_id,
@@ -107,6 +132,10 @@ impl InteractiveTui {
 
                 _ => {},
             }
+
+            if render_before_next_event {
+                return false;
+            }
         }
 
         received_delta
@@ -129,6 +158,40 @@ impl InteractiveTui {
         let index = self.transcript.messages().len() - 1;
         self.streaming_message_index = Some(index);
         index
+    }
+
+    /// Update a streamed tool call in the assistant card currently receiving
+    /// provider output. Tool arguments are intentionally retained as raw JSON
+    /// text here, so the UI can show the call before the provider finishes it.
+    fn update_streaming_tool_call(
+        &mut self,
+        content_index: usize,
+        tool_call: &AgentToolCall,
+    ) {
+        let message_index = self.ensure_streaming_assistant_message();
+        let tui_tool_call = tui_tool_call(tool_call);
+
+        if let Some(tool_call_index) = self
+            .streaming_tool_call_indices
+            .get(&content_index)
+            .copied()
+        {
+            if self.transcript.update_tool_call_in_message(
+                message_index,
+                tool_call_index,
+                tui_tool_call.clone(),
+            ) {
+                return;
+            }
+        }
+
+        if let Some(tool_call_index) = self
+            .transcript
+            .add_tool_call_to_message(message_index, tui_tool_call)
+        {
+            self.streaming_tool_call_indices
+                .insert(content_index, tool_call_index);
+        }
     }
 
     /// Restore completed agents and display their responses without blocking
@@ -257,12 +320,7 @@ fn display_assistant_message(message: &AssistantMessage) -> (String, String, Vec
         .iter()
         .filter_map(|content| {
             if let AssistantContent::ToolCall(tool_call) = content {
-                Some(TuiToolCall {
-                    id: tool_call.id.clone(),
-                    name: tool_call.name.clone(),
-                    arguments: tool_call.arguments.clone(),
-                    result: None,
-                })
+                Some(tui_tool_call(tool_call))
             } else {
                 None
             }
@@ -289,6 +347,16 @@ fn display_assistant_message(message: &AssistantMessage) -> (String, String, Vec
         .join("\n");
 
     (text, thinking, tool_calls)
+}
+
+/// Convert an agent tool call to the transcript representation.
+fn tui_tool_call(tool_call: &AgentToolCall) -> TuiToolCall {
+    TuiToolCall {
+        id: tool_call.id.clone(),
+        name: tool_call.name.clone(),
+        arguments: tool_call.arguments.clone(),
+        result: None,
+    }
 }
 
 /// Convert a Unix timestamp in milliseconds to a UTC datetime.

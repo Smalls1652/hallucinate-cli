@@ -493,6 +493,7 @@ impl InteractiveTui {
         // A cancelled/failed stream may have left a partial assistant card;
         // start the next response in a fresh card.
         self.streaming_message_index = None;
+        self.streaming_tool_call_indices.clear();
 
         // Add user message to transcript
         self.transcript.add_message(TuiMessage {

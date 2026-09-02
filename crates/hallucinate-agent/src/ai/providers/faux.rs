@@ -194,7 +194,10 @@ impl Provider for FauxProvider {
                     let stop = stop_reason.clone();
 
                     let _ = stream
-                        .push(AssistantMessageEvent::ToolcallStart { content_index: 0 })
+                        .push(AssistantMessageEvent::ToolcallStart {
+                            content_index: 0,
+                            tool_call: tool_call.clone(),
+                        })
                         .await;
 
                     let _ = stream

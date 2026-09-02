@@ -584,11 +584,25 @@ impl Agent {
                     });
                 },
 
+                crate::ai::streaming::AssistantMessageEvent::ToolcallStart {
+                    content_index,
+                    tool_call,
+                } => {
+                    self.emit(AgentEvent::ToolCallStarted {
+                        content_index: *content_index,
+                        tool_call: tool_call.clone(),
+                    });
+                },
+
                 crate::ai::streaming::AssistantMessageEvent::ToolcallDelta {
                     content_index,
+                    tool_call,
                     ..
                 } => {
-                    let _ = content_index;
+                    self.emit(AgentEvent::ToolCallDelta {
+                        content_index: *content_index,
+                        tool_call: tool_call.clone(),
+                    });
                 },
 
                 crate::ai::streaming::AssistantMessageEvent::Done { message, .. } => {
@@ -1103,6 +1117,48 @@ mod tests {
 
         assert!(saw_delta);
         assert!(saw_completed_message);
+    }
+
+    #[tokio::test]
+    async fn emits_tool_call_start_before_the_completed_assistant_message() {
+        let provider = FauxProvider::new();
+        provider.set_responses(vec![
+            FauxResponse::Text("done".to_string(), StopReason::Stop),
+            FauxResponse::ToolCall(
+                "call-1".to_string(),
+                "bash".to_string(),
+                serde_json::json!({ "command": "printf hello" }),
+                StopReason::ToolUse,
+            ),
+        ]);
+
+        let model = test_model();
+        let mut agent = Agent::with_all_tools_and_image_resize(
+            Box::new(provider),
+            model,
+            AgentConfig::default(),
+            true,
+        );
+        let mut events = agent.subscribe();
+        agent.add_user_message("run a command");
+
+        assert_eq!(agent.run().await.unwrap(), StopReason::Stop);
+
+        let events = std::iter::from_fn(|| events.try_recv().ok()).collect::<Vec<_>>();
+        let tool_call_start = events.iter().position(|event| {
+            matches!(event, AgentEvent::ToolCallStarted { tool_call, .. }
+                if tool_call.id == "call-1"
+                    && tool_call.name == "bash"
+                    && tool_call.arguments == serde_json::json!({ "command": "printf hello" }))
+        });
+        let completed_message = events.iter().position(|event| {
+            matches!(event, AgentEvent::AssistantMessageCompleted { message, .. }
+                if matches!(message.content.as_slice(), [AssistantContent::ToolCall(call)] if call.id == "call-1"))
+        });
+
+        assert!(tool_call_start.is_some());
+        assert!(completed_message.is_some());
+        assert!(tool_call_start < completed_message);
     }
 
     #[tokio::test]

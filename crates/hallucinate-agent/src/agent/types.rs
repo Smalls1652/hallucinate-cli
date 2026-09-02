@@ -6,7 +6,16 @@ use base64::Engine;
 use image::GenericImageView;
 use tokio::sync::Notify;
 
-use crate::ai::types::{AssistantMessage, Context, ImageContent, Message, Model, StopReason, Tool};
+use crate::ai::types::{
+    AssistantMessage,
+    Context,
+    ImageContent,
+    Message,
+    Model,
+    StopReason,
+    Tool,
+    ToolCall,
+};
 
 // ── Agent State ──────────────────────────────────────────────────────────────
 
@@ -117,6 +126,21 @@ pub enum AgentEvent {
         message: Box<AssistantMessage>,
     },
 
+    /// A streamed tool call began. Its arguments may still be incomplete.
+    ToolCallStarted {
+        content_index: usize,
+        tool_call: ToolCall,
+    },
+
+    /// A streamed tool call received updated metadata or arguments.
+    ///
+    /// The call contains all argument text accumulated so far as a raw JSON
+    /// string until the provider completes the call.
+    ToolCallDelta {
+        content_index: usize,
+        tool_call: ToolCall,
+    },
+
     /// Tool call detected in assistant response.
     ToolCallDetected {
         tool_call_id: String,
@@ -189,6 +213,14 @@ impl fmt::Display for AgentEvent {
 
             AgentEvent::AssistantMessageCompleted { turn_number, .. } => {
                 write!(f, "[assistant] completed turn #{turn_number}")
+            },
+
+            AgentEvent::ToolCallStarted { tool_call, .. } => {
+                write!(f, "[tool_call] writing {}", tool_call.name)
+            },
+
+            AgentEvent::ToolCallDelta { tool_call, .. } => {
+                write!(f, "[tool_call] updating {}", tool_call.name)
             },
 
             AgentEvent::ToolCallDetected { tool_name, .. } => {

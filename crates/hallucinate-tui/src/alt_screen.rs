@@ -1,6 +1,6 @@
 //! Transcript data used by the purpose-built interactive UI.
 
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 /// A renderer-independent transcript model. The interactive mode owns the
 /// terminal event loop and uses this type for message storage and viewport
@@ -20,6 +20,9 @@ pub struct TranscriptRenderer {
     /// caches use this to avoid treating scroll-only changes as content edits.
     message_revisions: Vec<u64>,
     next_message_revision: u64,
+    /// IDs of calls actively executing. This ephemeral state is deliberately
+    /// separate from persisted tool results.
+    running_tool_call_ids: HashSet<String>,
 }
 
 /// A message in the transcript.
@@ -99,6 +102,7 @@ impl TranscriptRenderer {
             show_thinking: false,
             message_revisions: Vec::new(),
             next_message_revision: 1,
+            running_tool_call_ids: HashSet::new(),
         }
     }
 
@@ -206,6 +210,42 @@ impl TranscriptRenderer {
         }
     }
 
+    /// Add an in-progress tool call to a message and return its tool-call
+    /// position. Stream content indices are tracked by the interactive
+    /// controller because a message can also contain text or thinking blocks.
+    pub fn add_tool_call_to_message(
+        &mut self,
+        message_index: usize,
+        tool_call: ToolCall,
+    ) -> Option<usize> {
+        let message = self.messages.get_mut(message_index)?;
+        message.tool_calls.push(tool_call);
+        let tool_call_index = message.tool_calls.len() - 1;
+        self.bump_message_revision(message_index);
+
+        Some(tool_call_index)
+    }
+
+    /// Replace the current state of an in-progress tool call.
+    pub fn update_tool_call_in_message(
+        &mut self,
+        message_index: usize,
+        tool_call_index: usize,
+        tool_call: ToolCall,
+    ) -> bool {
+        let Some(message) = self.messages.get_mut(message_index) else {
+            return false;
+        };
+        let Some(current_tool_call) = message.tool_calls.get_mut(tool_call_index) else {
+            return false;
+        };
+
+        *current_tool_call = tool_call;
+        self.bump_message_revision(message_index);
+
+        true
+    }
+
     /// Finalize a message with its full content, thinking block, and tool
     /// calls.
     pub fn complete_message(
@@ -223,6 +263,39 @@ impl TranscriptRenderer {
         }
     }
 
+    /// Mark a tool call as actively executing.
+    ///
+    /// Return `true` when the call is already present in the transcript.
+    /// Execution state is transient, so it is kept separate from the tool
+    /// result persisted with the conversation.
+    pub fn start_tool_call(
+        &mut self,
+        tool_call_id: &str,
+    ) -> bool {
+        for index in (0..self.messages.len()).rev() {
+            if self.messages[index]
+                .tool_calls
+                .iter()
+                .any(|call| call.id == tool_call_id)
+            {
+                self.running_tool_call_ids.insert(tool_call_id.to_string());
+                self.bump_message_revision(index);
+
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Return whether a tool call is actively executing.
+    pub fn is_tool_call_running(
+        &self,
+        tool_call_id: &str,
+    ) -> bool {
+        self.running_tool_call_ids.contains(tool_call_id)
+    }
+
     /// Attach a tool result to the original assistant tool call. This keeps
     /// tool progress beside the request that caused it instead of adding a
     /// second unrelated transcript entry.
@@ -232,6 +305,8 @@ impl TranscriptRenderer {
         result: String,
         is_error: bool,
     ) -> bool {
+        self.running_tool_call_ids.remove(tool_call_id);
+
         for index in (0..self.messages.len()).rev() {
             let message = &mut self.messages[index];
             if let Some(call) = message
@@ -456,6 +531,52 @@ mod tests {
     }
 
     #[test]
+    fn streamed_tool_calls_can_be_added_and_updated_before_completion() {
+        let mut transcript = TranscriptRenderer::new();
+        transcript.add_message(Message {
+            role: MessageRole::Assistant,
+            content: String::new(),
+            thinking: String::new(),
+            tool_calls: Vec::new(),
+            timestamp: chrono::Utc::now(),
+        });
+
+        let tool_call_index = transcript
+            .add_tool_call_to_message(
+                0,
+                ToolCall {
+                    id: "call-1".to_string(),
+                    name: "write".to_string(),
+                    arguments: serde_json::Value::String(r#"{"path":"src/lib.rs"#.to_string()),
+                    result: None,
+                },
+            )
+            .expect("assistant message exists");
+        assert_eq!(tool_call_index, 0);
+        assert_eq!(
+            transcript.messages()[0].tool_calls[0].arguments,
+            serde_json::Value::String(r#"{"path":"src/lib.rs"#.to_string())
+        );
+
+        assert!(transcript.update_tool_call_in_message(
+            0,
+            tool_call_index,
+            ToolCall {
+                id: "call-1".to_string(),
+                name: "write".to_string(),
+                arguments: serde_json::Value::String(
+                    r#"{"path":"src/lib.rs","content":"hello"}"#.to_string()
+                ),
+                result: None,
+            },
+        ));
+        assert_eq!(
+            transcript.messages()[0].tool_calls[0].arguments,
+            serde_json::Value::String(r#"{"path":"src/lib.rs","content":"hello"}"#.to_string())
+        );
+    }
+
+    #[test]
     fn tool_results_update_the_original_call() {
         let mut transcript = TranscriptRenderer::new();
         transcript.add_message(Message {
@@ -471,7 +592,11 @@ mod tests {
             timestamp: chrono::Utc::now(),
         });
 
+        assert!(transcript.start_tool_call("call-1"));
+        assert!(transcript.is_tool_call_running("call-1"));
+
         assert!(transcript.complete_tool_call("call-1", "ok".to_string(), false));
+        assert!(!transcript.is_tool_call_running("call-1"));
         assert_eq!(
             transcript.messages()[0].tool_calls[0].result.as_deref(),
             Some("✅ ok")
