@@ -3,9 +3,12 @@
 use std::{borrow::Cow, path::Path};
 
 use hallucinate_agent::agent::types::AgentState;
-use ratatui::layout::Rect;
-#[cfg(test)]
-use ratatui::{style::Color, text::Line};
+use ratatui::{
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph},
+};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::InteractiveTui;
@@ -112,13 +115,6 @@ impl InteractiveTui {
         let mut rendered_selection_text = String::new();
 
         self.terminal.draw(|frame| {
-            use ratatui::{
-                layout::{Constraint, Layout},
-                style::{Color, Modifier, Style},
-                text::{Line, Span},
-                widgets::{Block, Borders, Clear, Padding, Paragraph, Widget},
-            };
-
             let autocomplete_height = if self.autocomplete_items.is_empty() {
                 0
             } else {
@@ -153,447 +149,30 @@ impl InteractiveTui {
 
             let editor_chunk = chunks.len() - 1;
 
-            // Status bar
-            let state_str = match &self.agent_state {
-                AgentState::Idle => "idle".to_string(),
-                AgentState::Streaming => "streaming...".to_string(),
-                AgentState::ToolExecuting => "executing tools...".to_string(),
-                AgentState::TurnComplete => "response complete".to_string(),
-                AgentState::Error(message) => format!("error: {}", message),
-                AgentState::Aborted => "aborted".to_string(),
-            };
+            render_status_bar(
+                frame,
+                chunks[0],
+                &self.agent_state,
+                &self.session_manager,
+                self.token_count,
+                &self.model,
+                self.show_thinking,
+                self.notice.as_ref(),
+            );
 
-            let session_id = self
-                .session_manager
-                .current_id()
-                .map(|id| &id[..8.min(id.len())])
-                .unwrap_or("none");
-            let session_title = self
-                .session_manager
-                .current()
-                .and_then(|session| session.title.as_deref())
-                .filter(|title| !title.trim().is_empty());
-
-            let token_count = self.token_count;
-
-            let status_text = Line::from(vec![
-                Span::styled(
-                    "hallucinate ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(ratatui::style::Modifier::BOLD),
-                ),
-                if let Some(notice) = self.notice.as_ref() {
-                    Span::styled(
-                        format!("! {}  |  ", truncate_one_line(&notice.message, 80)),
-                        Style::default().fg(Color::LightYellow),
-                    )
-                } else {
-                    Span::styled("", Style::default())
-                },
-                Span::styled("[", Style::default().fg(Color::DarkGray)),
-                Span::styled(state_str, Style::default().fg(Color::Yellow)),
-                Span::styled("] ", Style::default().fg(Color::DarkGray)),
-                Span::styled("session:", Style::default().fg(Color::DarkGray)),
-                if let Some(title) = session_title {
-                    Span::styled(
-                        truncate_one_line(title, 48),
-                        Style::default().fg(Color::White),
-                    )
-                } else {
-                    Span::styled(session_id, Style::default().fg(Color::Green))
-                },
-                Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    format!("{} tokens", token_count),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    format!("model: {}/{}", self.model.provider, self.model.id),
-                    Style::default().fg(Color::Cyan),
-                ),
-                Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    if self.show_thinking {
-                        "thinking: on"
-                    } else {
-                        "thinking: off"
-                    },
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]);
-
-            let status = Paragraph::new(status_text);
-            frame.render_widget(status, chunks[0]);
-
-            // Transcript
-            //
-            // Messages use a light-weight chat-card treatment instead of a
-            // stream of bracketed labels. The rounded header and accent rail
-            // give each speaker a clear visual boundary while leaving the
-            // Markdown renderer in charge of the actual message content.
-            // Consecutive assistant turns deliberately share a card.
-            //
-            // Paragraph's word wrapper does not repeat a line's prefix on
-            // continuation rows. Wrap message content before adding the
-            // decorative rail so long paragraphs keep the rail aligned and
-            // do not appear to spill out of their message card.
-            let transcript_block = Block::default()
-                .borders(Borders::NONE)
-                .padding(Padding::horizontal(1));
-
-            let transcript_inner_area = transcript_block.inner(chunks[1]);
-            let transcript_width = transcript_inner_area.width;
-
-            let cache_matches = self.transcript_layout_cache.matches(
+            let rendered_selection = render_transcript(
+                frame,
+                chunks[1],
+                selection,
+                &mut self.transcript_layout_cache,
                 &self.transcript,
-                transcript_width,
                 self.show_full_tool_output,
+                self.show_thinking,
                 self.streaming_message_index,
+                &self.project_cwd,
             );
-
-            if !cache_matches {
-                let mut selection_line_starts = Vec::new();
-                let messages = self.transcript.messages();
-
-                let lines: Vec<Line<'static>> = messages
-                    .iter()
-                    .enumerate()
-                    .flat_map(|(message_index, msg)| {
-                        let (role_color, icon, role_label) = match msg.role {
-                            MessageRole::User => (Color::LightGreen, "›", "You"),
-                            MessageRole::Assistant => (Color::LightCyan, "✦", "Assistant"),
-                            MessageRole::Tool => (Color::LightMagenta, "⚙", "Tool"),
-                            MessageRole::System => (Color::DarkGray, "·", "Notice"),
-                        };
-
-                        let muted = Style::default().fg(Color::DarkGray);
-                        let starts_card = starts_transcript_card(
-                            message_index
-                                .checked_sub(1)
-                                .and_then(|index| messages.get(index))
-                                .map(|message| message.role),
-                            msg.role,
-                        );
-                        let ends_card = ends_transcript_card(
-                            msg.role,
-                            messages.get(message_index + 1).map(|message| message.role),
-                        );
-
-                        let role_style =
-                            Style::default().fg(role_color).add_modifier(Modifier::BOLD);
-                        let mut lines = Vec::new();
-                        let mut line_starts = Vec::new();
-
-                        if starts_card {
-                            lines.push(Line::from(vec![
-                                Span::styled("╭─ ", role_color),
-                                Span::styled(icon, role_style),
-                                Span::styled(format!(" {}", role_label), role_style),
-                            ]));
-                            line_starts.push(None);
-
-                            if self.transcript.show_timestamps() {
-                                lines[0].spans.push(Span::styled("  · ", muted));
-                                lines[0].spans.push(Span::styled(
-                                    msg.timestamp.format("%H:%M:%S").to_string(),
-                                    muted.add_modifier(Modifier::ITALIC),
-                                ));
-                            }
-                        }
-
-                        if self.show_thinking && !msg.thinking.is_empty() {
-                            // Reasoning is deliberately styled as a secondary
-                            // surface: muted text plus a subtle background
-                            // makes it visually
-                            // distinct from the answer while keeping
-                            // it readable during long streams.
-                            let thinking_style = Style::default()
-                                .fg(Color::Gray)
-                                .bg(Color::Rgb(45, 45, 45))
-                                .add_modifier(Modifier::DIM);
-
-                            lines.push(Line::from(vec![
-                                Span::styled("│ ", thinking_style),
-                                Span::styled(
-                                    "💭 Thinking",
-                                    thinking_style.add_modifier(Modifier::ITALIC),
-                                ),
-                            ]));
-                            line_starts.push(None);
-
-                            let mut thinking = markdown_to_lines(&msg.thinking);
-                            while thinking.last().is_some_and(line_is_empty) {
-                                thinking.pop();
-                            }
-
-                            for line in thinking {
-                                for line in
-                                    wrap_line_to_width(line, transcript_width.saturating_sub(2))
-                                {
-                                    lines.push(muted_thinking_line(line, thinking_style));
-                                    line_starts.push(None);
-                                }
-                            }
-
-                            lines.push(Line::from(vec![Span::styled("│ ", role_color)]));
-                            line_starts.push(None);
-                        }
-
-                        let mut body = markdown_to_lines(&msg.content);
-                        while body.last().is_some_and(line_is_empty) {
-                            body.pop();
-                        }
-
-                        if body.is_empty() {
-                            let mut empty_line = vec![Span::styled("│ ", role_color)];
-
-                            if self.streaming_message_index == Some(message_index) {
-                                empty_line.push(Span::styled(
-                                    "thinking…",
-                                    muted.add_modifier(Modifier::ITALIC),
-                                ));
-                            }
-
-                            lines.push(Line::from(empty_line));
-                            line_starts.push(None);
-                        } else {
-                            let selectable_start =
-                                matches!(msg.role, MessageRole::User | MessageRole::Assistant)
-                                    .then_some(2);
-
-                            for line in body {
-                                for line in
-                                    wrap_line_to_width(line, transcript_width.saturating_sub(2))
-                                {
-                                    lines.push(prefix_message_line(line, role_color));
-
-                                    // The first two cells are the decorative
-                                    // rail;
-                                    // only user and assistant message bodies
-                                    // are
-                                    // selectable.
-                                    line_starts.push(selectable_start);
-                                }
-                            }
-                        }
-
-                        // If the last body line left an empty card rail,
-                        // remove it.
-                        if lines.last().is_some_and(line_is_empty_card_rail) {
-                            lines.pop();
-                            line_starts.pop();
-                        }
-
-                        for tool_call in &msg.tool_calls {
-                            // If the previous line is not an empty card rail,
-                            // push an empty card rail. This may seem
-                            // counter-intuitive,
-                            // considering the last thing done is removing an
-                            // empty card rail from
-                            // a body; however, this is genuinely
-                            // a tough one to keep track of.
-                            if !lines.last().is_some_and(line_is_empty_card_rail) {
-                                lines.push(Line::from(Span::styled("│ ", role_color)));
-                                line_starts.push(None);
-                            }
-
-                            let previous_len = lines.len();
-                            let readable = streamed_tool_call_summary(tool_call, &self.project_cwd);
-
-                            append_prefixed_lines(
-                                &mut lines,
-                                &readable,
-                                "├─ ⚙ ",
-                                "│  ",
-                                Style::default().fg(Color::LightBlue),
-                                Style::default().fg(Color::LightBlue),
-                                transcript_width,
-                            );
-
-                            line_starts.extend(vec![None; lines.len() - previous_len]);
-                            if let Some(result) = &tool_call.result {
-                                let result_style = if result.starts_with("❌") {
-                                    Style::default().fg(Color::LightRed)
-                                } else {
-                                    Style::default().fg(Color::LightGreen)
-                                };
-
-                                let previous_len = lines.len();
-                                let result =
-                                    tool_result_for_display(result, self.show_full_tool_output);
-
-                                append_prefixed_lines(
-                                    &mut lines,
-                                    &result,
-                                    "│  ",
-                                    "│  ",
-                                    Style::default().fg(Color::LightBlue),
-                                    result_style,
-                                    transcript_width,
-                                );
-
-                                line_starts.extend(vec![None; lines.len() - previous_len]);
-                            } else if self.streaming_message_index == Some(message_index)
-                                && tool_call.arguments.is_string()
-                            {
-                                lines.push(Line::from(vec![
-                                    Span::styled("│  ", Style::default().fg(Color::LightBlue)),
-                                    Span::styled(
-                                        "✍ Writing…",
-                                        Style::default()
-                                            .fg(Color::Yellow)
-                                            .add_modifier(Modifier::ITALIC),
-                                    ),
-                                ]));
-                                line_starts.push(None);
-                            } else if self.transcript.is_tool_call_running(&tool_call.id) {
-                                lines.push(Line::from(vec![
-                                    Span::styled("│  ", Style::default().fg(Color::LightBlue)),
-                                    Span::styled(
-                                        "⏳ Running…",
-                                        Style::default()
-                                            .fg(Color::Yellow)
-                                            .add_modifier(Modifier::ITALIC),
-                                    ),
-                                ]));
-                                line_starts.push(None);
-                            }
-
-                            lines.push(Line::from(Span::styled(
-                                "│ ",
-                                Style::default().fg(Color::LightBlue),
-                            )));
-                            line_starts.push(None);
-                        }
-
-                        if ends_card {
-                            lines.push(Line::from(Span::styled("╰─", role_color)));
-                            line_starts.push(None);
-                            lines.push(Line::from(""));
-                            line_starts.push(None);
-                        } else {
-                            // Consecutive assistant turns share this card;
-                            // leave a quiet in-card
-                            // divider between their content.
-                            lines.push(Line::from(Span::styled("│ ", role_color)));
-                            line_starts.push(None);
-                        }
-
-                        // If the last line is an empty card rail,
-                        // remove it.
-                        if lines.last().is_some_and(line_is_empty_card_rail) {
-                            lines.pop();
-                            line_starts.pop();
-                        }
-
-                        selection_line_starts.extend(line_starts);
-
-                        lines
-                    })
-                    .collect();
-
-                self.transcript_layout_cache.replace(
-                    &self.transcript,
-                    transcript_width,
-                    self.show_full_tool_output,
-                    self.streaming_message_index,
-                    lines,
-                    selection_line_starts,
-                );
-            }
-
-            let lines = &self.transcript_layout_cache.lines;
-            let selection_line_starts = &self.transcript_layout_cache.selection_line_starts;
-            debug_assert_eq!(lines.len(), selection_line_starts.len());
-
-            // A Line is deliberately a single visual line in ratatui: an
-            // embedded newline in a message would otherwise not create a row.
-            // The helpers above expand and pre-wrap every message and tool
-            // row, allowing this renderer to borrow just the visible cache
-            // entries rather than cloning the full transcript into a
-            // `Paragraph` for every scroll event.
-            let active_selection = selection.filter(|selection| selection.has_range());
-            let scroll = self
-                .transcript
-                .scroll_position(lines.len(), usize::from(transcript_inner_area.height));
-            frame.render_widget(
-                TranscriptViewport {
-                    lines,
-                    scroll: usize::from(scroll),
-                },
-                transcript_inner_area,
-            );
-
             rendered_transcript_area = chunks[1];
-
-            // Mouse capture normally prevents the terminal emulator from
-            // selecting text itself. Paint the selection into ratatui's
-            // buffer so drag selection works consistently across terminals.
-            // Reading the same cells also gives Ctrl+C/Cmd+C the exact text
-            // the user can see, including wrapped lines and Markdown styling.
-            if let Some(selection) = active_selection {
-                let ((start_x, start_y), (end_x, end_y)) = selection.bounds();
-                let area = chunks[1];
-
-                let selection_style = Style::default().fg(Color::Black).bg(Color::White);
-
-                // A marker tree is needed only while a real drag selection
-                // is active. Build it for visible rows only, rather than
-                // cloning every historic transcript line.
-                let selection_mask_lines = lines
-                    .iter()
-                    .skip(usize::from(scroll))
-                    .zip(
-                        selection_line_starts
-                            .iter()
-                            .skip(usize::from(scroll))
-                            .copied(),
-                    )
-                    .take(usize::from(transcript_inner_area.height))
-                    .map(|(line, start)| selection_mask_line(line, start))
-                    .collect::<Vec<_>>();
-                let mut mask_buffer = ratatui::buffer::Buffer::empty(area);
-                let mask = Paragraph::new(selection_mask_lines);
-                mask.render(transcript_inner_area, &mut mask_buffer);
-
-                let buffer = frame.buffer_mut();
-                let mut selected_rows = Vec::new();
-                for row in start_y..=end_y {
-                    let from = if row == start_y { start_x } else { area.x };
-
-                    let to = if row == end_y {
-                        end_x
-                    } else {
-                        area.x.saturating_add(area.width).saturating_sub(1)
-                    };
-
-                    let mut selected_row = String::new();
-                    let mut row_has_selectable_text = false;
-
-                    for column in from..=to {
-                        let selectable = mask_buffer
-                            .cell((column, row))
-                            .is_some_and(|cell| cell.fg == SELECTION_MARKER);
-
-                        if selectable {
-                            row_has_selectable_text = true;
-
-                            if let Some(cell) = buffer.cell_mut((column, row)) {
-                                selected_row.push_str(cell.symbol());
-                                cell.set_style(selection_style);
-                            }
-                        }
-                    }
-
-                    if row_has_selectable_text {
-                        selected_rows.push(selected_row.trim_end().to_string());
-                    }
-                }
-                rendered_selection_text = selected_rows.join("\n");
-            }
-
+            rendered_selection_text = rendered_selection;
             if autocomplete_height > 0 {
                 let start = self.autocomplete_index.saturating_sub(4);
                 let popup_inner_width = usize::from(chunks[2].width.saturating_sub(2));
@@ -639,246 +218,11 @@ impl InteractiveTui {
             // Editor
             self.editor.render(frame, chunks[editor_chunk]);
 
-            // Model picker overlay. It is rendered last so it remains visible
-            // above the transcript, autocomplete popup, and editor.
-            if let Some(picker) = self.model_picker {
-                let area = frame.area();
+            render_model_picker(frame, self.model_picker, &self.models);
 
-                let popup_width = area.width.saturating_sub(4).min(140);
+            render_session_picker(frame, self.session_picker.as_ref());
 
-                let popup_height = area
-                    .height
-                    .saturating_sub(4)
-                    .min((self.models.len() + 2).min(18) as u16);
-
-                if popup_width > 4 && popup_height > 2 {
-                    let popup_area = ratatui::layout::Rect::new(
-                        area.x + (area.width - popup_width) / 2,
-                        area.y + (area.height - popup_height) / 2,
-                        popup_width,
-                        popup_height,
-                    );
-
-                    let visible_rows = usize::from(popup_height.saturating_sub(2));
-
-                    let start = picker
-                        .selected
-                        .saturating_sub(visible_rows / 2)
-                        .min(self.models.len().saturating_sub(visible_rows));
-
-                    let rows = self
-                        .models
-                        .iter()
-                        .enumerate()
-                        .skip(start)
-                        .take(visible_rows)
-                        .map(|(index, model)| {
-                            let marker = if index == picker.selected { "> " } else { "  " };
-
-                            let metadata = format!(
-                                "context {} · max {} · {}{}",
-                                model.context_window,
-                                model.max_tokens,
-                                model.input.join(","),
-                                if model.reasoning { " · reasoning" } else { "" }
-                            );
-
-                            Line::from(vec![
-                                Span::styled(
-                                    marker,
-                                    Style::default().fg(if index == picker.selected {
-                                        Color::Yellow
-                                    } else {
-                                        Color::DarkGray
-                                    }),
-                                ),
-                                Span::styled(
-                                    format!("{}", model.name),
-                                    Style::default()
-                                        .fg(Color::Cyan)
-                                        .add_modifier(Modifier::BOLD),
-                                ),
-                                Span::styled(
-                                    format!(" - {}/{} ", model.provider, model.id),
-                                    Style::default().fg(Color::Cyan),
-                                ),
-                                Span::styled(metadata, Style::default().fg(Color::DarkGray)),
-                            ])
-                        })
-                        .collect::<Vec<_>>();
-
-                    frame.render_widget(Clear, popup_area);
-
-                    // Keep each model on one terminal row. Wrapping made
-                    // the index-based scroll window disagree with the number
-                    // of visual rows, so the selected model could disappear
-                    // below the popup.
-                    frame.render_widget(
-                        Paragraph::new(rows).block(
-                            Block::default()
-                                .borders(Borders::ALL)
-                                .title(" Select model · ↑↓ PgUp/PgDn Home/End Enter Esc "),
-                        ),
-                        popup_area,
-                    );
-                }
-            }
-
-            // Session picker overlay. Rendered after the model picker so the
-            // model picker takes visual precedence when both could appear.
-            if let Some(picker) = self.session_picker.as_ref() {
-                let area = frame.area();
-
-                let popup_width = area.width.saturating_sub(4).min(140);
-
-                {
-                    let popup_height = area
-                        .height
-                        .saturating_sub(4)
-                        .min((picker.rows.len() + 2).min(18) as u16);
-
-                    if popup_width > 4 && popup_height > 2 {
-                        let popup_area = ratatui::layout::Rect::new(
-                            area.x + (area.width - popup_width) / 2,
-                            area.y + (area.height - popup_height) / 2,
-                            popup_width,
-                            popup_height,
-                        );
-
-                        let visible_rows = usize::from(popup_height.saturating_sub(2));
-
-                        let start = picker
-                            .selected
-                            .saturating_sub(visible_rows / 2)
-                            .min(picker.rows.len().saturating_sub(visible_rows));
-
-                        let rows = picker
-                            .rows
-                            .iter()
-                            .enumerate()
-                            .skip(start)
-                            .take(visible_rows)
-                            .map(|(index, session)| {
-                                let marker = if index == picker.selected { "> " } else { "  " };
-
-                                let datetime = &session.datetime;
-                                let title = truncate_one_line(
-                                    &session.title,
-                                    usize::from(popup_width.saturating_sub(34)),
-                                );
-
-                                Line::from(vec![
-                                    Span::styled(
-                                        marker,
-                                        Style::default().fg(if index == picker.selected {
-                                            Color::Yellow
-                                        } else {
-                                            Color::DarkGray
-                                        }),
-                                    ),
-                                    Span::styled(
-                                        format!("{:<8}  ", session.short_id),
-                                        Style::default().fg(Color::Cyan),
-                                    ),
-                                    Span::styled(
-                                        format!("{datetime:<16}  "),
-                                        Style::default().fg(Color::DarkGray),
-                                    ),
-                                    Span::styled(title, Style::default().fg(Color::White)),
-                                ])
-                            })
-                            .collect::<Vec<_>>();
-
-                        frame.render_widget(Clear, popup_area);
-
-                        frame.render_widget(
-                            Paragraph::new(rows).block(
-                                Block::default()
-                                    .borders(Borders::ALL)
-                                    .title(" Select session · ↑↓ PgUp/PgDn Home/End Enter Esc "),
-                            ),
-                            popup_area,
-                        );
-                    }
-                }
-            }
-
-            // Prompt template picker overlay. Rendered after the session picker
-            // so it takes visual precedence when open.
-            if let Some(picker) = self.prompt_picker {
-                let area = frame.area();
-
-                let popup_width = area.width.saturating_sub(4).min(140);
-
-                let popup_height = area
-                    .height
-                    .saturating_sub(4)
-                    .min((self.prompt_templates.len() + 2).min(18) as u16);
-
-                if popup_width > 4 && popup_height > 2 {
-                    let popup_area = ratatui::layout::Rect::new(
-                        area.x + (area.width - popup_width) / 2,
-                        area.y + (area.height - popup_height) / 2,
-                        popup_width,
-                        popup_height,
-                    );
-
-                    let visible_rows = usize::from(popup_height.saturating_sub(2));
-
-                    let start = picker
-                        .selected
-                        .saturating_sub(visible_rows / 2)
-                        .min(self.prompt_templates.len().saturating_sub(visible_rows));
-
-                    let rows = self
-                        .prompt_templates
-                        .iter()
-                        .enumerate()
-                        .skip(start)
-                        .take(visible_rows)
-                        .map(|(index, template)| {
-                            let marker = if index == picker.selected { "> " } else { "  " };
-
-                            let hint = template
-                                .argument_hint
-                                .as_deref()
-                                .map(|hint| format!(" {hint}"))
-                                .unwrap_or_default();
-
-                            Line::from(vec![
-                                Span::styled(
-                                    marker,
-                                    Style::default().fg(if index == picker.selected {
-                                        Color::Yellow
-                                    } else {
-                                        Color::DarkGray
-                                    }),
-                                ),
-                                Span::styled(
-                                    format!("/{}{}", template.name, hint),
-                                    Style::default().fg(Color::Cyan),
-                                ),
-                                Span::styled(format!(" - "), Style::default()),
-                                Span::styled(
-                                    template.description.clone(),
-                                    Style::default().fg(Color::DarkGray),
-                                ),
-                            ])
-                        })
-                        .collect::<Vec<_>>();
-
-                    frame.render_widget(Clear, popup_area);
-
-                    frame.render_widget(
-                        Paragraph::new(rows).block(
-                            Block::default()
-                                .borders(Borders::ALL)
-                                .title(" Select prompt · ↑↓ PgUp/PgDn Home/End Enter Esc "),
-                        ),
-                        popup_area,
-                    );
-                }
-            }
+            render_prompt_picker(frame, self.prompt_picker, &self.prompt_templates);
         })?;
 
         self.transcript_area = rendered_transcript_area;
@@ -891,6 +235,652 @@ impl InteractiveTui {
 
         Ok(())
     }
+}
+
+/// Render the cached transcript and return any active drag-selection text.
+fn render_transcript(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    selection: Option<super::ChatSelection>,
+    transcript_layout_cache: &mut TranscriptLayoutCache,
+    transcript: &TranscriptRenderer,
+    show_full_tool_output: bool,
+    show_thinking: bool,
+    streaming_message_index: Option<usize>,
+    project_cwd: &Path,
+) -> String {
+    use ratatui::{
+        style::{Color, Modifier, Style},
+        text::{Line, Span},
+        widgets::{Block, Borders, Padding, Paragraph, Widget},
+    };
+
+    // Transcript
+    //
+    // Messages use a light-weight chat-card treatment instead of a
+    // stream of bracketed labels. The rounded header and accent rail
+    // give each speaker a clear visual boundary while leaving the
+    // Markdown renderer in charge of the actual message content.
+    // Consecutive assistant turns deliberately share a card.
+    //
+    // Paragraph's word wrapper does not repeat a line's prefix on
+    // continuation rows. Wrap message content before adding the
+    // decorative rail so long paragraphs keep the rail aligned and
+    // do not appear to spill out of their message card.
+    let transcript_block = Block::default()
+        .borders(Borders::NONE)
+        .padding(Padding::horizontal(1));
+
+    let transcript_inner_area = transcript_block.inner(area);
+    let transcript_width = transcript_inner_area.width;
+
+    let cache_matches = transcript_layout_cache.matches(
+        transcript,
+        transcript_width,
+        show_full_tool_output,
+        streaming_message_index,
+    );
+
+    if !cache_matches {
+        let mut selection_line_starts = Vec::new();
+        let messages = transcript.messages();
+
+        let lines: Vec<Line<'static>> = messages
+            .iter()
+            .enumerate()
+            .flat_map(|(message_index, msg)| {
+                let (role_color, icon, role_label) = match msg.role {
+                    MessageRole::User => (Color::LightGreen, "›", "You"),
+                    MessageRole::Assistant => (Color::LightCyan, "✦", "Assistant"),
+                    MessageRole::Tool => (Color::LightMagenta, "⚙", "Tool"),
+                    MessageRole::System => (Color::DarkGray, "·", "Notice"),
+                };
+
+                let muted = Style::default().fg(Color::DarkGray);
+                let starts_card = starts_transcript_card(
+                    message_index
+                        .checked_sub(1)
+                        .and_then(|index| messages.get(index))
+                        .map(|message| message.role),
+                    msg.role,
+                );
+                let ends_card = ends_transcript_card(
+                    msg.role,
+                    messages.get(message_index + 1).map(|message| message.role),
+                );
+
+                let role_style = Style::default().fg(role_color).add_modifier(Modifier::BOLD);
+                let mut lines = Vec::new();
+                let mut line_starts = Vec::new();
+
+                if starts_card {
+                    lines.push(Line::from(vec![
+                        Span::styled("╭─ ", role_color),
+                        Span::styled(icon, role_style),
+                        Span::styled(format!(" {}", role_label), role_style),
+                    ]));
+                    line_starts.push(None);
+
+                    if transcript.show_timestamps() {
+                        lines[0].spans.push(Span::styled("  · ", muted));
+                        lines[0].spans.push(Span::styled(
+                            msg.timestamp.format("%H:%M:%S").to_string(),
+                            muted.add_modifier(Modifier::ITALIC),
+                        ));
+                    }
+                }
+
+                if show_thinking && !msg.thinking.is_empty() {
+                    // Reasoning is deliberately styled as a secondary
+                    // surface: muted text plus a subtle background
+                    // makes it visually
+                    // distinct from the answer while keeping
+                    // it readable during long streams.
+                    let thinking_style = Style::default()
+                        .fg(Color::Gray)
+                        .bg(Color::Rgb(45, 45, 45))
+                        .add_modifier(Modifier::DIM);
+
+                    lines.push(Line::from(vec![
+                        Span::styled("│ ", thinking_style),
+                        Span::styled("💭 Thinking", thinking_style.add_modifier(Modifier::ITALIC)),
+                    ]));
+                    line_starts.push(None);
+
+                    let mut thinking = markdown_to_lines(&msg.thinking);
+                    while thinking.last().is_some_and(line_is_empty) {
+                        thinking.pop();
+                    }
+
+                    for line in thinking {
+                        for line in wrap_line_to_width(line, transcript_width.saturating_sub(2)) {
+                            lines.push(muted_thinking_line(line, thinking_style));
+                            line_starts.push(None);
+                        }
+                    }
+
+                    lines.push(Line::from(vec![Span::styled("│ ", role_color)]));
+                    line_starts.push(None);
+                }
+
+                let mut body = markdown_to_lines(&msg.content);
+                while body.last().is_some_and(line_is_empty) {
+                    body.pop();
+                }
+
+                if body.is_empty() {
+                    let mut empty_line = vec![Span::styled("│ ", role_color)];
+
+                    if streaming_message_index == Some(message_index) {
+                        empty_line.push(Span::styled(
+                            "thinking…",
+                            muted.add_modifier(Modifier::ITALIC),
+                        ));
+                    }
+
+                    lines.push(Line::from(empty_line));
+                    line_starts.push(None);
+                } else {
+                    let selectable_start =
+                        matches!(msg.role, MessageRole::User | MessageRole::Assistant).then_some(2);
+
+                    for line in body {
+                        for line in wrap_line_to_width(line, transcript_width.saturating_sub(2)) {
+                            lines.push(prefix_message_line(line, role_color));
+
+                            // The first two cells are the decorative
+                            // rail;
+                            // only user and assistant message bodies
+                            // are
+                            // selectable.
+                            line_starts.push(selectable_start);
+                        }
+                    }
+                }
+
+                // If the last body line left an empty card rail,
+                // remove it.
+                if lines.last().is_some_and(line_is_empty_card_rail) {
+                    lines.pop();
+                    line_starts.pop();
+                }
+
+                for tool_call in &msg.tool_calls {
+                    // If the previous line is not an empty card rail,
+                    // push an empty card rail. This may seem
+                    // counter-intuitive,
+                    // considering the last thing done is removing an
+                    // empty card rail from
+                    // a body; however, this is genuinely
+                    // a tough one to keep track of.
+                    if !lines.last().is_some_and(line_is_empty_card_rail) {
+                        lines.push(Line::from(Span::styled("│ ", role_color)));
+                        line_starts.push(None);
+                    }
+
+                    let previous_len = lines.len();
+                    let readable = streamed_tool_call_summary(tool_call, project_cwd);
+
+                    append_prefixed_lines(
+                        &mut lines,
+                        &readable,
+                        "├─ ⚙ ",
+                        "│  ",
+                        Style::default().fg(Color::LightBlue),
+                        Style::default().fg(Color::LightBlue),
+                        transcript_width,
+                    );
+
+                    line_starts.extend(vec![None; lines.len() - previous_len]);
+                    if let Some(result) = &tool_call.result {
+                        let result_style = if result.starts_with("❌") {
+                            Style::default().fg(Color::LightRed)
+                        } else {
+                            Style::default().fg(Color::LightGreen)
+                        };
+
+                        let previous_len = lines.len();
+                        let result = tool_result_for_display(result, show_full_tool_output);
+
+                        append_prefixed_lines(
+                            &mut lines,
+                            &result,
+                            "│  ",
+                            "│  ",
+                            Style::default().fg(Color::LightBlue),
+                            result_style,
+                            transcript_width,
+                        );
+
+                        line_starts.extend(vec![None; lines.len() - previous_len]);
+                    } else if streaming_message_index == Some(message_index)
+                        && tool_call.arguments.is_string()
+                    {
+                        lines.push(Line::from(vec![
+                            Span::styled("│  ", Style::default().fg(Color::LightBlue)),
+                            Span::styled(
+                                "✍ Writing…",
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::ITALIC),
+                            ),
+                        ]));
+                        line_starts.push(None);
+                    } else if transcript.is_tool_call_running(&tool_call.id) {
+                        lines.push(Line::from(vec![
+                            Span::styled("│  ", Style::default().fg(Color::LightBlue)),
+                            Span::styled(
+                                "⏳ Running…",
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::ITALIC),
+                            ),
+                        ]));
+                        line_starts.push(None);
+                    }
+
+                    lines.push(Line::from(Span::styled(
+                        "│ ",
+                        Style::default().fg(Color::LightBlue),
+                    )));
+                    line_starts.push(None);
+                }
+
+                if ends_card {
+                    lines.push(Line::from(Span::styled("╰─", role_color)));
+                    line_starts.push(None);
+                    lines.push(Line::from(""));
+                    line_starts.push(None);
+                } else {
+                    // Consecutive assistant turns share this card;
+                    // leave a quiet in-card
+                    // divider between their content.
+                    lines.push(Line::from(Span::styled("│ ", role_color)));
+                    line_starts.push(None);
+                }
+
+                // If the last line is an empty card rail,
+                // remove it.
+                if lines.last().is_some_and(line_is_empty_card_rail) {
+                    lines.pop();
+                    line_starts.pop();
+                }
+
+                selection_line_starts.extend(line_starts);
+
+                lines
+            })
+            .collect();
+
+        transcript_layout_cache.replace(
+            transcript,
+            transcript_width,
+            show_full_tool_output,
+            streaming_message_index,
+            lines,
+            selection_line_starts,
+        );
+    }
+
+    let lines = &transcript_layout_cache.lines;
+    let selection_line_starts = &transcript_layout_cache.selection_line_starts;
+    debug_assert_eq!(lines.len(), selection_line_starts.len());
+
+    // A Line is deliberately a single visual line in ratatui: an
+    // embedded newline in a message would otherwise not create a row.
+    // The helpers above expand and pre-wrap every message and tool
+    // row, allowing this renderer to borrow just the visible cache
+    // entries rather than cloning the full transcript into a
+    // `Paragraph` for every scroll event.
+    let active_selection = selection.filter(|selection| selection.has_range());
+    let scroll = transcript.scroll_position(lines.len(), usize::from(transcript_inner_area.height));
+    frame.render_widget(
+        TranscriptViewport {
+            lines,
+            scroll: usize::from(scroll),
+        },
+        transcript_inner_area,
+    );
+
+    // Mouse capture normally prevents the terminal emulator from
+    // selecting text itself. Paint the selection into ratatui's
+    // buffer so drag selection works consistently across terminals.
+    // Reading the same cells also gives Ctrl+C/Cmd+C the exact text
+    // the user can see, including wrapped lines and Markdown styling.
+    if let Some(selection) = active_selection {
+        let ((start_x, start_y), (end_x, end_y)) = selection.bounds();
+        let area = area;
+
+        let selection_style = Style::default().fg(Color::Black).bg(Color::White);
+
+        // A marker tree is needed only while a real drag selection
+        // is active. Build it for visible rows only, rather than
+        // cloning every historic transcript line.
+        let selection_mask_lines = lines
+            .iter()
+            .skip(usize::from(scroll))
+            .zip(
+                selection_line_starts
+                    .iter()
+                    .skip(usize::from(scroll))
+                    .copied(),
+            )
+            .take(usize::from(transcript_inner_area.height))
+            .map(|(line, start)| selection_mask_line(line, start))
+            .collect::<Vec<_>>();
+        let mut mask_buffer = ratatui::buffer::Buffer::empty(area);
+        let mask = Paragraph::new(selection_mask_lines);
+        mask.render(transcript_inner_area, &mut mask_buffer);
+
+        let buffer = frame.buffer_mut();
+        let mut selected_rows = Vec::new();
+        for row in start_y..=end_y {
+            let from = if row == start_y { start_x } else { area.x };
+
+            let to = if row == end_y {
+                end_x
+            } else {
+                area.x.saturating_add(area.width).saturating_sub(1)
+            };
+
+            let mut selected_row = String::new();
+            let mut row_has_selectable_text = false;
+
+            for column in from..=to {
+                let selectable = mask_buffer
+                    .cell((column, row))
+                    .is_some_and(|cell| cell.fg == SELECTION_MARKER);
+
+                if selectable {
+                    row_has_selectable_text = true;
+
+                    if let Some(cell) = buffer.cell_mut((column, row)) {
+                        selected_row.push_str(cell.symbol());
+                        cell.set_style(selection_style);
+                    }
+                }
+            }
+
+            if row_has_selectable_text {
+                selected_rows.push(selected_row.trim_end().to_string());
+            }
+        }
+        return selected_rows.join("\n");
+    }
+    String::new()
+}
+
+/// Render the active model picker overlay.
+fn render_model_picker(
+    frame: &mut ratatui::Frame,
+    picker: Option<super::ModelPicker>,
+    models: &[hallucinate_agent::ai::types::Model],
+) {
+    let Some(picker) = picker else {
+        return;
+    };
+
+    render_picker(
+        frame,
+        models.len(),
+        picker.selected,
+        " Select model · ↑↓ PgUp/PgDn Home/End Enter Esc ",
+        |index, _| {
+            let model = &models[index];
+            let metadata = format!(
+                "context {} · max {} · {}{}",
+                model.context_window,
+                model.max_tokens,
+                model.input.join(","),
+                if model.reasoning { " · reasoning" } else { "" }
+            );
+
+            picker_row(
+                index,
+                picker.selected,
+                vec![
+                    Span::styled(
+                        format!("{}", model.name),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!(" - {}/{} ", model.provider, model.id),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::styled(metadata, Style::default().fg(Color::DarkGray)),
+                ],
+            )
+        },
+    );
+}
+
+/// Render the active session picker overlay.
+fn render_session_picker(
+    frame: &mut ratatui::Frame,
+    picker: Option<&super::SessionPicker>,
+) {
+    let Some(picker) = picker else {
+        return;
+    };
+
+    render_picker(
+        frame,
+        picker.rows.len(),
+        picker.selected,
+        " Select session · ↑↓ PgUp/PgDn Home/End Enter Esc ",
+        |index, popup_width| {
+            let session = &picker.rows[index];
+            let title =
+                truncate_one_line(&session.title, usize::from(popup_width.saturating_sub(34)));
+
+            picker_row(
+                index,
+                picker.selected,
+                vec![
+                    Span::styled(
+                        format!("{:<8}  ", session.short_id),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::styled(
+                        format!("{:<16}  ", session.datetime),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(title, Style::default().fg(Color::White)),
+                ],
+            )
+        },
+    );
+}
+
+/// Render the active prompt picker overlay.
+fn render_prompt_picker(
+    frame: &mut ratatui::Frame,
+    picker: Option<super::PromptPicker>,
+    prompt_templates: &[hallucinate_agent::agent::prompt_templates::PromptTemplate],
+) {
+    let Some(picker) = picker else {
+        return;
+    };
+
+    render_picker(
+        frame,
+        prompt_templates.len(),
+        picker.selected,
+        " Select prompt · ↑↓ PgUp/PgDn Home/End Enter Esc ",
+        |index, _| {
+            let template = &prompt_templates[index];
+            let hint = template
+                .argument_hint
+                .as_deref()
+                .map(|hint| format!(" {hint}"))
+                .unwrap_or_default();
+
+            picker_row(
+                index,
+                picker.selected,
+                vec![
+                    Span::styled(
+                        format!("/{}{}", template.name, hint),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::styled(" - ", Style::default()),
+                    Span::styled(
+                        template.description.clone(),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ],
+            )
+        },
+    );
+}
+
+/// Render a centered, scrollable picker popup.
+fn render_picker<F>(
+    frame: &mut ratatui::Frame,
+    item_count: usize,
+    selected: usize,
+    title: &str,
+    mut render_row: F,
+) where
+    F: FnMut(usize, u16) -> ratatui::text::Line<'static>,
+{
+    let area = frame.area();
+    let popup_width = area.width.saturating_sub(4).min(140);
+    let popup_height = area
+        .height
+        .saturating_sub(4)
+        .min((item_count + 2).min(18) as u16);
+
+    if popup_width <= 4 || popup_height <= 2 {
+        return;
+    }
+
+    let popup_area = Rect::new(
+        area.x + (area.width - popup_width) / 2,
+        area.y + (area.height - popup_height) / 2,
+        popup_width,
+        popup_height,
+    );
+    let visible_rows = usize::from(popup_height.saturating_sub(2));
+    let start = selected
+        .saturating_sub(visible_rows / 2)
+        .min(item_count.saturating_sub(visible_rows));
+    let rows = (start..item_count)
+        .take(visible_rows)
+        .map(|index| render_row(index, popup_width))
+        .collect::<Vec<_>>();
+
+    frame.render_widget(Clear, popup_area);
+    frame.render_widget(
+        Paragraph::new(rows).block(Block::default().borders(Borders::ALL).title(title)),
+        popup_area,
+    );
+}
+
+/// Prefix a picker row with its selected-state marker.
+fn picker_row(
+    index: usize,
+    selected: usize,
+    mut spans: Vec<ratatui::text::Span<'static>>,
+) -> ratatui::text::Line<'static> {
+    spans.insert(
+        0,
+        Span::styled(
+            if index == selected { "> " } else { "  " },
+            Style::default().fg(if index == selected {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            }),
+        ),
+    );
+
+    Line::from(spans)
+}
+
+/// Render the session state and model information above the transcript.
+fn render_status_bar(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    agent_state: &AgentState,
+    session_manager: &hallucinate_session::SessionManager,
+    token_count: u64,
+    model: &hallucinate_agent::ai::types::Model,
+    show_thinking: bool,
+    notice: Option<&super::EphemeralNotice>,
+) {
+    let state_str = match agent_state {
+        AgentState::Idle => "idle".to_string(),
+        AgentState::Streaming => "streaming...".to_string(),
+        AgentState::ToolExecuting => "executing tools...".to_string(),
+        AgentState::TurnComplete => "response complete".to_string(),
+        AgentState::Error(message) => format!("error: {}", message),
+        AgentState::Aborted => "aborted".to_string(),
+    };
+
+    let session_id = session_manager
+        .current_id()
+        .map(|id| &id[..8.min(id.len())])
+        .unwrap_or("none");
+    let session_title = session_manager
+        .current()
+        .and_then(|session| session.title.as_deref())
+        .filter(|title| !title.trim().is_empty());
+
+    let token_count = token_count;
+
+    let status_text = Line::from(vec![
+        Span::styled(
+            "hallucinate ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        if let Some(notice) = notice {
+            Span::styled(
+                format!("! {}  |  ", truncate_one_line(&notice.message, 80)),
+                Style::default().fg(Color::LightYellow),
+            )
+        } else {
+            Span::styled("", Style::default())
+        },
+        Span::styled("[", Style::default().fg(Color::DarkGray)),
+        Span::styled(state_str, Style::default().fg(Color::Yellow)),
+        Span::styled("] ", Style::default().fg(Color::DarkGray)),
+        Span::styled("session:", Style::default().fg(Color::DarkGray)),
+        if let Some(title) = session_title {
+            Span::styled(
+                truncate_one_line(title, 48),
+                Style::default().fg(Color::White),
+            )
+        } else {
+            Span::styled(session_id, Style::default().fg(Color::Green))
+        },
+        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            format!("{} tokens", token_count),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            format!("model: {}/{}", model.provider, model.id),
+            Style::default().fg(Color::Cyan),
+        ),
+        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            if show_thinking {
+                "thinking: on"
+            } else {
+                "thinking: off"
+            },
+            Style::default().fg(Color::DarkGray),
+        ),
+    ]);
+
+    let status = Paragraph::new(status_text);
+    frame.render_widget(status, area);
 }
 
 /// Return a concise tool-call summary while the provider streams raw JSON.
