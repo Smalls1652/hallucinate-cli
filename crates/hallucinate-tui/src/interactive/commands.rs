@@ -214,10 +214,7 @@ impl InteractiveTui {
 
                 let title = command_arguments(&arguments);
                 let title_generation_pending = title.is_none();
-                self.create_empty_session(
-                    title.or_else(|| Some("Interactive session".to_string())),
-                    title_generation_pending,
-                )?;
+                self.create_empty_session(title, title_generation_pending)?;
                 self.show_notice("Created a new session.");
             },
 
