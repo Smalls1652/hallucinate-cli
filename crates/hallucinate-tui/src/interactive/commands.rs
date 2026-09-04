@@ -764,7 +764,7 @@ impl InteractiveTui {
     }
 
     /// Toggle or explicitly set the visibility of model reasoning.
-    fn handle_thinking_command(
+    pub fn handle_thinking_command(
         &mut self,
         arguments: &str,
     ) {

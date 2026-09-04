@@ -423,6 +423,13 @@ impl InteractiveTui {
                     return Ok(false);
                 }
 
+                // Toggle thinking output. (Alt + T)
+                if key.alt && (key.matches('t') || key.matches('T')) {
+                    self.set_show_thinking(!self.show_thinking);
+
+                    return Ok(false);
+                }
+
                 // Do not reserve printable characters for global
                 // shortcuts: doing so made it impossible to type words
                 // containing `q`, `/`, `j`, or `k` into the editor.
