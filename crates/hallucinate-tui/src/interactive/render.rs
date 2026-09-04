@@ -1224,23 +1224,65 @@ fn append_tool_result_box(
 
     for physical_line in result.split('\n') {
         for line in wrap_line_to_width(
-            ratatui::text::Line::from(Span::styled(physical_line.trim_end().to_string(), style)),
+            styled_tool_result_line(physical_line.trim_end(), style),
             u16::try_from(content_width).unwrap_or(u16::MAX),
         ) {
-            let content = String::from(line);
-            let remaining_width = content_width.saturating_sub(content.width());
-            lines.push(ratatui::text::Line::from(vec![
-                Span::styled("│ ", rail_style),
-                Span::styled(
-                    format!(
-                        "{:horizontal_padding$}{content}{:remaining_width$}{:horizontal_padding$}",
-                        "", "", "",
-                    ),
-                    style,
-                ),
-            ]));
+            let content_width_used = line.width();
+            let remaining_width = content_width.saturating_sub(content_width_used);
+            let mut spans = vec![Span::styled("│ ", rail_style)];
+            if horizontal_padding > 0 {
+                spans.push(Span::styled(" ".repeat(horizontal_padding), style));
+            }
+            spans.extend(line.spans);
+            if remaining_width > 0 {
+                spans.push(Span::styled(" ".repeat(remaining_width), style));
+            }
+            if horizontal_padding > 0 {
+                spans.push(Span::styled(" ".repeat(horizontal_padding), style));
+            }
+            lines.push(ratatui::text::Line::from(spans));
         }
     }
+}
+
+/// Style edit diffs directly in tool-result surfaces without exposing Markdown
+/// syntax in the transcript.
+fn styled_tool_result_line(
+    content: &str,
+    default_style: Style,
+) -> ratatui::text::Line<'static> {
+    let (marker, text, marker_style) = if let Some(text) = content.strip_prefix("  − ") {
+        (
+            "  − ",
+            text,
+            default_style
+                .fg(Color::LightRed)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else if let Some(text) = content.strip_prefix("  + ") {
+        (
+            "  + ",
+            text,
+            default_style
+                .fg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else if content.starts_with("Edit ") {
+        (
+            "",
+            content,
+            default_style
+                .fg(Color::LightCyan)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        return ratatui::text::Line::from(Span::styled(content.to_string(), default_style));
+    };
+
+    ratatui::text::Line::from(vec![
+        Span::styled(marker, marker_style),
+        Span::styled(text.to_string(), default_style),
+    ])
 }
 
 /// Remove the internal success or failure marker from persisted tool output.
@@ -1419,7 +1461,13 @@ mod tests {
             Some(Color::Rgb(15, 65, 30)),
         );
         assert_eq!(success_lines[1].spans[1].style.fg, Some(Color::DarkGray));
-        assert_eq!(success_lines[1].spans[1].content, " done     ");
+        let success_content = success_lines[1]
+            .spans
+            .iter()
+            .skip(1)
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert_eq!(success_content, " done     ");
 
         let mut error_lines = Vec::new();
         append_tool_result_box(&mut error_lines, "failed", true, 20);
@@ -1433,6 +1481,21 @@ mod tests {
         assert_eq!(error_lines[0].spans[1].style.fg, Some(Color::DarkGray));
         assert_eq!(error_lines[0].spans[1].content, "          ");
         assert_eq!(error_lines[1].spans[1].style.fg, Some(Color::DarkGray));
+    }
+
+    #[test]
+    fn styles_edit_diff_lines_without_markdown() {
+        let default_style = Style::default().fg(Color::DarkGray);
+        let removed = styled_tool_result_line("  − old value", default_style);
+        let added = styled_tool_result_line("  + new value", default_style);
+        let header = styled_tool_result_line("Edit 1 · 1 occurrence(s)", default_style);
+
+        assert_eq!(removed.spans[0].content, "  − ");
+        assert_eq!(removed.spans[1].content, "old value");
+        assert_eq!(removed.spans[1].style, default_style);
+        assert_eq!(added.spans[0].content, "  + ");
+        assert_eq!(added.spans[0].style.fg, Some(Color::LightGreen));
+        assert_eq!(header.spans[0].style.fg, Some(Color::LightCyan));
     }
 
     #[test]

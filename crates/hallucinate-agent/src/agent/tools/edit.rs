@@ -1,4 +1,4 @@
-//! Edit tool: intelligent text editing with diff verification.
+//! Edit tool: intelligent text editing with per-edit diff output.
 
 use std::{future::Future, io::Write, pin::Pin};
 
@@ -40,7 +40,7 @@ impl Tool for EditTool {
     }
 
     fn description(&self) -> &str {
-        "Edit a file by applying one or more exact text replacements. Provide a path and an edits array, where each edit has old_text and new_text. Edits are applied in order and are all verified before the file is written. Use this for targeted edits rather than rewriting entire files. Each old_text must match exactly, including whitespace and indentation; include enough context to make it unique when needed."
+        "Edit a file by applying one or more exact text replacements. Provide a path and an edits array, where each edit has old_text and new_text. Edits are applied in order and are all verified before the file is written. The result shows a diff for every applied edit. Use this for targeted edits rather than rewriting entire files. Each old_text must match exactly, including whitespace and indentation; include enough context to make it unique when needed."
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -95,6 +95,7 @@ impl Tool for EditTool {
 
                 let mut new_content = content;
                 let mut replacement_count = 0;
+                let mut edit_diffs = Vec::with_capacity(edits.len());
 
                 for (index, edit) in edits.iter().enumerate() {
                     if !new_content.contains(&edit.old_text) {
@@ -111,6 +112,7 @@ impl Tool for EditTool {
 
                     let count = new_content.matches(&edit.old_text).count();
                     replacement_count += count;
+                    edit_diffs.push(format_edit_diff(index + 1, count, edit));
                     new_content = new_content.replace(&edit.old_text, &edit.new_text);
                 }
 
@@ -130,14 +132,42 @@ impl Tool for EditTool {
                     "edit",
                     "edit",
                     format!(
-                        "Successfully applied {} edit(s), replacing {replacement_count} occurrence(s) in {display_path}",
+                        "Successfully applied {} edit(s), replacing {replacement_count} occurrence(s) in {display_path}\n\n{}",
                         edits.len(),
+                        edit_diffs.join("\n"),
                     ),
                 ))
             })
             .await
         })
     }
+}
+
+/// Format the exact replacement made by one edit for the terminal display.
+fn format_edit_diff(
+    edit_number: usize,
+    occurrence_count: usize,
+    edit: &TextEdit,
+) -> String {
+    format!(
+        "Edit {edit_number} · {occurrence_count} occurrence(s)\n{}{}",
+        diff_lines("  − ", &edit.old_text),
+        diff_lines("  + ", &edit.new_text),
+    )
+}
+
+/// Prefix every line of text with its terminal diff marker.
+fn diff_lines(
+    marker: &str,
+    text: &str,
+) -> String {
+    if text.is_empty() {
+        return format!("{marker}<empty>\n");
+    }
+
+    text.lines()
+        .map(|line| format!("{marker}{line}\n"))
+        .collect()
 }
 
 /// Return a required string property from a tool argument object.
@@ -261,6 +291,14 @@ mod tests {
         let result = tool.execute(&args, None).await.unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("Successfully applied 2 edit(s)"));
+        assert!(result.content.contains("Edit 1 · 1 occurrence(s)"));
+        assert!(result.content.contains("  − world\n  + rust"));
+        assert!(result.content.contains("Edit 2 · 1 occurrence(s)"));
+        assert!(
+            result
+                .content
+                .contains("  − hello rust\n  + hello universe")
+        );
         assert_eq!(fs::read_to_string(&test_path).unwrap(), "hello universe");
 
         fs::remove_file(test_path).ok();
