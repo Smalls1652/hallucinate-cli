@@ -16,7 +16,10 @@ use tokio::sync::mpsc;
 use crate::{
     agent::{
         skills::Skill,
-        tools::{ToolRegistry, types::Tool as AgentTool},
+        tools::{
+            ToolRegistry,
+            types::{Tool as AgentTool, ToolOutput, ToolOutputSink},
+        },
         types::{
             AgentCancellation,
             AgentConfig,
@@ -814,6 +817,8 @@ impl Agent {
         // Emit all starts before work begins so the user-visible lifecycle is
         // stable even though calls are allowed to complete out of order.
         let mut tool_jobs = Vec::with_capacity(tool_calls.len());
+        let (tool_output_sender, mut tool_output_receiver) =
+            mpsc::unbounded_channel::<ToolOutput>();
         for (call_index, call) in tool_calls.into_iter().enumerate() {
             self.emit(AgentEvent::ToolExecutionStarted {
                 tool_call_id: call.tool_call_id.clone(),
@@ -822,11 +827,19 @@ impl Agent {
 
             let tool = self.tool_registry.get_tool(&call.tool_name).cloned();
             let cwd = cwd.clone();
+            let output = ToolOutputSink::new(
+                tool_output_sender.clone(),
+                call.tool_call_id.clone(),
+                call.tool_name.clone(),
+            );
 
             tool_jobs.push(async move {
                 let started_at = Instant::now();
                 let result = match tool {
-                    Some(tool) => tool.execute(&call.arguments, cwd.as_deref()).await,
+                    Some(tool) => {
+                        tool.execute_with_output(&call.arguments, cwd.as_deref(), Some(output))
+                            .await
+                    },
                     None => Err(anyhow::anyhow!("Unknown tool: {}", call.tool_name)),
                 };
 
@@ -854,18 +867,41 @@ impl Agent {
                 (call_index, call, result)
             });
         }
+        drop(tool_output_sender);
         let mut pending_jobs = stream::iter(tool_jobs).buffer_unordered(concurrency_limit);
         let mut completed_jobs = Vec::new();
 
-        while let Some(job) = tokio::select! {
-            job = pending_jobs.next() => job,
-            _ = self.cancellation.cancelled() => {
+        loop {
+            tokio::select! {
+                job = pending_jobs.next() => {
+                    let Some(job) = job else {
+                        break;
+                    };
+                    completed_jobs.push(job);
+                },
+                output = tool_output_receiver.recv(), if !tool_output_receiver.is_closed() => {
+                    if let Some(output) = output {
+                        self.emit(AgentEvent::ToolExecutionOutput {
+                            tool_call_id: output.tool_call_id,
+                            tool_name: output.tool_name,
+                            output: output.output,
+                        });
+                    }
+                },
+                _ = self.cancellation.cancelled() => {
                 // Dropping the buffered futures prevents queued calls from
                 // starting and releases in-flight async tool work.
                 return Err(anyhow::anyhow!("Agent generation was cancelled"));
+                }
             }
-        } {
-            completed_jobs.push(job);
+        }
+
+        while let Ok(output) = tool_output_receiver.try_recv() {
+            self.emit(AgentEvent::ToolExecutionOutput {
+                tool_call_id: output.tool_call_id,
+                tool_name: output.tool_name,
+                output: output.output,
+            });
         }
 
         // Provider protocols require tool result messages in the same order

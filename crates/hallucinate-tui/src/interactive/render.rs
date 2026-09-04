@@ -454,6 +454,18 @@ fn render_transcript(
                             ),
                         ]));
                         line_starts.push(None);
+
+                        if tool_call.name == "write"
+                            && let Some(content) = streamed_json_string_prefix(
+                                tool_call.arguments.as_str().unwrap_or_default(),
+                                "content",
+                            )
+                        {
+                            let previous_len = lines.len();
+                            let content = tool_result_for_display(&content, show_full_tool_output);
+                            append_tool_result_box(&mut lines, &content, false, transcript_width);
+                            line_starts.extend(vec![None; lines.len() - previous_len]);
+                        }
                     } else if transcript.is_tool_call_running(&tool_call.id) {
                         lines.push(Line::from(vec![
                             Span::styled("│  ", Style::default().fg(Color::LightBlue)),
@@ -960,6 +972,41 @@ fn partial_json_string_value(
     None
 }
 
+/// Return an incomplete JSON string field's content as it is streamed.
+///
+/// The provider has not necessarily emitted the closing quote yet. Completing
+/// the fragment locally lets serde decode ordinary escapes without requiring a
+/// fully valid tool-call payload; retain the raw fragment if it ends
+/// mid-escape.
+fn streamed_json_string_prefix(
+    arguments: &str,
+    field: &str,
+) -> Option<String> {
+    let field_key = format!(r#""{field}""#);
+    let value_start = arguments.find(&field_key)? + field_key.len();
+    let value = arguments[value_start..].trim_start();
+    let value = value.strip_prefix(':')?.trim_start();
+    let encoded_value = value.strip_prefix('"')?;
+    let mut escaped = false;
+    let mut end = encoded_value.len();
+    for (index, character) in encoded_value.char_indices() {
+        if character == '"' && !escaped {
+            end = index;
+            break;
+        }
+
+        escaped = character == '\\' && !escaped;
+        if character != '\\' {
+            escaped = false;
+        }
+    }
+    let encoded_value = &encoded_value[..end];
+
+    serde_json::from_str(&format!(r#""{encoded_value}""#))
+        .ok()
+        .or_else(|| Some(encoded_value.to_string()))
+}
+
 /// Return whether `role` begins a new visual transcript card.
 ///
 /// Tool-result messages are attached to their originating assistant message,
@@ -1440,6 +1487,28 @@ mod tests {
             streamed_tool_call_summary(&tool_call, Path::new(".")),
             "Context checkpoint"
         );
+    }
+
+    #[test]
+    fn streamed_write_content_is_available_before_the_tool_executes() {
+        assert_eq!(
+            streamed_json_string_prefix(
+                r#"{"path":"plans/example.md","content":"first line\nsecond line"#,
+                "content",
+            ),
+            Some("first line\nsecond line".to_string())
+        );
+    }
+
+    #[test]
+    fn streamed_write_content_with_many_backslashes_is_linear() {
+        let arguments = format!(r#"{{"content":"{}"}}"#, "\\".repeat(20_000));
+
+        let started_at = std::time::Instant::now();
+        let content = streamed_json_string_prefix(&arguments, "content");
+
+        assert!(started_at.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(content, Some("\\".repeat(10_000)));
     }
 
     #[test]

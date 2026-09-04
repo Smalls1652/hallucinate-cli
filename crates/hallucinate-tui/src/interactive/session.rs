@@ -32,7 +32,9 @@ impl InteractiveTui {
             // call was being assembled or executed.
             let render_before_next_event = matches!(
                 event,
-                AgentEvent::ToolCallStarted { .. } | AgentEvent::ToolExecutionStarted { .. }
+                AgentEvent::ToolCallStarted { .. }
+                    | AgentEvent::ToolExecutionStarted { .. }
+                    | AgentEvent::ToolExecutionOutput { .. }
             );
 
             match &event {
@@ -105,6 +107,15 @@ impl InteractiveTui {
 
                 AgentEvent::ToolExecutionStarted { tool_call_id, .. } => {
                     self.transcript.start_tool_call(tool_call_id);
+                },
+
+                AgentEvent::ToolExecutionOutput {
+                    tool_call_id,
+                    output,
+                    ..
+                } => {
+                    self.transcript
+                        .append_to_tool_call_result(tool_call_id, output);
                 },
 
                 AgentEvent::ToolExecutionCompleted {

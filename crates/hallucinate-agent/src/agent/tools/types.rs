@@ -4,6 +4,7 @@ use std::pin::Pin;
 
 use futures::Future;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 use crate::{
     agent::tools::limits::{ToolLimits, truncate_utf8},
@@ -38,6 +39,66 @@ pub trait Tool: Send + Sync + std::fmt::Debug {
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
     ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>>;
+
+    /// Execute the tool and optionally stream display output while it runs.
+    ///
+    /// The default preserves the behavior of tools that only produce a final
+    /// result. Tools with incremental output, such as `bash`, override this.
+    fn execute_with_output<'a>(
+        &'a self,
+        arguments: &'a serde_json::Value,
+        cwd: Option<&'a str>,
+        output: Option<ToolOutputSink>,
+    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>> {
+        let _ = output;
+        self.execute(arguments, cwd)
+    }
+}
+
+/// Routes incremental output from a tool execution to the agent runtime.
+#[derive(Debug, Clone)]
+pub struct ToolOutputSink {
+    sender: mpsc::UnboundedSender<ToolOutput>,
+    tool_call_id: String,
+    tool_name: String,
+}
+
+impl ToolOutputSink {
+    /// Create an output sink for one provider-issued tool call.
+    pub fn new(
+        sender: mpsc::UnboundedSender<ToolOutput>,
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+    ) -> Self {
+        Self {
+            sender,
+            tool_call_id: tool_call_id.into(),
+            tool_name: tool_name.into(),
+        }
+    }
+
+    /// Send output produced while the tool is still running.
+    pub fn emit(
+        &self,
+        output: impl Into<String>,
+    ) {
+        let _ = self.sender.send(ToolOutput {
+            tool_call_id: self.tool_call_id.clone(),
+            tool_name: self.tool_name.clone(),
+            output: output.into(),
+        });
+    }
+}
+
+/// Incremental output emitted by a running tool.
+#[derive(Debug, Clone)]
+pub struct ToolOutput {
+    /// Provider-issued tool call identifier.
+    pub tool_call_id: String,
+    /// Name of the emitting tool.
+    pub tool_name: String,
+    /// Newly produced display output.
+    pub output: String,
 }
 
 /// Result of a tool execution.

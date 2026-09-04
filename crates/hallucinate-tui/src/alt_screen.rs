@@ -314,6 +314,31 @@ impl TranscriptRenderer {
         self.running_tool_call_ids.contains(tool_call_id)
     }
 
+    /// Append output to an actively executing tool call.
+    pub fn append_to_tool_call_result(
+        &mut self,
+        tool_call_id: &str,
+        output: &str,
+    ) -> bool {
+        for index in (0..self.messages.len()).rev() {
+            let message = &mut self.messages[index];
+            if let Some(call) = message
+                .tool_calls
+                .iter_mut()
+                .find(|call| call.id == tool_call_id)
+            {
+                call.result
+                    .get_or_insert_with(|| "⏳ ".to_string())
+                    .push_str(output);
+                self.bump_layout_revision();
+
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Attach a tool result to the original assistant tool call. This keeps
     /// tool progress beside the request that caused it instead of adding a
     /// second unrelated transcript entry.

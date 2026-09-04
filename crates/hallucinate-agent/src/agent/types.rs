@@ -150,6 +150,13 @@ pub enum AgentEvent {
         tool_name: String,
     },
 
+    /// Incremental output from a tool that is still executing.
+    ToolExecutionOutput {
+        tool_call_id: String,
+        tool_name: String,
+        output: String,
+    },
+
     /// Tool execution completed.
     ToolExecutionCompleted {
         tool_call_id: String,
@@ -225,6 +232,10 @@ impl fmt::Display for AgentEvent {
 
             AgentEvent::ToolExecutionStarted { tool_name, .. } => {
                 write!(f, "[tool_exec] starting {tool_name}")
+            },
+
+            AgentEvent::ToolExecutionOutput { tool_name, .. } => {
+                write!(f, "[tool_output] {tool_name}")
             },
 
             AgentEvent::ToolExecutionCompleted { tool_name, .. } => {

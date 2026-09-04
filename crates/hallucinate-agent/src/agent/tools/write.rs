@@ -5,9 +5,9 @@ use std::{future::Future, io::Write, pin::Pin};
 use serde_json::json;
 
 use super::{
-    limits::{ToolLimits, run_blocking},
+    limits::{ToolLimits, run_blocking, truncate_utf8},
     paths::resolve_path,
-    types::Tool,
+    types::{Tool, ToolOutputSink},
 };
 
 /// File writing tool.
@@ -68,64 +68,93 @@ impl Tool for WriteTool {
         })
     }
 
+    fn execute_with_output<'a>(
+        &'a self,
+        arguments: &'a serde_json::Value,
+        cwd: Option<&'a str>,
+        output: Option<ToolOutputSink>,
+    ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
+    {
+        Box::pin(self.execute_inner(arguments, cwd, output))
+    }
+
     fn execute<'a>(
         &'a self,
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
     ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
     {
-        Box::pin(async move {
-            let path_str = arguments
-                .get("path")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing required field: path"))?;
+        Box::pin(self.execute_inner(arguments, cwd, None))
+    }
+}
 
-            let content = arguments
-                .get("content")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing required field: content"))?;
+impl WriteTool {
+    async fn execute_inner(
+        &self,
+        arguments: &serde_json::Value,
+        cwd: Option<&str>,
+        output: Option<ToolOutputSink>,
+    ) -> Result<super::types::ToolResult, anyhow::Error> {
+        let path_str = arguments
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required field: path"))?;
 
-            if content.len() > self.limits.max_text_file_bytes {
-                return Ok(super::types::ToolResult::error(
-                    "write",
-                    "write",
-                    format!(
-                        "Content too large: {} bytes (max: {} bytes)",
-                        content.len(),
-                        self.limits.max_text_file_bytes
-                    ),
-                ));
+        let content = arguments
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required field: content"))?;
+
+        if content.len() > self.limits.max_text_file_bytes {
+            return Ok(super::types::ToolResult::error(
+                "write",
+                "write",
+                format!(
+                    "Content too large: {} bytes (max: {} bytes)",
+                    content.len(),
+                    self.limits.max_text_file_bytes
+                ),
+            ));
+        }
+
+        if let Some(output) = output {
+            output.emit(truncate_utf8(
+                content,
+                self.limits.max_tool_result_bytes,
+                "Written content",
+            ));
+        }
+
+        let path = resolve_path(path_str, cwd);
+        let content = content.to_string();
+        let result_content = truncate_utf8(
+            &content,
+            self.limits.max_tool_result_bytes,
+            "Written content",
+        );
+
+        run_blocking("write", move || {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
             }
 
-            let path = resolve_path(path_str, cwd);
-            let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
-            let content = content.to_string();
+            let temp_path = path.with_extension(format!(".tmp.{}", std::process::id()));
+            {
+                let mut file = std::fs::File::create(&temp_path)?;
+                file.write_all(content.as_bytes())?;
+                file.flush()?;
+            }
+            std::fs::rename(&temp_path, &path)?;
 
-            run_blocking("write", move || {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-
-                let temp_path = path.with_extension(format!(".tmp.{}", std::process::id()));
-                {
-                    let mut file = std::fs::File::create(&temp_path)?;
-                    file.write_all(content.as_bytes())?;
-                    file.flush()?;
-                }
-                std::fs::rename(&temp_path, &path)?;
-
-                Ok(super::types::ToolResult::success(
-                    "write",
-                    "write",
-                    format!(
-                        "Successfully wrote {} bytes to {}",
-                        content.len(),
-                        display_path
-                    ),
-                ))
+            Ok(super::types::ToolResult {
+                tool_call_id: "write".to_string(),
+                tool_name: "write".to_string(),
+                content: result_content,
+                images: Vec::new(),
+                is_error: false,
             })
-            .await
         })
+        .await
     }
 }
 
@@ -157,5 +186,28 @@ mod tests {
         let result = futures::executor::block_on(tool.execute(&args, None));
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn streams_content_being_written() {
+        let path = std::env::temp_dir().join(format!("hallucinate-write-{}", uuid::Uuid::new_v4()));
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let output = ToolOutputSink::new(sender, "call-1", "write");
+        let args = json!({ "path": path, "content": "written content" });
+
+        let result = WriteTool::new()
+            .execute_with_output(&args, None, Some(output))
+            .await
+            .unwrap();
+        let streamed_output = receiver.recv().await.expect("write should emit content");
+
+        assert!(!result.is_error, "{}", result.content);
+        assert_eq!(result.content, "written content");
+        assert_eq!(streamed_output.tool_call_id, "call-1");
+        assert_eq!(streamed_output.tool_name, "write");
+        assert_eq!(streamed_output.output, "written content");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "written content");
+
+        std::fs::remove_file(path).unwrap();
     }
 }

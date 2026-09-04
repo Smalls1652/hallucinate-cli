@@ -10,7 +10,7 @@ use tokio::{
 
 use super::{
     limits::{ToolLimits, truncate_utf8},
-    types::Tool,
+    types::{Tool, ToolOutputSink},
 };
 
 /// Shell command execution tool.
@@ -87,106 +87,121 @@ impl Tool for BashTool {
         })
     }
 
+    fn execute_with_output<'a>(
+        &'a self,
+        arguments: &'a serde_json::Value,
+        cwd: Option<&'a str>,
+        output: Option<ToolOutputSink>,
+    ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
+    {
+        Box::pin(self.execute_inner(arguments, cwd, output))
+    }
+
     fn execute<'a>(
         &'a self,
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
     ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
     {
-        Box::pin(async move {
-            let command = arguments
-                .get("command")
-                .and_then(|value| value.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing required field: command"))?;
-            if command.trim().is_empty() {
+        Box::pin(self.execute_inner(arguments, cwd, None))
+    }
+}
+
+impl BashTool {
+    async fn execute_inner(
+        &self,
+        arguments: &serde_json::Value,
+        cwd: Option<&str>,
+        output: Option<ToolOutputSink>,
+    ) -> Result<super::types::ToolResult, anyhow::Error> {
+        let command = arguments
+            .get("command")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required field: command"))?;
+        if command.trim().is_empty() {
+            return Ok(super::types::ToolResult::error(
+                "bash",
+                "bash",
+                "Empty command",
+            ));
+        }
+        let timeout = arguments
+            .get("timeout")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(self.timeout);
+        let mut command_process = shell_command(command, self.shell.as_deref());
+        if let Some(cwd) = cwd {
+            command_process.current_dir(cwd);
+        }
+        command_process
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+
+        let mut child = command_process
+            .spawn()
+            .map_err(|error| anyhow::anyhow!("Failed to execute command: {error}"))?;
+        let stdout = child.stdout.take().expect("stdout was explicitly piped");
+        let stderr = child.stderr.take().expect("stderr was explicitly piped");
+        let stream_limit = self.limits.max_shell_stream_bytes;
+        let stdout_task = tokio::spawn(capture_pipe(stdout, stream_limit, output.clone()));
+        let stderr_task = tokio::spawn(capture_pipe(stderr, stream_limit, output));
+
+        let status = match tokio::time::timeout(Duration::from_secs(timeout), child.wait()).await {
+            Ok(Ok(status)) => status,
+            Ok(Err(error)) => {
+                return Err(anyhow::anyhow!("Failed while waiting for command: {error}"));
+            },
+            Err(_) => {
+                // `kill_on_drop` is a fallback; await explicit cleanup so a
+                // direct child cannot survive a timeout result.
+                if let Err(error) = child.kill().await {
+                    if error.kind() != std::io::ErrorKind::InvalidInput {
+                        return Err(anyhow::anyhow!("Failed to kill timed-out command: {error}"));
+                    }
+                }
+                child.wait().await.map_err(|error| {
+                    anyhow::anyhow!("Failed to reap timed-out command: {error}")
+                })?;
+                let _ = stdout_task.await;
+                let _ = stderr_task.await;
                 return Ok(super::types::ToolResult::error(
                     "bash",
                     "bash",
-                    "Empty command",
+                    format!("Command timed out after {timeout}s"),
                 ));
-            }
-            let timeout = arguments
-                .get("timeout")
-                .and_then(|value| value.as_u64())
-                .unwrap_or(self.timeout);
-            let mut command_process = shell_command(command, self.shell.as_deref());
-            if let Some(cwd) = cwd {
-                command_process.current_dir(cwd);
-            }
-            command_process
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true);
+            },
+        };
+        let stdout = stdout_task
+            .await
+            .map_err(|error| anyhow::anyhow!("stdout capture task failed: {error}"))??;
+        let stderr = stderr_task
+            .await
+            .map_err(|error| anyhow::anyhow!("stderr capture task failed: {error}"))??;
 
-            let mut child = command_process
-                .spawn()
-                .map_err(|error| anyhow::anyhow!("Failed to execute command: {error}"))?;
-            let stdout = child.stdout.take().expect("stdout was explicitly piped");
-            let stderr = child.stderr.take().expect("stderr was explicitly piped");
-            let stream_limit = self.limits.max_shell_stream_bytes;
-            let stdout_task = tokio::spawn(capture_pipe(stdout, stream_limit));
-            let stderr_task = tokio::spawn(capture_pipe(stderr, stream_limit));
-
-            let status = match tokio::time::timeout(Duration::from_secs(timeout), child.wait())
-                .await
-            {
-                Ok(Ok(status)) => status,
-                Ok(Err(error)) => {
-                    return Err(anyhow::anyhow!("Failed while waiting for command: {error}"));
-                },
-                Err(_) => {
-                    // `kill_on_drop` is a fallback; await explicit cleanup so a
-                    // direct child cannot survive a timeout result.
-                    if let Err(error) = child.kill().await {
-                        if error.kind() != std::io::ErrorKind::InvalidInput {
-                            return Err(anyhow::anyhow!(
-                                "Failed to kill timed-out command: {error}"
-                            ));
-                        }
-                    }
-                    child.wait().await.map_err(|error| {
-                        anyhow::anyhow!("Failed to reap timed-out command: {error}")
-                    })?;
-                    let _ = stdout_task.await;
-                    let _ = stderr_task.await;
-                    return Ok(super::types::ToolResult::error(
-                        "bash",
-                        "bash",
-                        format!("Command timed out after {timeout}s"),
-                    ));
-                },
-            };
-            let stdout = stdout_task
-                .await
-                .map_err(|error| anyhow::anyhow!("stdout capture task failed: {error}"))??;
-            let stderr = stderr_task
-                .await
-                .map_err(|error| anyhow::anyhow!("stderr capture task failed: {error}"))??;
-
-            let stdout = format_captured_stream("stdout", stdout);
-            let stderr = format_captured_stream("stderr", stderr);
-            if !status.success() {
-                let mut content = format!("Command exited with status: {status}");
-                if !stderr.is_empty() {
-                    content.push_str("\n[stderr:]\n");
-                    content.push_str(&stderr);
-                }
-                content.push_str("\n\n[stdout:]\n");
-                content.push_str(&stdout);
-                return Ok(super::types::ToolResult::error("bash", "bash", content));
-            }
-
-            let mut content = stdout;
+        let stdout = format_captured_stream("stdout", stdout);
+        let stderr = format_captured_stream("stderr", stderr);
+        if !status.success() {
+            let mut content = format!("Command exited with status: {status}");
             if !stderr.is_empty() {
                 content.push_str("\n[stderr:]\n");
                 content.push_str(&stderr);
             }
-            Ok(super::types::ToolResult::success(
-                "bash",
-                "bash",
-                truncate_utf8(&content, self.limits.max_tool_result_bytes, "Output"),
-            ))
-        })
+            content.push_str("\n\n[stdout:]\n");
+            content.push_str(&stdout);
+            return Ok(super::types::ToolResult::error("bash", "bash", content));
+        }
+
+        let mut content = stdout;
+        if !stderr.is_empty() {
+            content.push_str("\n[stderr:]\n");
+            content.push_str(&stderr);
+        }
+        Ok(super::types::ToolResult::success(
+            "bash",
+            "bash",
+            truncate_utf8(&content, self.limits.max_tool_result_bytes, "Output"),
+        ))
     }
 }
 
@@ -199,6 +214,7 @@ struct CapturedStream {
 async fn capture_pipe<R: AsyncRead + Unpin>(
     mut reader: R,
     limit: usize,
+    output: Option<ToolOutputSink>,
 ) -> Result<CapturedStream, anyhow::Error> {
     let mut bytes = Vec::with_capacity(limit);
     let mut buffer = [0_u8; 8_192];
@@ -211,6 +227,9 @@ async fn capture_pipe<R: AsyncRead + Unpin>(
         let remaining = limit.saturating_sub(bytes.len());
         let retained = read.min(remaining);
         bytes.extend_from_slice(&buffer[..retained]);
+        if let Some(output) = &output {
+            output.emit(String::from_utf8_lossy(&buffer[..retained]).to_string());
+        }
         truncated |= retained < read;
     }
     Ok(CapturedStream { bytes, truncated })
@@ -288,6 +307,36 @@ mod tests {
         assert!(!result.is_error, "{}", result.content);
         assert!(result.content.contains("stdout truncated"));
         assert!(result.content.contains("stderr truncated"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn streams_output_before_the_command_finishes() {
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let output = ToolOutputSink::new(sender, "call-1", "bash");
+        let tool = BashTool::new();
+        let command = json!({ "command": "printf first; sleep 1; printf second" });
+
+        let execution = tool.execute_with_output(&command, None, Some(output));
+        tokio::pin!(execution);
+
+        let first_output = tokio::select! {
+            output = receiver.recv() => output.expect("output channel should remain open"),
+            result = &mut execution => panic!("command finished before emitting output: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_millis(500)) => {
+                panic!("first output should arrive before the command completes");
+            },
+        };
+        assert_eq!(first_output.tool_call_id, "call-1");
+        assert_eq!(first_output.output, "first");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut execution)
+                .await
+                .is_err()
+        );
+
+        let result = execution.await.unwrap();
+        assert_eq!(result.content, "firstsecond");
     }
 
     #[cfg(unix)]
