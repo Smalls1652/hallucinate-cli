@@ -409,8 +409,16 @@ impl InteractiveTui {
                     return Ok(false);
                 }
 
+                // Toggle tool output. (Ctrl + O)
                 if key.ctrl && (key.matches('o') || key.matches('O')) {
                     self.toggle_full_tool_output();
+
+                    return Ok(false);
+                }
+
+                // Create a new session. (Shift + Alt + N)
+                if key.shift && key.alt && (key.matches('n') || key.matches('N')) {
+                    self.create_empty_session(None, false)?;
 
                     return Ok(false);
                 }

@@ -806,7 +806,7 @@ impl InteractiveTui {
     }
 
     /// Create a session and reset the in-memory agent/transcript to match it.
-    fn create_empty_session(
+    pub fn create_empty_session(
         &mut self,
         title: Option<String>,
         title_generation_pending: bool,
