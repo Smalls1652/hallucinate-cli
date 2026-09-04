@@ -332,35 +332,13 @@ fn render_transcript(
                 }
 
                 if show_thinking && !msg.thinking.is_empty() {
-                    // Reasoning is deliberately styled as a secondary
-                    // surface: muted text plus a subtle background
-                    // makes it visually
-                    // distinct from the answer while keeping
-                    // it readable during long streams.
-                    let thinking_style = Style::default()
-                        .fg(Color::Gray)
-                        .bg(Color::Rgb(45, 45, 45))
-                        .add_modifier(Modifier::DIM);
+                    let previous_len = lines.len();
+                    append_thinking_box(&mut lines, &msg.thinking, transcript_width);
+                    line_starts.extend(vec![None; lines.len() - previous_len]);
 
-                    lines.push(Line::from(vec![
-                        Span::styled("│ ", thinking_style),
-                        Span::styled("💭 Thinking", thinking_style.add_modifier(Modifier::ITALIC)),
-                    ]));
-                    line_starts.push(None);
-
-                    let mut thinking = markdown_to_lines(&msg.thinking);
-                    while thinking.last().is_some_and(line_is_empty) {
-                        thinking.pop();
-                    }
-
-                    for line in thinking {
-                        for line in wrap_line_to_width(line, transcript_width.saturating_sub(2)) {
-                            lines.push(muted_thinking_line(line, thinking_style));
-                            line_starts.push(None);
-                        }
-                    }
-
-                    lines.push(Line::from(vec![Span::styled("│ ", role_color)]));
+                    // Keep the response visually separated from its reasoning
+                    // surface.
+                    lines.push(Line::from(Span::styled("│ ", role_color)));
                     line_starts.push(None);
                 }
 
@@ -1181,25 +1159,94 @@ fn prefix_message_line(
     ratatui::text::Line::from(spans)
 }
 
-/// Render a reasoning line on the muted thinking surface. Markdown emphasis
-/// is intentionally flattened here so the entire block stays visually quiet.
-fn muted_thinking_line(
-    line: ratatui::text::Line<'static>,
-    style: ratatui::style::Style,
-) -> ratatui::text::Line<'static> {
-    let mut spans = vec![ratatui::text::Span::styled("│ ", style)];
-
-    if line.spans.is_empty() {
-        spans.push(ratatui::text::Span::styled(" ", style));
-    } else {
-        spans.extend(
-            line.spans
-                .into_iter()
-                .map(|span| ratatui::text::Span::styled(span.content.into_owned(), style)),
-        );
+/// Append a muted, boxed reasoning surface inside an assistant card.
+///
+/// Thinking uses the same compact dimensions and padded rows as tool output,
+/// making streamed reasoning a distinct transcript item instead of text that
+/// blends into the assistant response.
+fn append_thinking_box(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    thinking: &str,
+    width: u16,
+) {
+    if width == 0 {
+        return;
     }
 
-    ratatui::text::Line::from(spans)
+    let style = Style::default()
+        .fg(Color::Gray)
+        .bg(Color::Rgb(45, 45, 45))
+        .add_modifier(Modifier::DIM);
+    let rail_style = Style::default().fg(Color::Gray);
+    let box_width = tool_result_box_width(width);
+    let horizontal_padding = usize::from(box_width >= 3);
+    let content_width = box_width.saturating_sub(horizontal_padding * 2).max(1);
+
+    lines.push(Line::from(vec![
+        Span::styled("│ ", rail_style),
+        Span::styled(" ".repeat(box_width), style),
+    ]));
+
+    let heading_style = style.add_modifier(Modifier::ITALIC);
+    append_thinking_box_line(
+        lines,
+        Line::from(Span::styled("💭 Thinking", heading_style)),
+        style,
+        rail_style,
+        content_width,
+        horizontal_padding,
+    );
+
+    let mut thinking_lines = markdown_to_lines(thinking);
+    while thinking_lines.last().is_some_and(line_is_empty) {
+        thinking_lines.pop();
+    }
+
+    for thinking_line in thinking_lines {
+        // Reasoning formatting is intentionally flattened so this surface stays
+        // quiet.
+        let thinking_line = Line::from(
+            thinking_line
+                .spans
+                .into_iter()
+                .map(|span| Span::styled(span.content.into_owned(), style))
+                .collect::<Vec<_>>(),
+        );
+        append_thinking_box_line(
+            lines,
+            thinking_line,
+            style,
+            rail_style,
+            content_width,
+            horizontal_padding,
+        );
+    }
+}
+
+/// Append one wrapped line to a thinking surface, preserving its padding.
+fn append_thinking_box_line(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    line: ratatui::text::Line<'static>,
+    style: ratatui::style::Style,
+    rail_style: ratatui::style::Style,
+    content_width: usize,
+    horizontal_padding: usize,
+) {
+    for line in wrap_line_to_width(line, u16::try_from(content_width).unwrap_or(u16::MAX)) {
+        let remaining_width = content_width.saturating_sub(line.width());
+        let mut spans = vec![Span::styled("│ ", rail_style)];
+        if horizontal_padding > 0 {
+            spans.push(Span::styled(" ".repeat(horizontal_padding), style));
+        }
+        spans.extend(line.spans);
+        if remaining_width > 0 {
+            spans.push(Span::styled(" ".repeat(remaining_width), style));
+        }
+        if horizontal_padding > 0 {
+            spans.push(Span::styled(" ".repeat(horizontal_padding), style));
+        }
+        lines.push(Line::from(spans));
+    }
 }
 
 /// Append a colour-coded surface for tool output.
@@ -1230,13 +1277,7 @@ fn append_tool_result_box(
     };
     let style = Style::default().fg(Color::DarkGray).bg(background);
     let rail_style = Style::default().fg(Color::LightBlue);
-    let box_width = if width < MINIMUM_HALF_WIDTH_TOOL_RESULT_TERMINAL_WIDTH {
-        // Half-width output becomes too narrow for useful tool results below a
-        // conventional 95-column terminal.
-        usize::from(width.saturating_sub(2).max(1))
-    } else {
-        usize::from(width / 2)
-    };
+    let box_width = tool_result_box_width(width);
     // Keep the output clear of the coloured box edges without overflowing very
     // narrow terminal layouts.
     let horizontal_padding = usize::from(box_width >= 3);
@@ -1267,6 +1308,17 @@ fn append_tool_result_box(
             }
             lines.push(ratatui::text::Line::from(spans));
         }
+    }
+}
+
+/// Return the width used by compact transcript surfaces.
+fn tool_result_box_width(width: u16) -> usize {
+    if width < MINIMUM_HALF_WIDTH_TOOL_RESULT_TERMINAL_WIDTH {
+        // Half-width output becomes too narrow for useful content below a
+        // conventional 95-column terminal.
+        usize::from(width.saturating_sub(2).max(1))
+    } else {
+        usize::from(width / 2)
     }
 }
 
