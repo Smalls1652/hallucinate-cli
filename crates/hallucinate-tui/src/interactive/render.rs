@@ -438,7 +438,14 @@ fn render_transcript(
                         let result = tool_result_for_display(result, show_full_tool_output);
                         let result = tool_result_content(&result);
 
-                        append_tool_result_box(&mut lines, result, is_error, transcript_width);
+                        let is_running = transcript.is_tool_call_running(&tool_call.id);
+                        append_tool_result_box(
+                            &mut lines,
+                            result,
+                            is_error,
+                            is_running,
+                            transcript_width,
+                        );
 
                         line_starts.extend(vec![None; lines.len() - previous_len]);
                     } else if streaming_message_index == Some(message_index)
@@ -463,20 +470,25 @@ fn render_transcript(
                         {
                             let previous_len = lines.len();
                             let content = tool_result_for_display(&content, show_full_tool_output);
-                            append_tool_result_box(&mut lines, &content, false, transcript_width);
+                            append_tool_result_box(
+                                &mut lines,
+                                &content,
+                                false,
+                                true,
+                                transcript_width,
+                            );
                             line_starts.extend(vec![None; lines.len() - previous_len]);
                         }
                     } else if transcript.is_tool_call_running(&tool_call.id) {
-                        lines.push(Line::from(vec![
-                            Span::styled("│  ", Style::default().fg(Color::LightBlue)),
-                            Span::styled(
-                                "⏳ Running…",
-                                Style::default()
-                                    .fg(Color::Yellow)
-                                    .add_modifier(Modifier::ITALIC),
-                            ),
-                        ]));
-                        line_starts.push(None);
+                        let previous_len = lines.len();
+                        append_tool_result_box(
+                            &mut lines,
+                            "⏳ Running…",
+                            false,
+                            true,
+                            transcript_width,
+                        );
+                        line_starts.extend(vec![None; lines.len() - previous_len]);
                     }
 
                     lines.push(Line::from(Span::styled(
@@ -1189,22 +1201,26 @@ fn muted_thinking_line(
     ratatui::text::Line::from(spans)
 }
 
-/// Append a half-width, colour-coded surface for a completed tool result.
+/// Append a half-width, colour-coded surface for tool output.
 ///
 /// The assistant card rail remains visible on the left, with a small gap before
-/// the result box. This keeps tool output associated with its call without
-/// competing with the full width of conversational messages.
+/// the result box. Running output uses an amber surface distinct from completed
+/// success and failure results, so streamed output visibly indicates that the
+/// tool has not finished yet.
 fn append_tool_result_box(
     lines: &mut Vec<ratatui::text::Line<'static>>,
     result: &str,
     is_error: bool,
+    is_running: bool,
     width: u16,
 ) {
     if width == 0 {
         return;
     }
 
-    let background = if is_error {
+    let background = if is_running {
+        Color::Rgb(65, 50, 15)
+    } else if is_error {
         Color::Rgb(80, 20, 20)
     } else {
         Color::Rgb(15, 65, 30)
@@ -1441,7 +1457,7 @@ mod tests {
     #[test]
     fn tool_result_boxes_are_half_width_with_padding_from_the_rail() {
         let mut success_lines = Vec::new();
-        append_tool_result_box(&mut success_lines, "done", false, 20);
+        append_tool_result_box(&mut success_lines, "done", false, false, 20);
 
         assert_eq!(success_lines.len(), 2);
         assert_eq!(success_lines[0].width(), 12);
@@ -1470,7 +1486,7 @@ mod tests {
         assert_eq!(success_content, " done     ");
 
         let mut error_lines = Vec::new();
-        append_tool_result_box(&mut error_lines, "failed", true, 20);
+        append_tool_result_box(&mut error_lines, "failed", true, false, 20);
 
         assert_eq!(error_lines.len(), 2);
         assert_eq!(error_lines[0].width(), 12);
@@ -1481,6 +1497,18 @@ mod tests {
         assert_eq!(error_lines[0].spans[1].style.fg, Some(Color::DarkGray));
         assert_eq!(error_lines[0].spans[1].content, "          ");
         assert_eq!(error_lines[1].spans[1].style.fg, Some(Color::DarkGray));
+
+        let mut running_lines = Vec::new();
+        append_tool_result_box(&mut running_lines, "streaming", false, true, 20);
+
+        assert_eq!(
+            running_lines[0].spans[1].style.bg,
+            Some(Color::Rgb(65, 50, 15)),
+        );
+        assert_eq!(
+            running_lines[1].spans[1].style.bg,
+            Some(Color::Rgb(65, 50, 15)),
+        );
     }
 
     #[test]
