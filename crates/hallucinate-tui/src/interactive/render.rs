@@ -433,24 +433,12 @@ fn render_transcript(
 
                     line_starts.extend(vec![None; lines.len() - previous_len]);
                     if let Some(result) = &tool_call.result {
-                        let result_style = if result.starts_with("❌") {
-                            Style::default().fg(Color::LightRed)
-                        } else {
-                            Style::default().fg(Color::LightGreen)
-                        };
-
                         let previous_len = lines.len();
+                        let is_error = result.starts_with("❌");
                         let result = tool_result_for_display(result, show_full_tool_output);
+                        let result = tool_result_content(&result);
 
-                        append_prefixed_lines(
-                            &mut lines,
-                            &result,
-                            "│  ",
-                            "│  ",
-                            Style::default().fg(Color::LightBlue),
-                            result_style,
-                            transcript_width,
-                        );
+                        append_tool_result_box(&mut lines, result, is_error, transcript_width);
 
                         line_starts.extend(vec![None; lines.len() - previous_len]);
                     } else if streaming_message_index == Some(message_index)
@@ -1144,6 +1132,71 @@ fn muted_thinking_line(
     ratatui::text::Line::from(spans)
 }
 
+/// Append a half-width, colour-coded surface for a completed tool result.
+///
+/// The assistant card rail remains visible on the left, with a small gap before
+/// the result box. This keeps tool output associated with its call without
+/// competing with the full width of conversational messages.
+fn append_tool_result_box(
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+    result: &str,
+    is_error: bool,
+    width: u16,
+) {
+    if width == 0 {
+        return;
+    }
+
+    let background = if is_error {
+        Color::Rgb(80, 20, 20)
+    } else {
+        Color::Rgb(15, 65, 30)
+    };
+    let style = Style::default().fg(Color::DarkGray).bg(background);
+    let rail_style = Style::default().fg(Color::LightBlue);
+    let box_width = usize::from((width / 2).max(1));
+    // Keep the output clear of the coloured box edges without overflowing very
+    // narrow terminal layouts.
+    let horizontal_padding = usize::from(box_width >= 3);
+    let content_width = box_width.saturating_sub(horizontal_padding * 2).max(1);
+
+    lines.push(ratatui::text::Line::from(vec![
+        Span::styled("│ ", rail_style),
+        Span::styled(" ".repeat(box_width), style),
+    ]));
+
+    for physical_line in result.split('\n') {
+        for line in wrap_line_to_width(
+            ratatui::text::Line::from(Span::styled(physical_line.trim_end().to_string(), style)),
+            u16::try_from(content_width).unwrap_or(u16::MAX),
+        ) {
+            let content = String::from(line);
+            let remaining_width = content_width.saturating_sub(content.width());
+            lines.push(ratatui::text::Line::from(vec![
+                Span::styled("│ ", rail_style),
+                Span::styled(
+                    format!(
+                        "{:horizontal_padding$}{content}{:remaining_width$}{:horizontal_padding$}",
+                        "", "", "",
+                    ),
+                    style,
+                ),
+            ]));
+        }
+    }
+}
+
+/// Remove the internal success or failure marker from persisted tool output.
+///
+/// Status is represented by the result box colour rather than a repeated emoji
+/// in the transcript.
+fn tool_result_content(result: &str) -> &str {
+    result
+        .strip_prefix("✅ ")
+        .or_else(|| result.strip_prefix("❌ "))
+        .unwrap_or(result)
+}
+
 /// Append text that may contain newlines, using the supplied visual prefix on
 /// continuation lines (useful for tool calls and results).
 fn append_prefixed_lines(
@@ -1284,6 +1337,52 @@ mod tests {
             format!("{}…", "x".repeat(COMPACT_TOOL_RESULT_WIDTH - 1)),
         );
         assert_eq!(tool_result_for_display(&result, true), result);
+    }
+
+    #[test]
+    fn tool_result_boxes_are_half_width_with_padding_from_the_rail() {
+        let mut success_lines = Vec::new();
+        append_tool_result_box(&mut success_lines, "done", false, 20);
+
+        assert_eq!(success_lines.len(), 2);
+        assert_eq!(success_lines[0].width(), 12);
+        assert_eq!(success_lines[0].spans[0].content, "│ ");
+        assert_eq!(success_lines[0].spans[0].style.bg, None);
+        assert_eq!(
+            success_lines[0].spans[1].style.bg,
+            Some(Color::Rgb(15, 65, 30)),
+        );
+        assert_eq!(success_lines[0].spans[1].style.fg, Some(Color::DarkGray));
+        assert_eq!(success_lines[0].spans[1].content, "          ");
+        assert_eq!(success_lines[1].width(), 12);
+        assert_eq!(success_lines[1].spans[0].content, "│ ");
+        assert_eq!(success_lines[1].spans[0].style.bg, None);
+        assert_eq!(
+            success_lines[1].spans[1].style.bg,
+            Some(Color::Rgb(15, 65, 30)),
+        );
+        assert_eq!(success_lines[1].spans[1].style.fg, Some(Color::DarkGray));
+        assert_eq!(success_lines[1].spans[1].content, " done     ");
+
+        let mut error_lines = Vec::new();
+        append_tool_result_box(&mut error_lines, "failed", true, 20);
+
+        assert_eq!(error_lines.len(), 2);
+        assert_eq!(error_lines[0].width(), 12);
+        assert_eq!(
+            error_lines[0].spans[1].style.bg,
+            Some(Color::Rgb(80, 20, 20)),
+        );
+        assert_eq!(error_lines[0].spans[1].style.fg, Some(Color::DarkGray));
+        assert_eq!(error_lines[0].spans[1].content, "          ");
+        assert_eq!(error_lines[1].spans[1].style.fg, Some(Color::DarkGray));
+    }
+
+    #[test]
+    fn tool_result_content_removes_the_status_emoji() {
+        assert_eq!(tool_result_content("✅ completed"), "completed");
+        assert_eq!(tool_result_content("❌ failed"), "failed");
+        assert_eq!(tool_result_content("unmarked output"), "unmarked output");
     }
 
     #[test]
