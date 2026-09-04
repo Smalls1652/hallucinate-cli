@@ -1221,6 +1221,11 @@ fn append_thinking_box(
             horizontal_padding,
         );
     }
+
+    lines.push(Line::from(vec![
+        Span::styled("│ ", rail_style),
+        Span::styled(" ".repeat(box_width), style),
+    ]));
 }
 
 /// Append one wrapped line to a thinking surface, preserving its padding.
@@ -1249,7 +1254,7 @@ fn append_thinking_box_line(
     }
 }
 
-/// Append a colour-coded surface for tool output.
+/// Append a color-coded surface for tool output.
 ///
 /// The assistant card rail remains visible on the left, with a small gap before
 /// the result box. The box is half-width in sufficiently wide terminals, but
