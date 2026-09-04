@@ -285,13 +285,14 @@ async fn chat(
             );
         },
     };
-    let mut agent = Agent::with_all_tools_and_image_resize_and_shell(
+    let mut agent = Agent::with_all_tools_and_image_resize_and_shell_with_timeout(
         provider,
         model.clone(),
         hallucinate_agent::config::agent_config(settings, &model, &runtime_overrides),
         settings.auto_resize_images,
         hallucinate_agent::config::resolve_shell(settings, runtime_overrides.shell.clone())
             .as_deref(),
+        hallucinate_agent::config::resolve_shell_timeout(settings, None),
     )
     .with_cwd(session.cwd.clone());
 

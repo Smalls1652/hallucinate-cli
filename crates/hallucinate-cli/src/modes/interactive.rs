@@ -76,13 +76,14 @@ pub async fn run(
     // Create agent with all built-in tools.
     let loaded_skills = skills.skills;
 
-    let mut agent = Agent::with_all_tools_and_image_resize_and_shell(
+    let mut agent = Agent::with_all_tools_and_image_resize_and_shell_with_timeout(
         provider,
         model.clone(),
         agent_config,
         settings.auto_resize_images,
         hallucinate_agent::config::resolve_shell(settings, runtime_overrides.shell.clone())
             .as_deref(),
+        hallucinate_agent::config::resolve_shell_timeout(settings, None),
     )
     .with_cwd(cwd.to_string_lossy().into_owned())
     .with_skills(loaded_skills.clone());

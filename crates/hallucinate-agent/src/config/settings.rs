@@ -151,6 +151,11 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shell: Option<String>,
 
+    /// Default timeout in seconds for the bash tool. Commands that exceed
+    /// this duration are killed. Defaults to 60 seconds.
+    #[serde(default = "default_shell_timeout")]
+    pub shell_timeout: u64,
+
     /// Stored credentials.
     #[serde(default, skip_serializing_if = "CredentialStore::is_empty")]
     pub credential_store: CredentialStore,
@@ -307,6 +312,11 @@ fn default_enable_session_titles() -> bool {
     true
 }
 
+/// Default timeout in seconds for the bash tool.
+fn default_shell_timeout() -> u64 {
+    60
+}
+
 /// Return whether session-title settings are their default values.
 fn session_title_settings_is_default(settings: &SessionTitleSettings) -> bool {
     settings.enabled == default_enable_session_titles()
@@ -378,6 +388,7 @@ impl Default for Settings {
             provider: default_provider(),
             base_url: None,
             shell: None,
+            shell_timeout: default_shell_timeout(),
             credential_store: CredentialStore::new(),
             provider_headers: HashMap::new(),
             providers: HashMap::new(),
@@ -765,6 +776,7 @@ mod tests {
             Some("https://example.test/v1")
         );
         assert_eq!(settings.shell.as_deref(), Some("/bin/bash"));
+        assert_eq!(settings.shell_timeout, 60);
         assert_eq!(settings.timeout_ms, 30_000);
         assert!(!settings.auto_resize_images);
         assert_eq!(settings.temperature, Some(0.2));

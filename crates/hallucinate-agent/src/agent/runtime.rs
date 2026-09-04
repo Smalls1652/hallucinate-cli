@@ -132,8 +132,29 @@ impl Agent {
         config: AgentConfig,
         auto_resize_images: bool,
     ) -> Self {
+        Self::with_all_tools_and_image_resize_with_timeout(
+            provider,
+            model,
+            config,
+            auto_resize_images,
+            60,
+        )
+    }
+
+    /// Create a new agent with built-in tools, an image resize policy, and
+    /// an explicit bash tool timeout (in seconds).
+    pub fn with_all_tools_and_image_resize_with_timeout(
+        provider: Box<dyn Provider>,
+        model: Model,
+        config: AgentConfig,
+        auto_resize_images: bool,
+        timeout: u64,
+    ) -> Self {
         let mut agent = Self::new(provider, model, config);
-        agent.tool_registry = ToolRegistry::with_all_builtins_and_image_resize(auto_resize_images);
+        agent.tool_registry = ToolRegistry::with_all_builtins_and_image_resize_with_timeout(
+            auto_resize_images,
+            timeout,
+        );
         agent.invalidate_context_base();
 
         agent
@@ -148,18 +169,43 @@ impl Agent {
         auto_resize_images: bool,
         shell: Option<&str>,
     ) -> Self {
+        Self::with_all_tools_and_image_resize_and_shell_with_timeout(
+            provider,
+            model,
+            config,
+            auto_resize_images,
+            shell,
+            60,
+        )
+    }
+
+    /// Create a new agent with built-in tools, a configured shell executable,
+    /// and an explicit bash tool timeout (in seconds).
+    pub fn with_all_tools_and_image_resize_and_shell_with_timeout(
+        provider: Box<dyn Provider>,
+        model: Model,
+        config: AgentConfig,
+        auto_resize_images: bool,
+        shell: Option<&str>,
+        timeout: u64,
+    ) -> Self {
         if shell.is_none() {
-            return Self::with_all_tools_and_image_resize(
+            return Self::with_all_tools_and_image_resize_with_timeout(
                 provider,
                 model,
                 config,
                 auto_resize_images,
+                timeout,
             );
         }
 
         let mut agent = Self::new(provider, model, config);
         agent.tool_registry =
-            ToolRegistry::with_all_builtins_and_image_resize_and_shell(auto_resize_images, shell);
+            ToolRegistry::with_all_builtins_and_image_resize_and_shell_with_timeout(
+                auto_resize_images,
+                shell,
+                timeout,
+            );
         agent.invalidate_context_base();
 
         agent

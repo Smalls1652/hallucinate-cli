@@ -39,6 +39,15 @@ impl BashTool {
         Self::default()
     }
 
+    /// Configure the timeout (in seconds) for command execution.
+    pub fn with_timeout(
+        mut self,
+        timeout: u64,
+    ) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
     /// Configure resource limits for this tool.
     pub fn with_limits(
         mut self,

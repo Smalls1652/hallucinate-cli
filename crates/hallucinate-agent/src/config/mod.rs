@@ -114,6 +114,16 @@ pub fn resolve_shell(
     shell.or_else(|| settings.shell.clone())
 }
 
+/// Resolve the bash tool timeout. The explicit CLI option takes precedence
+/// over the persisted setting; the tool falls back to the default (60 s)
+/// when both are unset.
+pub fn resolve_shell_timeout(
+    settings: &self::settings::Settings,
+    cli_timeout: Option<u64>,
+) -> u64 {
+    cli_timeout.unwrap_or(settings.shell_timeout)
+}
+
 /// Derive agent request configuration from persisted settings, a selected
 /// model, and explicit runtime overrides.
 pub fn agent_config(

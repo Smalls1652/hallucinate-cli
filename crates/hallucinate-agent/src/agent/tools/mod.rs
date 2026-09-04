@@ -48,8 +48,17 @@ impl ToolRegistry {
 
     /// Create all built-in tools with the requested image processing policy.
     pub fn with_all_builtins_and_image_resize(auto_resize_images: bool) -> Self {
+        Self::with_all_builtins_and_image_resize_with_timeout(auto_resize_images, 60)
+    }
+
+    /// Create all built-in tools with the requested image processing policy
+    /// and an explicit bash tool timeout (in seconds).
+    pub fn with_all_builtins_and_image_resize_with_timeout(
+        auto_resize_images: bool,
+        timeout: u64,
+    ) -> Self {
         let mut registry = Self::new();
-        registry.add_tool(Arc::new(bash::BashTool::new()));
+        registry.add_tool(Arc::new(bash::BashTool::new().with_timeout(timeout)));
         registry.add_tool(Arc::new(
             read::ReadTool::new().with_auto_resize_images(auto_resize_images),
         ));
@@ -66,13 +75,32 @@ impl ToolRegistry {
         auto_resize_images: bool,
         shell: Option<&str>,
     ) -> Self {
+        Self::with_all_builtins_and_image_resize_and_shell_with_timeout(
+            auto_resize_images,
+            shell,
+            60,
+        )
+    }
+
+    /// Create all built-in tools with an optional configured shell executable
+    /// and an explicit bash tool timeout (in seconds).
+    pub fn with_all_builtins_and_image_resize_and_shell_with_timeout(
+        auto_resize_images: bool,
+        shell: Option<&str>,
+        timeout: u64,
+    ) -> Self {
         if shell.is_none() {
-            return Self::with_all_builtins_and_image_resize(auto_resize_images);
+            return Self::with_all_builtins_and_image_resize_with_timeout(
+                auto_resize_images,
+                timeout,
+            );
         }
 
         let mut registry = Self::new();
         registry.add_tool(Arc::new(
-            bash::BashTool::new().with_shell(shell.map(str::to_owned)),
+            bash::BashTool::new()
+                .with_timeout(timeout)
+                .with_shell(shell.map(str::to_owned)),
         ));
         registry.add_tool(Arc::new(
             read::ReadTool::new().with_auto_resize_images(auto_resize_images),
