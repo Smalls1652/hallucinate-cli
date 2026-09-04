@@ -529,11 +529,11 @@ mod tests {
         let call = ToolCall {
             id: "call-1".to_string(),
             name: "bash".to_string(),
-            arguments: serde_json::json!({ "timeout_ms": 5000 }),
+            arguments: serde_json::json!({ "timeout": 5000 }),
             result: None,
         };
 
-        assert_eq!(call.human_readable(), r#"{"timeout_ms":5000}"#);
+        assert_eq!(call.human_readable(), r#"{"timeout":5000}"#);
     }
 
     #[test]

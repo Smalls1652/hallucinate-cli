@@ -16,8 +16,8 @@ use super::{
 /// Shell command execution tool.
 #[derive(Debug, Clone)]
 pub struct BashTool {
-    /// Maximum execution time in milliseconds.
-    timeout_ms: u64,
+    /// Maximum execution time in seconds.
+    timeout: u64,
     limits: ToolLimits,
     /// Explicit shell executable. `None` uses the user's environment default.
     shell: Option<String>,
@@ -26,7 +26,7 @@ pub struct BashTool {
 impl Default for BashTool {
     fn default() -> Self {
         Self {
-            timeout_ms: 60_000,
+            timeout: 60,
             limits: ToolLimits::default(),
             shell: None,
         }
@@ -72,7 +72,7 @@ impl Tool for BashTool {
             "type": "object",
             "properties": {
                 "command": { "type": "string", "description": "Shell command or script" },
-                "timeout_ms": { "type": "integer", "description": "Maximum execution time in milliseconds (default: 60000)" }
+                "timeout": { "type": "integer", "description": "Maximum execution time in seconds (default: 60)" }
             },
             "required": ["command"]
         })
@@ -96,10 +96,10 @@ impl Tool for BashTool {
                     "Empty command",
                 ));
             }
-            let timeout_ms = arguments
-                .get("timeout_ms")
+            let timeout = arguments
+                .get("timeout")
                 .and_then(|value| value.as_u64())
-                .unwrap_or(self.timeout_ms);
+                .unwrap_or(self.timeout);
             let mut command_process = shell_command(command, self.shell.as_deref());
             if let Some(cwd) = cwd {
                 command_process.current_dir(cwd);
@@ -118,7 +118,7 @@ impl Tool for BashTool {
             let stdout_task = tokio::spawn(capture_pipe(stdout, stream_limit));
             let stderr_task = tokio::spawn(capture_pipe(stderr, stream_limit));
 
-            let status = match tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait())
+            let status = match tokio::time::timeout(Duration::from_secs(timeout), child.wait())
                 .await
             {
                 Ok(Ok(status)) => status,
@@ -143,7 +143,7 @@ impl Tool for BashTool {
                     return Ok(super::types::ToolResult::error(
                         "bash",
                         "bash",
-                        format!("Command timed out after {timeout_ms}ms"),
+                        format!("Command timed out after {timeout}s"),
                     ));
                 },
             };
@@ -285,7 +285,7 @@ mod tests {
     #[tokio::test]
     async fn kills_a_timed_out_direct_child() {
         let result = BashTool::new()
-            .execute(&json!({ "command": "sleep 5", "timeout_ms": 20 }), None)
+            .execute(&json!({ "command": "sleep 2", "timeout": 1 }), None)
             .await
             .unwrap();
         assert!(result.is_error);

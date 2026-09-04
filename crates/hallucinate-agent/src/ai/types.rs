@@ -854,8 +854,8 @@ mod tests {
 
     #[test]
     fn bash_tool_missing_command_falls_back() {
-        let call = ToolCall::new("call-1", "bash", serde_json::json!({"timeout_ms": 5000}));
+        let call = ToolCall::new("call-1", "bash", serde_json::json!({"timeout": 5000}));
 
-        assert_eq!(call.human_readable(), r#"{"timeout_ms":5000}"#);
+        assert_eq!(call.human_readable(), r#"{"timeout":5000}"#);
     }
 }
