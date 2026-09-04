@@ -411,8 +411,8 @@ impl InteractiveTui {
                     return Ok(false);
                 }
 
-                // Toggle tool output. (Ctrl + O)
-                if key.ctrl && (key.matches('o') || key.matches('O')) {
+                // Toggle tool output. (Alt + O)
+                if key.alt && (key.matches('o') || key.matches('O')) {
                     self.toggle_full_tool_output();
 
                     return Ok(false);
