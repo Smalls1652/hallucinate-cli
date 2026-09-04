@@ -370,6 +370,7 @@ impl InteractiveTui {
                 return Ok(false);
             }
 
+            // Handle key events.
             if let crate::input::InputEvent::Key(key) = input_event {
                 // Tab accepts the selected slash-command completion. Enter
                 // accepts it and continues through the normal submit path so
@@ -420,6 +421,27 @@ impl InteractiveTui {
                 // Create a new session. (Shift + Alt + N)
                 if key.shift && key.alt && (key.matches('n') || key.matches('N')) {
                     self.create_empty_session(None, false)?;
+
+                    return Ok(false);
+                }
+
+                // Show prompt picker. (Alt + P)
+                if key.alt && (key.matches('p') || key.matches('P')) {
+                    self.open_prompt_picker();
+
+                    return Ok(false);
+                }
+
+                // Show session picker. (Alt + R)
+                if key.alt && (key.matches('r') || key.matches('R')) {
+                    self.open_session_picker();
+
+                    return Ok(false);
+                }
+
+                // Show model picker. (Alt + M)
+                if key.alt && (key.matches('m') || key.matches('M')) {
+                    self.open_model_picker();
 
                     return Ok(false);
                 }

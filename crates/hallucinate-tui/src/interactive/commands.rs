@@ -428,7 +428,7 @@ impl InteractiveTui {
     }
 
     /// Open the model picker with the current model selected.
-    fn open_model_picker(&mut self) {
+    pub fn open_model_picker(&mut self) {
         if self.models.is_empty() {
             self.show_notice("No models are configured.");
             return;
@@ -448,7 +448,7 @@ impl InteractiveTui {
     }
 
     /// Open the session picker with the current session selected.
-    fn open_session_picker(&mut self) {
+    pub fn open_session_picker(&mut self) {
         let sessions = match SessionManager::list() {
             Ok(sessions) => sessions,
             Err(error) => {
@@ -495,7 +495,7 @@ impl InteractiveTui {
     }
 
     /// Open the prompt template picker with all loaded templates.
-    fn open_prompt_picker(&mut self) {
+    pub fn open_prompt_picker(&mut self) {
         if self.prompt_templates.is_empty() {
             self.show_notice("No prompt templates found.");
             return;
