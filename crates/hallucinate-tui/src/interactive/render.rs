@@ -218,11 +218,11 @@ impl InteractiveTui {
             // Editor
             self.editor.render(frame, chunks[editor_chunk]);
 
-            render_model_picker(frame, self.model_picker, &self.models);
+            render_model_picker(frame, self.model_picker.as_ref(), &self.models);
 
             render_session_picker(frame, self.session_picker.as_ref());
 
-            render_prompt_picker(frame, self.prompt_picker, &self.prompt_templates);
+            render_prompt_picker(frame, self.prompt_picker.as_ref(), &self.prompt_templates);
         })?;
 
         self.transcript_area = rendered_transcript_area;
@@ -601,7 +601,7 @@ fn render_transcript(
 /// Render the active model picker overlay.
 fn render_model_picker(
     frame: &mut ratatui::Frame,
-    picker: Option<super::ModelPicker>,
+    picker: Option<&super::ModelPicker>,
     models: &[hallucinate_agent::ai::types::Model],
 ) {
     let Some(picker) = picker else {
@@ -610,11 +610,14 @@ fn render_model_picker(
 
     render_picker(
         frame,
-        models.len(),
+        &format!(
+            " Select model · filter: {} · ↑↓ PgUp/PgDn Home/End Enter Esc ",
+            picker.filter
+        ),
+        &picker.filtered_indices,
         picker.selected,
-        " Select model · ↑↓ PgUp/PgDn Home/End Enter Esc ",
-        |index, _| {
-            let model = &models[index];
+        |model_index, selected_index, _| {
+            let model = &models[model_index];
             let metadata = format!(
                 "context {} · max {} · {}{}",
                 model.context_window,
@@ -624,7 +627,7 @@ fn render_model_picker(
             );
 
             picker_row(
-                index,
+                selected_index,
                 picker.selected,
                 vec![
                     Span::styled(
@@ -655,16 +658,19 @@ fn render_session_picker(
 
     render_picker(
         frame,
-        picker.rows.len(),
+        &format!(
+            " Select session · filter: {} · ↑↓ PgUp/PgDn Home/End Enter Esc ",
+            picker.filter
+        ),
+        &picker.filtered_indices,
         picker.selected,
-        " Select session · ↑↓ PgUp/PgDn Home/End Enter Esc ",
-        |index, popup_width| {
-            let session = &picker.rows[index];
+        |session_index, selected_index, popup_width| {
+            let session = &picker.rows[session_index];
             let title =
                 truncate_one_line(&session.title, usize::from(popup_width.saturating_sub(34)));
 
             picker_row(
-                index,
+                selected_index,
                 picker.selected,
                 vec![
                     Span::styled(
@@ -685,7 +691,7 @@ fn render_session_picker(
 /// Render the active prompt picker overlay.
 fn render_prompt_picker(
     frame: &mut ratatui::Frame,
-    picker: Option<super::PromptPicker>,
+    picker: Option<&super::PromptPicker>,
     prompt_templates: &[hallucinate_agent::agent::prompt_templates::PromptTemplate],
 ) {
     let Some(picker) = picker else {
@@ -694,11 +700,14 @@ fn render_prompt_picker(
 
     render_picker(
         frame,
-        prompt_templates.len(),
+        &format!(
+            " Select prompt · filter: {} · ↑↓ PgUp/PgDn Home/End Enter Esc ",
+            picker.filter
+        ),
+        &picker.filtered_indices,
         picker.selected,
-        " Select prompt · ↑↓ PgUp/PgDn Home/End Enter Esc ",
-        |index, _| {
-            let template = &prompt_templates[index];
+        |template_index, selected_index, _| {
+            let template = &prompt_templates[template_index];
             let hint = template
                 .argument_hint
                 .as_deref()
@@ -706,7 +715,7 @@ fn render_prompt_picker(
                 .unwrap_or_default();
 
             picker_row(
-                index,
+                selected_index,
                 picker.selected,
                 vec![
                     Span::styled(
@@ -727,19 +736,20 @@ fn render_prompt_picker(
 /// Render a centered, scrollable picker popup.
 fn render_picker<F>(
     frame: &mut ratatui::Frame,
-    item_count: usize,
-    selected: usize,
     title: &str,
+    filtered_indices: &[usize],
+    selected: usize,
     mut render_row: F,
 ) where
-    F: FnMut(usize, u16) -> ratatui::text::Line<'static>,
+    F: FnMut(usize, usize, u16) -> ratatui::text::Line<'static>,
 {
+    let item_count = filtered_indices.len();
     let area = frame.area();
     let popup_width = area.width.saturating_sub(4).min(140);
     let popup_height = area
         .height
         .saturating_sub(4)
-        .min((item_count + 2).min(18) as u16);
+        .min((item_count.max(1) + 2).min(18) as u16);
 
     if popup_width <= 4 || popup_height <= 2 {
         return;
@@ -757,7 +767,7 @@ fn render_picker<F>(
         .min(item_count.saturating_sub(visible_rows));
     let rows = (start..item_count)
         .take(visible_rows)
-        .map(|index| render_row(index, popup_width))
+        .map(|index| render_row(filtered_indices[index], index, popup_width))
         .collect::<Vec<_>>();
 
     frame.render_widget(Clear, popup_area);

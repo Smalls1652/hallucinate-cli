@@ -226,7 +226,8 @@ impl InteractiveTui {
                             },
 
                             crossterm::event::MouseEventKind::ScrollDown => {
-                                picker.selected = (picker.selected + 3).min(self.models.len() - 1);
+                                picker.selected = (picker.selected + 3)
+                                    .min(picker.filtered_indices.len().saturating_sub(1));
                             },
 
                             _ => {},
@@ -242,8 +243,8 @@ impl InteractiveTui {
                             },
 
                             crossterm::event::MouseEventKind::ScrollDown => {
-                                picker.selected =
-                                    (picker.selected + 3).min(picker.rows.len().saturating_sub(1));
+                                picker.selected = (picker.selected + 3)
+                                    .min(picker.filtered_indices.len().saturating_sub(1));
                             },
 
                             _ => {},
@@ -259,8 +260,8 @@ impl InteractiveTui {
                             },
 
                             crossterm::event::MouseEventKind::ScrollDown => {
-                                picker.selected =
-                                    (picker.selected + 3).min(self.prompt_templates.len() - 1);
+                                picker.selected = (picker.selected + 3)
+                                    .min(picker.filtered_indices.len().saturating_sub(1));
                             },
 
                             _ => {},

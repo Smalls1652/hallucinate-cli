@@ -440,7 +440,11 @@ impl InteractiveTui {
             .position(|model| model.provider == self.model.provider && model.id == self.model.id)
             .unwrap_or(0);
 
-        self.model_picker = Some(ModelPicker { selected });
+        self.model_picker = Some(ModelPicker {
+            filter: String::new(),
+            filtered_indices: (0..self.models.len()).collect(),
+            selected,
+        });
     }
 
     /// Open the session picker with the current session selected.
@@ -482,7 +486,12 @@ impl InteractiveTui {
             .position(|row| current_id == Some(row.id.as_str()))
             .unwrap_or(0);
 
-        self.session_picker = Some(SessionPicker { rows, selected });
+        self.session_picker = Some(SessionPicker {
+            filter: String::new(),
+            filtered_indices: (0..rows.len()).collect(),
+            rows,
+            selected,
+        });
     }
 
     /// Open the prompt template picker with all loaded templates.
@@ -492,7 +501,11 @@ impl InteractiveTui {
             return;
         }
 
-        self.prompt_picker = Some(PromptPicker { selected: 0 });
+        self.prompt_picker = Some(PromptPicker {
+            filter: String::new(),
+            filtered_indices: (0..self.prompt_templates.len()).collect(),
+            selected: 0,
+        });
     }
 
     /// Handle a key while the session picker owns the input focus.
@@ -500,51 +513,34 @@ impl InteractiveTui {
         &mut self,
         key: Key,
     ) -> Result<(), anyhow::Error> {
+        if key.matches('c') && key.ctrl {
+            // Ctrl+C remains available to interrupt an active response.
+            if let Some(cancellation) = &self.agent_cancellation {
+                cancellation.cancel();
+            }
+            return Ok(());
+        }
+
+        if handle_picker_filter_key(key, self.session_picker.as_mut(), |picker| {
+            picker.filtered_indices = filtered_session_indices(&picker.rows, &picker.filter);
+        }) {
+            return Ok(());
+        }
+
         let Some(picker) = self.session_picker.as_mut() else {
             return Ok(());
         };
 
-        let session_count = picker.rows.len();
+        match_picker_navigation(key, &mut picker.selected, picker.filtered_indices.len());
 
         match key.code {
-            crossterm::event::KeyCode::Char('c') if key.ctrl => {
-                // Ctrl+C is intentionally not a quit shortcut. It can still
-                // interrupt an active response, matching the Esc/stop path.
-                if let Some(cancellation) = &self.agent_cancellation {
-                    cancellation.cancel();
-                }
-            },
-
-            crossterm::event::KeyCode::Up => {
-                picker.selected = picker.selected.saturating_sub(1);
-            },
-
-            crossterm::event::KeyCode::Down => {
-                picker.selected = (picker.selected + 1).min(session_count - 1);
-            },
-
-            crossterm::event::KeyCode::PageUp => {
-                picker.selected = picker.selected.saturating_sub(8);
-            },
-
-            crossterm::event::KeyCode::PageDown => {
-                picker.selected = (picker.selected + 8).min(session_count - 1);
-            },
-
-            crossterm::event::KeyCode::Home => {
-                picker.selected = 0;
-            },
-
-            crossterm::event::KeyCode::End => {
-                picker.selected = session_count - 1;
-            },
-
-            crossterm::event::KeyCode::Esc => {
-                self.session_picker = None;
-            },
-
+            crossterm::event::KeyCode::Esc => self.session_picker = None,
             crossterm::event::KeyCode::Enter => {
-                let session_id = picker.rows.get(picker.selected).map(|row| row.id.clone());
+                let session_id = picker
+                    .filtered_indices
+                    .get(picker.selected)
+                    .and_then(|index| picker.rows.get(*index))
+                    .map(|row| row.id.clone());
                 self.session_picker = None;
 
                 if let Some(session_id) = session_id {
@@ -557,10 +553,8 @@ impl InteractiveTui {
                     }
                 }
             },
-
             _ => {},
         }
-
         Ok(())
     }
 
@@ -569,60 +563,43 @@ impl InteractiveTui {
         &mut self,
         key: Key,
     ) -> Result<(), anyhow::Error> {
+        if key.matches('c') && key.ctrl {
+            // Ctrl+C remains available to interrupt an active response.
+            if let Some(cancellation) = &self.agent_cancellation {
+                cancellation.cancel();
+            }
+            return Ok(());
+        }
+
+        if handle_picker_filter_key(key, self.prompt_picker.as_mut(), |picker| {
+            picker.filtered_indices =
+                filtered_prompt_indices(&self.prompt_templates, &picker.filter);
+        }) {
+            return Ok(());
+        }
+
         let Some(picker) = self.prompt_picker.as_mut() else {
             return Ok(());
         };
+        match_picker_navigation(key, &mut picker.selected, picker.filtered_indices.len());
 
         match key.code {
-            crossterm::event::KeyCode::Char('c') if key.ctrl => {
-                // Ctrl+C is intentionally not a quit shortcut. It can still
-                // interrupt an active response, matching the Esc/stop path.
-                if let Some(cancellation) = &self.agent_cancellation {
-                    cancellation.cancel();
-                }
-            },
-
-            crossterm::event::KeyCode::Up => {
-                picker.selected = picker.selected.saturating_sub(1);
-            },
-
-            crossterm::event::KeyCode::Down => {
-                picker.selected = (picker.selected + 1).min(self.prompt_templates.len() - 1);
-            },
-
-            crossterm::event::KeyCode::PageUp => {
-                picker.selected = picker.selected.saturating_sub(8);
-            },
-
-            crossterm::event::KeyCode::PageDown => {
-                picker.selected = (picker.selected + 8).min(self.prompt_templates.len() - 1);
-            },
-
-            crossterm::event::KeyCode::Home => {
-                picker.selected = 0;
-            },
-
-            crossterm::event::KeyCode::End => {
-                picker.selected = self.prompt_templates.len() - 1;
-            },
-
-            crossterm::event::KeyCode::Esc => {
-                self.prompt_picker = None;
-            },
-
+            crossterm::event::KeyCode::Esc => self.prompt_picker = None,
             crossterm::event::KeyCode::Enter => {
-                let selected = picker.selected;
+                let template = picker
+                    .filtered_indices
+                    .get(picker.selected)
+                    .and_then(|index| self.prompt_templates.get(*index))
+                    .cloned();
                 self.prompt_picker = None;
 
-                if let Some(template) = self.prompt_templates.get(selected).cloned() {
+                if let Some(template) = template {
                     self.editor.set_content(format!("/{} ", template.name));
                     self.refresh_autocomplete();
                 }
             },
-
             _ => {},
         }
-
         Ok(())
     }
 
@@ -631,59 +608,41 @@ impl InteractiveTui {
         &mut self,
         key: Key,
     ) -> Result<(), anyhow::Error> {
+        if key.matches('c') && key.ctrl {
+            // Ctrl+C remains available to interrupt an active response.
+            if let Some(cancellation) = &self.agent_cancellation {
+                cancellation.cancel();
+            }
+            return Ok(());
+        }
+
+        if handle_picker_filter_key(key, self.model_picker.as_mut(), |picker| {
+            picker.filtered_indices = filtered_model_indices(&self.models, &picker.filter);
+        }) {
+            return Ok(());
+        }
+
         let Some(picker) = self.model_picker.as_mut() else {
             return Ok(());
         };
+        match_picker_navigation(key, &mut picker.selected, picker.filtered_indices.len());
 
         match key.code {
-            crossterm::event::KeyCode::Char('c') if key.ctrl => {
-                // Ctrl+C is intentionally not a quit shortcut. It can still
-                // interrupt an active response, matching the Esc/stop path.
-                if let Some(cancellation) = &self.agent_cancellation {
-                    cancellation.cancel();
-                }
-            },
-
-            crossterm::event::KeyCode::Up => {
-                picker.selected = picker.selected.saturating_sub(1);
-            },
-
-            crossterm::event::KeyCode::Down => {
-                picker.selected = (picker.selected + 1).min(self.models.len() - 1);
-            },
-
-            crossterm::event::KeyCode::PageUp => {
-                picker.selected = picker.selected.saturating_sub(8);
-            },
-
-            crossterm::event::KeyCode::PageDown => {
-                picker.selected = (picker.selected + 8).min(self.models.len() - 1);
-            },
-
-            crossterm::event::KeyCode::Home => {
-                picker.selected = 0;
-            },
-
-            crossterm::event::KeyCode::End => {
-                picker.selected = self.models.len() - 1;
-            },
-
-            crossterm::event::KeyCode::Esc => {
-                self.model_picker = None;
-            },
-
+            crossterm::event::KeyCode::Esc => self.model_picker = None,
             crossterm::event::KeyCode::Enter => {
-                let selected = picker.selected;
+                let model = picker
+                    .filtered_indices
+                    .get(picker.selected)
+                    .and_then(|index| self.models.get(*index))
+                    .cloned();
                 self.model_picker = None;
 
-                if let Some(model) = self.models.get(selected).cloned() {
+                if let Some(model) = model {
                     self.switch_to_model(model)?;
                 }
             },
-
             _ => {},
         }
-
         Ok(())
     }
 
@@ -879,4 +838,126 @@ fn resolve_session_id(input: &str) -> Result<String, anyhow::Error> {
         [] => Err(anyhow::anyhow!("Session '{}' not found", input)),
         _ => Err(anyhow::anyhow!("session id '{}' is ambiguous", input)),
     }
+}
+
+/// Update a picker filter and reset its selection when text input changes.
+fn handle_picker_filter_key<T>(
+    key: Key,
+    picker: Option<&mut T>,
+    update_indices: impl FnOnce(&mut T),
+) -> bool
+where
+    T: PickerFilter,
+{
+    let Some(picker) = picker else {
+        return false;
+    };
+    let changed = match key.code {
+        crossterm::event::KeyCode::Char(character) if !key.ctrl && !key.alt => {
+            picker.filter_mut().push(character);
+            true
+        },
+        crossterm::event::KeyCode::Backspace if !key.ctrl && !key.alt => {
+            picker.filter_mut().pop().is_some()
+        },
+        _ => false,
+    };
+    if changed {
+        update_indices(picker);
+        *picker.selected_mut() = 0;
+    }
+    changed
+}
+
+trait PickerFilter {
+    fn filter_mut(&mut self) -> &mut String;
+    fn selected_mut(&mut self) -> &mut usize;
+}
+
+impl PickerFilter for ModelPicker {
+    fn filter_mut(&mut self) -> &mut String {
+        &mut self.filter
+    }
+
+    fn selected_mut(&mut self) -> &mut usize {
+        &mut self.selected
+    }
+}
+impl PickerFilter for SessionPicker {
+    fn filter_mut(&mut self) -> &mut String {
+        &mut self.filter
+    }
+
+    fn selected_mut(&mut self) -> &mut usize {
+        &mut self.selected
+    }
+}
+impl PickerFilter for PromptPicker {
+    fn filter_mut(&mut self) -> &mut String {
+        &mut self.filter
+    }
+
+    fn selected_mut(&mut self) -> &mut usize {
+        &mut self.selected
+    }
+}
+
+fn match_picker_navigation(
+    key: Key,
+    selected: &mut usize,
+    item_count: usize,
+) {
+    if item_count == 0 {
+        return;
+    }
+    match key.code {
+        crossterm::event::KeyCode::Up => *selected = selected.saturating_sub(1),
+        crossterm::event::KeyCode::Down => *selected = (*selected + 1).min(item_count - 1),
+        crossterm::event::KeyCode::PageUp => *selected = selected.saturating_sub(8),
+        crossterm::event::KeyCode::PageDown => *selected = (*selected + 8).min(item_count - 1),
+        crossterm::event::KeyCode::Home => *selected = 0,
+        crossterm::event::KeyCode::End => *selected = item_count - 1,
+        _ => {},
+    }
+}
+
+fn matches_picker_filter(
+    value: &str,
+    filter: &str,
+) -> bool {
+    value.to_lowercase().contains(&filter.to_lowercase())
+}
+
+fn filtered_model_indices(
+    models: &[hallucinate_agent::ai::types::Model],
+    filter: &str,
+) -> Vec<usize> {
+    models
+        .iter()
+        .enumerate()
+        .filter_map(|(index, model)| matches_picker_filter(&model.name, filter).then_some(index))
+        .collect()
+}
+
+fn filtered_session_indices(
+    rows: &[SessionPickerRow],
+    filter: &str,
+) -> Vec<usize> {
+    rows.iter()
+        .enumerate()
+        .filter_map(|(index, row)| matches_picker_filter(&row.title, filter).then_some(index))
+        .collect()
+}
+
+fn filtered_prompt_indices(
+    templates: &[hallucinate_agent::agent::prompt_templates::PromptTemplate],
+    filter: &str,
+) -> Vec<usize> {
+    templates
+        .iter()
+        .enumerate()
+        .filter_map(|(index, template)| {
+            matches_picker_filter(&template.name, filter).then_some(index)
+        })
+        .collect()
 }

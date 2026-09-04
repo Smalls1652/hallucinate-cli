@@ -182,9 +182,13 @@ struct AutocompleteItem {
 }
 
 /// State for the keyboard-driven model picker overlay.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct ModelPicker {
-    /// Index of the currently selected model.
+    /// Text used to limit models by display name.
+    filter: String,
+    /// Model indexes matching `filter`.
+    filtered_indices: Vec<usize>,
+    /// Index of the currently selected matching model.
     selected: usize,
 }
 
@@ -193,7 +197,11 @@ struct ModelPicker {
 struct SessionPicker {
     /// Rows captured when the picker opened or was deliberately refreshed.
     rows: Vec<SessionPickerRow>,
-    /// Index of the currently selected session.
+    /// Text used to limit sessions by title.
+    filter: String,
+    /// Row indexes matching `filter`.
+    filtered_indices: Vec<usize>,
+    /// Index of the currently selected matching session.
     selected: usize,
 }
 
@@ -211,9 +219,13 @@ struct SessionPickerRow {
 }
 
 /// State for the keyboard-driven prompt picker overlay.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct PromptPicker {
-    /// Index of the currently selected prompt template.
+    /// Text used to limit prompt templates by name.
+    filter: String,
+    /// Template indexes matching `filter`.
+    filtered_indices: Vec<usize>,
+    /// Index of the currently selected matching template.
     selected: usize,
 }
 
