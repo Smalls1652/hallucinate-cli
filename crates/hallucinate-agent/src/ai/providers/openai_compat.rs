@@ -912,6 +912,7 @@ async fn process_sse_bytes(
 async fn consume_chat_stream(
     response: reqwest::Response,
     builder: &mut AssistantMessageBuilder,
+    cancellation: Option<&crate::ai::types::RequestCancellation>,
 ) -> (Option<StopReason>, Option<String>) {
     let mut reader = response.bytes_stream();
     let mut buffer = SseLineBuffer::default();
@@ -921,8 +922,14 @@ async fn consume_chat_stream(
     let mut done_seen = false;
 
     while !done_seen {
-        let Some(chunk) = reader.next().await else {
-            break;
+        let chunk = match tokio::select! {
+            chunk = reader.next() => chunk,
+            _ = wait_for_cancellation(cancellation) => {
+                return (None, Some("provider request was cancelled".to_string()));
+            },
+        } {
+            Some(chunk) => chunk,
+            None => break,
         };
 
         let chunk = match chunk {
@@ -982,11 +989,19 @@ async fn consume_chat_stream(
     (terminal_reason, failure)
 }
 
+async fn wait_for_cancellation(cancellation: Option<&crate::ai::types::RequestCancellation>) {
+    match cancellation {
+        Some(cancellation) => cancellation.cancelled().await,
+        None => std::future::pending().await,
+    }
+}
+
 /// Consume a Responses API SSE stream and return the terminal reason and any
 /// failure.
 async fn consume_responses_stream(
     response: reqwest::Response,
     builder: &mut AssistantMessageBuilder,
+    cancellation: Option<&crate::ai::types::RequestCancellation>,
 ) -> (Option<StopReason>, Option<String>) {
     let mut reader = response.bytes_stream();
     let mut buffer = SseLineBuffer::default();
@@ -997,8 +1012,14 @@ async fn consume_responses_stream(
     let mut done_seen = false;
 
     while !done_seen {
-        let Some(chunk) = reader.next().await else {
-            break;
+        let chunk = match tokio::select! {
+            chunk = reader.next() => chunk,
+            _ = wait_for_cancellation(cancellation) => {
+                return (None, Some("provider request was cancelled".to_string()));
+            },
+        } {
+            Some(chunk) => chunk,
+            None => break,
         };
 
         let chunk = match chunk {
@@ -1558,6 +1579,7 @@ impl Provider for OpenaiCompatProvider {
         let model_provider = model.provider.clone();
         let client = self.client.clone();
         let max_retries = self.config.max_retries;
+        let cancellation = options.cancellation.clone();
 
         Box::pin(async move {
             let headers = self.request_headers(&api_key)?;
@@ -1565,13 +1587,16 @@ impl Provider for OpenaiCompatProvider {
             let mut attempt = 0;
 
             let response = loop {
-                match client
-                    .post(&url)
-                    .headers(headers.clone())
-                    .json(&body)
-                    .send()
-                    .await
-                {
+                match tokio::select! {
+                    response = client
+                        .post(&url)
+                        .headers(headers.clone())
+                        .json(&body)
+                        .send() => response,
+                    _ = wait_for_cancellation(cancellation.as_ref()) => {
+                        return Err(ProviderError::Stream("provider request was cancelled".to_string()));
+                    },
+                } {
                     Ok(response) if response.status().is_success() => break response,
                     Ok(response) => {
                         let status = response.status().as_u16();
@@ -1589,7 +1614,12 @@ impl Provider for OpenaiCompatProvider {
                                 "retrying transient API failure"
                             );
 
-                            tokio::time::sleep(delay).await;
+                            tokio::select! {
+                                _ = tokio::time::sleep(delay) => {},
+                                _ = wait_for_cancellation(cancellation.as_ref()) => {
+                                    return Err(ProviderError::Stream("provider request was cancelled".to_string()));
+                                },
+                            }
                             attempt += 1;
                         } else {
                             return Err(ProviderError::Api(error_text, status));
@@ -1600,7 +1630,12 @@ impl Provider for OpenaiCompatProvider {
 
                         tracing::warn!(attempt = attempt + 1, max_retries, error = %error, delay_ms = delay.as_millis(), "retrying transient transport failure");
 
-                        tokio::time::sleep(delay).await;
+                        tokio::select! {
+                            _ = tokio::time::sleep(delay) => {},
+                            _ = wait_for_cancellation(cancellation.as_ref()) => {
+                                return Err(ProviderError::Stream("provider request was cancelled".to_string()));
+                            },
+                        }
                         attempt += 1;
                     },
                     Err(error) => return Err(ProviderError::Http(error)),
@@ -1622,8 +1657,13 @@ impl Provider for OpenaiCompatProvider {
                 builder.emit_start().await;
 
                 let (terminal_reason, failure) = match model_api {
-                    Api::OpenaiCompletions => consume_chat_stream(response, &mut builder).await,
-                    Api::OpenaiResponses => consume_responses_stream(response, &mut builder).await,
+                    Api::OpenaiCompletions => {
+                        consume_chat_stream(response, &mut builder, cancellation.as_ref()).await
+                    },
+                    Api::OpenaiResponses => {
+                        consume_responses_stream(response, &mut builder, cancellation.as_ref())
+                            .await
+                    },
                 };
 
                 match failure {

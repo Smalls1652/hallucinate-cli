@@ -6,6 +6,7 @@
 use std::{fmt, path::Path, sync::Arc};
 
 use serde::{Deserialize, Serialize};
+use tokio::sync::watch;
 
 // ── API & Provider Types ─────────────────────────────────────────────────────
 
@@ -620,6 +621,49 @@ impl Context {
 
 // ── Streaming Options ────────────────────────────────────────────────────────
 
+/// A shared signal used to cancel an in-flight provider request.
+///
+/// Providers must observe this signal while establishing and consuming a
+/// stream. Dropping the HTTP response body on cancellation closes the client
+/// connection, which tells streaming providers to stop generating.
+#[derive(Clone, Debug)]
+pub struct RequestCancellation {
+    cancelled: Arc<watch::Sender<bool>>,
+}
+
+impl Default for RequestCancellation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RequestCancellation {
+    /// Create a cancellation signal that has not yet been cancelled.
+    pub fn new() -> Self {
+        Self {
+            cancelled: Arc::new(watch::channel(false).0),
+        }
+    }
+
+    /// Request cancellation and wake all active waiters.
+    pub fn cancel(&self) {
+        self.cancelled.send_replace(true);
+    }
+
+    /// Return whether cancellation has been requested.
+    pub fn is_cancelled(&self) -> bool {
+        *self.cancelled.borrow()
+    }
+
+    /// Wait until cancellation is requested.
+    pub async fn cancelled(&self) {
+        let mut receiver = self.cancelled.subscribe();
+        if !*receiver.borrow() {
+            let _ = receiver.changed().await;
+        }
+    }
+}
+
 /// Options for streaming requests.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StreamOptions {
@@ -638,6 +682,10 @@ pub struct StreamOptions {
     /// Session identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Signal used to stop the HTTP request when the owning agent is
+    /// cancelled. This is local runtime state and is never serialized.
+    #[serde(skip)]
+    pub cancellation: Option<RequestCancellation>,
 }
 
 impl StreamOptions {
@@ -666,6 +714,15 @@ impl StreamOptions {
         max: u32,
     ) -> Self {
         self.max_tokens = Some(max);
+        self
+    }
+
+    /// Attach a signal that cancels the in-flight provider request.
+    pub fn with_cancellation(
+        mut self,
+        cancellation: RequestCancellation,
+    ) -> Self {
+        self.cancellation = Some(cancellation);
         self
     }
 }

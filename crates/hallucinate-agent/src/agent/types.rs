@@ -1,10 +1,9 @@
 //! Agent-specific types: states, events, and configuration.
 
-use std::{fmt, sync::Arc};
+use std::fmt;
 
 use base64::Engine;
 use image::GenericImageView;
-use tokio::sync::Notify;
 
 use crate::ai::types::{
     AssistantMessage,
@@ -12,6 +11,7 @@ use crate::ai::types::{
     ImageContent,
     Message,
     Model,
+    RequestCancellation,
     StopReason,
     Tool,
     ToolCall,
@@ -23,47 +23,43 @@ use crate::ai::types::{
 /// cancellation (for example, the interactive UI while a task owns `Agent`).
 #[derive(Clone, Debug)]
 pub struct AgentCancellation {
-    /// Notification handle to wake the waiting task on cancellation.
-    notify: Arc<Notify>,
-    /// Atomic flag indicating whether cancellation has been requested.
-    cancelled: Arc<std::sync::atomic::AtomicBool>,
+    /// Shared provider-level cancellation signal.
+    signal: RequestCancellation,
 }
 
 impl AgentCancellation {
-    /// Create a new `AgentCancellation` with the given notification handle.
-    pub(crate) fn new(notify: Arc<Notify>) -> Self {
+    /// Create a new `AgentCancellation` signal.
+    pub(crate) fn new() -> Self {
         Self {
-            notify,
-            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            signal: RequestCancellation::new(),
         }
     }
 
     /// Request cancellation of the active generation.
     pub fn cancel(&self) {
-        self.cancelled
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-        // `notify_one` retains a permit when cancellation happens just before
-        // the async waiter is registered, avoiding a lost wake-up race.
-        self.notify.notify_one();
+        self.signal.cancel();
     }
 
     /// Return whether cancellation has been requested.
     pub(crate) fn is_cancelled(&self) -> bool {
-        self.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+        self.signal.is_cancelled()
     }
 
     /// Create a fresh `AgentCancellation` with a new notification handle.
     pub(crate) fn fresh() -> Self {
-        Self::new(Arc::new(Notify::new()))
+        Self::new()
+    }
+
+    /// Return the provider cancellation signal for the active request.
+    pub(crate) fn request_cancellation(&self) -> RequestCancellation {
+        self.signal.clone()
     }
 
     /// Wait until cancellation has been requested.
     ///
     /// Returns immediately if already cancelled.
     pub(crate) async fn cancelled(&self) {
-        if !self.is_cancelled() {
-            self.notify.notified().await;
-        }
+        self.signal.cancelled().await;
     }
 }
 

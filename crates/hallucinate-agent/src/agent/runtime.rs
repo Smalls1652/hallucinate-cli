@@ -11,7 +11,7 @@ use std::{
 };
 
 use futures::{StreamExt, stream};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::mpsc;
 
 use crate::{
     agent::{
@@ -121,7 +121,7 @@ impl Agent {
             event_senders: Vec::new(),
             turn_context: None,
             cwd: None,
-            cancellation: AgentCancellation::new(Arc::new(Notify::new())),
+            cancellation: AgentCancellation::new(),
         }
     }
 
@@ -622,6 +622,8 @@ impl Agent {
             options = options.with_max_tokens(max);
         }
 
+        options.cancellation = Some(self.cancellation.request_cancellation());
+
         // Stream the response
         self.set_state(AgentState::Streaming);
 
@@ -1092,7 +1094,9 @@ impl Agent {
             "<conversation>\n{conversation}\n</conversation>{previous_summary}\n\n{instructions}"
         )))])
         .with_system_prompt(SUMMARY_SYSTEM_PROMPT);
-        let options = StreamOptions::new().with_max_tokens(max_tokens);
+        let options = StreamOptions::new()
+            .with_max_tokens(max_tokens)
+            .with_cancellation(self.cancellation.request_cancellation());
         let mut stream = tokio::select! {
             result = self.provider.stream(&self.model, &context, &options) => result?,
             _ = self.cancellation.cancelled() => {
