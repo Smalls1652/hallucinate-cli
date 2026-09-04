@@ -22,6 +22,7 @@ use crate::{
 /// reuse the complete layout without reparsing historic Markdown or cloning
 /// every visual line.
 const COMPACT_TOOL_RESULT_WIDTH: usize = 100;
+const MINIMUM_HALF_WIDTH_TOOL_RESULT_TERMINAL_WIDTH: u16 = 95;
 
 #[derive(Default)]
 pub(super) struct TranscriptLayoutCache {
@@ -1201,12 +1202,14 @@ fn muted_thinking_line(
     ratatui::text::Line::from(spans)
 }
 
-/// Append a half-width, colour-coded surface for tool output.
+/// Append a colour-coded surface for tool output.
 ///
 /// The assistant card rail remains visible on the left, with a small gap before
-/// the result box. Running output uses an amber surface distinct from completed
-/// success and failure results, so streamed output visibly indicates that the
-/// tool has not finished yet.
+/// the result box. The box is half-width in sufficiently wide terminals, but
+/// fills the remaining width in narrow terminals so its content stays legible.
+/// Running output uses an amber surface distinct from completed success and
+/// failure results, so streamed output visibly indicates that the tool has not
+/// finished yet.
 fn append_tool_result_box(
     lines: &mut Vec<ratatui::text::Line<'static>>,
     result: &str,
@@ -1227,7 +1230,13 @@ fn append_tool_result_box(
     };
     let style = Style::default().fg(Color::DarkGray).bg(background);
     let rail_style = Style::default().fg(Color::LightBlue);
-    let box_width = usize::from((width / 2).max(1));
+    let box_width = if width < MINIMUM_HALF_WIDTH_TOOL_RESULT_TERMINAL_WIDTH {
+        // Half-width output becomes too narrow for useful tool results below a
+        // conventional 95-column terminal.
+        usize::from(width.saturating_sub(2).max(1))
+    } else {
+        usize::from(width / 2)
+    };
     // Keep the output clear of the coloured box edges without overflowing very
     // narrow terminal layouts.
     let horizontal_padding = usize::from(box_width >= 3);
@@ -1457,10 +1466,10 @@ mod tests {
     #[test]
     fn tool_result_boxes_are_half_width_with_padding_from_the_rail() {
         let mut success_lines = Vec::new();
-        append_tool_result_box(&mut success_lines, "done", false, false, 20);
+        append_tool_result_box(&mut success_lines, "done", false, false, 95);
 
         assert_eq!(success_lines.len(), 2);
-        assert_eq!(success_lines[0].width(), 12);
+        assert_eq!(success_lines[0].width(), 49);
         assert_eq!(success_lines[0].spans[0].content, "│ ");
         assert_eq!(success_lines[0].spans[0].style.bg, None);
         assert_eq!(
@@ -1468,8 +1477,8 @@ mod tests {
             Some(Color::Rgb(15, 65, 30)),
         );
         assert_eq!(success_lines[0].spans[1].style.fg, Some(Color::DarkGray));
-        assert_eq!(success_lines[0].spans[1].content, "          ");
-        assert_eq!(success_lines[1].width(), 12);
+        assert_eq!(success_lines[0].spans[1].content, " ".repeat(47));
+        assert_eq!(success_lines[1].width(), 49);
         assert_eq!(success_lines[1].spans[0].content, "│ ");
         assert_eq!(success_lines[1].spans[0].style.bg, None);
         assert_eq!(
@@ -1483,23 +1492,23 @@ mod tests {
             .skip(1)
             .map(|span| span.content.as_ref())
             .collect::<String>();
-        assert_eq!(success_content, " done     ");
+        assert_eq!(success_content, format!(" done{}", " ".repeat(42)));
 
         let mut error_lines = Vec::new();
-        append_tool_result_box(&mut error_lines, "failed", true, false, 20);
+        append_tool_result_box(&mut error_lines, "failed", true, false, 95);
 
         assert_eq!(error_lines.len(), 2);
-        assert_eq!(error_lines[0].width(), 12);
+        assert_eq!(error_lines[0].width(), 49);
         assert_eq!(
             error_lines[0].spans[1].style.bg,
             Some(Color::Rgb(80, 20, 20)),
         );
         assert_eq!(error_lines[0].spans[1].style.fg, Some(Color::DarkGray));
-        assert_eq!(error_lines[0].spans[1].content, "          ");
+        assert_eq!(error_lines[0].spans[1].content, " ".repeat(47));
         assert_eq!(error_lines[1].spans[1].style.fg, Some(Color::DarkGray));
 
         let mut running_lines = Vec::new();
-        append_tool_result_box(&mut running_lines, "streaming", false, true, 20);
+        append_tool_result_box(&mut running_lines, "streaming", false, true, 95);
 
         assert_eq!(
             running_lines[0].spans[1].style.bg,
@@ -1509,6 +1518,16 @@ mod tests {
             running_lines[1].spans[1].style.bg,
             Some(Color::Rgb(65, 50, 15)),
         );
+    }
+
+    #[test]
+    fn tool_result_boxes_fill_narrow_terminal_widths() {
+        let mut lines = Vec::new();
+        append_tool_result_box(&mut lines, "done", false, false, 20);
+
+        assert_eq!(lines[0].width(), 20);
+        assert_eq!(lines[0].spans[1].content, " ".repeat(18));
+        assert_eq!(lines[1].width(), 20);
     }
 
     #[test]
