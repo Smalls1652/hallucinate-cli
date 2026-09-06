@@ -6,3 +6,5 @@ Add simple Rust docstrings to structs, properties on structs, enums, and functio
 ## Guidelines
 
 - Perform edits one-by-one.
+- Don't add docstrings to trait implementations.
+- There's no need to run a build, checks, or tests after making changes.
