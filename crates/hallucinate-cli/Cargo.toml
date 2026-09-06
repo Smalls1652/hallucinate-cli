@@ -22,6 +22,7 @@ hallucinate-session.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
+clap_complete.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
