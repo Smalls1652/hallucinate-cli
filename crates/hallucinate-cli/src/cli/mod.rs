@@ -160,8 +160,6 @@ mod tests {
             "print",
             "--model",
             "gpt-4o",
-            "--shell",
-            "/bin/bash",
             "--image",
             "diagram.png",
             "hello",
@@ -174,7 +172,6 @@ mod tests {
 
         if let Some(CliCommands::Print(args)) = &cli.command {
             assert_eq!(args.model, Some("gpt-4o".to_string()));
-            assert_eq!(args.shell, Some("/bin/bash".to_string()));
             assert_eq!(args.images, vec![std::path::PathBuf::from("diagram.png")]);
             assert_eq!(args.prompt, "hello".to_string())
         }

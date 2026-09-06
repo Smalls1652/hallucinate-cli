@@ -1,15 +1,11 @@
 //! Print mode: single-shot prompt/response.
 
-use std::io::{IsTerminal, Write};
-
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use clap::{ArgAction, Args};
-use futures::StreamExt;
 use hallucinate_agent::{
-    ai::types::{Context, Message, StreamOptions, UserMessage},
-    config::settings::Settings,
+    ai::types::{AssistantContent, Context, Message, StreamOptions, UserMessage}, config::settings::Settings,
 };
-use hallucinate_tui::components::{markdown_to_ansi, markdown_to_text};
+use hallucinate_tui::components::markdown_to_ansi;
 
 /// Arguments for print mode.
 #[derive(Args, Debug, Clone)]
@@ -27,11 +23,6 @@ pub struct PrintArgs {
     #[arg(long = "base-url")]
     pub base_url: Option<String>,
 
-    /// Shell executable for the bash tool. Overrides the settings file and
-    /// SHELL environment variable.
-    #[arg(long = "shell")]
-    pub shell: Option<String>,
-
     /// Maximum number of tokens in the response.
     #[arg(long = "max-tokens")]
     pub max_tokens: Option<u32>,
@@ -48,13 +39,9 @@ pub struct PrintArgs {
     #[arg(long = "image", action = ArgAction::Append)]
     pub images: Vec<std::path::PathBuf>,
 
-    /// Load a skill Markdown file or a directory of skills. May be repeated.
-    #[arg(long = "skill", action = ArgAction::Append)]
-    pub skills: Vec<std::path::PathBuf>,
-
-    /// Disable automatic discovery of user and project skills.
-    #[arg(long = "no-skills")]
-    pub no_skills: bool,
+    /// Pretty print the output
+    #[arg(long = "pretty")]
+    pub pretty: bool,
 
     /// The prompt to send to the LLM.
     pub prompt: String,
@@ -66,7 +53,7 @@ impl From<&PrintArgs> for hallucinate_agent::config::RuntimeOverrides {
             model: args.model.clone(),
             api_key: args.api_key.clone(),
             base_url: args.base_url.clone(),
-            shell: args.shell.clone(),
+            shell: None,
             max_tokens: args.max_tokens,
             temperature: args.temperature,
             system_prompt: args.system_prompt.clone(),
@@ -85,7 +72,6 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
         args.model.as_ref(),
         args.base_url.as_ref(),
     )?;
-
 
     // Build context
     let images = futures::future::try_join_all(args.images.iter().map(|path| {
@@ -131,126 +117,29 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
         &model,
     )?;
 
-    // Stream the response
-    let mut stream = provider.stream(&model, &context, &options).await?;
+    let response = provider.complete(&model, &context, &options).await?;
 
-    // Markdown needs the complete response in order to parse fenced code
-    // blocks and other constructs correctly. Collect deltas and render once
-    // the stream is complete instead of printing raw Markdown as it arrives.
-    let mut response = String::new();
-    let mut thinking = String::new();
+    let response_text = response.content.iter()
+        .filter_map(|item| {
+            if let AssistantContent::Text(text) = item {
+                Some(text.text.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<String>>();
 
-    while let Some(event) = stream.next().await {
-        match event {
-            hallucinate_agent::ai::streaming::AssistantMessageEvent::TextDelta {
-                delta, ..
-            } => {
-                response.push_str(&delta);
-            },
+    let response_text = match response_text.first() {
+        Some(value) => value.as_ref(),
+        None => return Err(anyhow!("No response text found"))
+    };
 
-            hallucinate_agent::ai::streaming::AssistantMessageEvent::ThinkingDelta {
-                delta,
-                ..
-            } => {
-                thinking.push_str(&delta);
-            },
+    let output = match args.pretty {
+        true => markdown_to_ansi(response_text),
+        false => response_text.to_string()
+    };
 
-            hallucinate_agent::ai::streaming::AssistantMessageEvent::Done { message, .. } => {
-                // Some providers include final content only in the Done
-                // message, so use it as a fallback when no deltas arrived.
-                if response.is_empty() {
-                    response = message
-                        .content
-                        .iter()
-                        .filter_map(|content| match content {
-                            hallucinate_agent::ai::types::AssistantContent::Text(text) => {
-                                Some(text.text.as_str())
-                            },
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("");
-                }
-
-                if thinking.is_empty() {
-                    thinking = message
-                        .content
-                        .iter()
-                        .filter_map(|content| match content {
-                            hallucinate_agent::ai::types::AssistantContent::Thinking(thinking) => {
-                                Some(thinking.thinking.as_str())
-                            },
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                }
-
-                let output = visible_output(&response, &thinking, false);
-
-                let rendered = if std::io::stdout().is_terminal() {
-                    markdown_to_ansi(&output)
-                } else {
-                    markdown_to_text(&output)
-                };
-
-                print!("{rendered}");
-
-                std::io::stdout().flush()?;
-            },
-
-            hallucinate_agent::ai::streaming::AssistantMessageEvent::Error { error, .. } => {
-                eprintln!(
-                    "\n[Error: {}]",
-                    error.error_message.as_deref().unwrap_or("unknown error")
-                );
-
-                return Err(anyhow::anyhow!(
-                    "LLM error: {}",
-                    error.error_message.as_deref().unwrap_or("unknown error")
-                ));
-            },
-
-            hallucinate_agent::ai::streaming::AssistantMessageEvent::ToolcallEnd {
-                tool_call,
-                ..
-            } => {
-                println!("\n[Tool call: {}]", tool_call.human_readable());
-            },
-            _ => {},
-        }
-    }
+    print!("{}", output);
 
     Ok(())
-}
-
-/// Add a clear, Markdown-friendly heading when reasoning output is enabled.
-fn visible_output(
-    response: &str,
-    thinking: &str,
-    show_thinking: bool,
-) -> String {
-    if !show_thinking || thinking.is_empty() {
-        return response.to_string();
-    }
-
-    if response.is_empty() {
-        format!("**Thinking**\n\n{thinking}")
-    } else {
-        format!("**Thinking**\n\n{thinking}\n\n{response}")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::visible_output;
-
-    #[test]
-    fn thinking_output_is_optional_and_precedes_the_answer() {
-        assert_eq!(visible_output("answer", "plan", false), "answer");
-        assert_eq!(
-            visible_output("answer", "plan", true),
-            "**Thinking**\n\nplan\n\nanswer"
-        );
-    }
 }
