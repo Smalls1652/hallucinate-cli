@@ -1,6 +1,7 @@
 //! CLI argument parsing.
 
 mod auth;
+mod completions;
 mod interactive;
 mod print;
 mod rpc;
@@ -11,14 +12,17 @@ use hallucinate_agent::config::settings::Settings;
 
 pub use self::{
     auth::AuthCommand,
+    completions::{CompletionsArgs, completions_command},
     interactive::interactive_command,
     print::{PrintArgs, print_command},
     rpc::{RpcArgs, rpc_command},
 };
 
+pub const CLI_NAME: &'static str = "hallucinate";
+
 /// Hallucinate CLI - AI coding agent powered by LLMs.
 #[derive(Debug, Clone, Parser)]
-#[command(name = "hallucinate", version, about)]
+#[command(name = CLI_NAME, version, about)]
 pub struct Cli {
     /// Subcommands for the CLI.
     #[command(subcommand)]
@@ -139,6 +143,9 @@ pub enum CliCommands {
 
     /// Run in RPC mode (JSON-RPC over stdin/stdout).
     Rpc(RpcArgs),
+
+    /// Generate shell completions.
+    Completions(CompletionsArgs)
 }
 
 impl CliCommands {
@@ -153,6 +160,8 @@ impl CliCommands {
             Self::Print(args) => print_command(args, settings).await,
 
             Self::Rpc(args) => rpc_command(args, settings).await,
+
+            Self::Completions(args) => completions_command(args),
         }
     }
 }
