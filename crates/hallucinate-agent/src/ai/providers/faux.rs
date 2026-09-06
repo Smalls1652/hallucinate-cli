@@ -11,7 +11,7 @@ use std::{
 use futures::Future;
 
 use crate::ai::{
-    provider::{Provider, ProviderResult},
+    provider::{Provider, ProviderError, ProviderResult},
     streaming::{AssistantMessageEvent, create_assistant_message_event_stream},
     types::{
         Api,
@@ -121,6 +121,24 @@ impl Default for FauxProvider {
 }
 
 impl Provider for FauxProvider {
+    fn complete(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: &StreamOptions,
+    ) -> Pin<Box<dyn Future<Output = ProviderResult<AssistantMessage>> + Send + '_>> {
+        let model = model.clone();
+        let context = context.clone();
+        let options = options.clone();
+
+        Box::pin(async move {
+            let stream = self.stream(&model, &context, &options).await?;
+            stream.final_message.lock().unwrap().clone().ok_or_else(|| {
+                ProviderError::Stream("faux completion produced no message".to_string())
+            })
+        })
+    }
+
     fn stream(
         &self,
         model: &Model,

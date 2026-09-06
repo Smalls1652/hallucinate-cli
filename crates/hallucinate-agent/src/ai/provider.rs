@@ -39,9 +39,28 @@ pub enum ProviderError {
     Stream(String),
 }
 
-/// Trait that all LLM providers must implement for streaming completions.
+/// Trait that all LLM providers must implement for completions.
 /// Providers handle communication with the configured LLM API.
 pub trait Provider: Send + Sync {
+    /// Create a completion without opening a response stream.
+    ///
+    /// This is intended for one-shot tasks such as title generation. Providers
+    /// that do not support non-streaming completions may retain the default
+    /// implementation, which returns a configuration error.
+    fn complete(
+        &self,
+        _model: &Model,
+        _context: &Context,
+        _options: &StreamOptions,
+    ) -> Pin<Box<dyn Future<Output = ProviderResult<crate::ai::types::AssistantMessage>> + Send + '_>>
+    {
+        Box::pin(async {
+            Err(ProviderError::Configuration(
+                "provider does not support non-streaming completions".to_string(),
+            ))
+        })
+    }
+
     /// Stream a completion for the given context.
     ///
     /// Returns a stream of

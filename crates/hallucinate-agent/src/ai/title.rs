@@ -1,10 +1,7 @@
 //! LLM-assisted generation of concise session titles.
 
-use futures::StreamExt;
-
 use crate::ai::{
     provider::Provider,
-    streaming::AssistantMessageEvent,
     types::{Context, Message, Model, StreamOptions, ToolChoice, UserMessage},
 };
 
@@ -27,23 +24,15 @@ pub async fn generate_session_title(
         tool_choice: Some(ToolChoice::None),
         ..StreamOptions::default()
     };
-    let mut stream = provider.stream(model, &context, &options).await?;
-    let mut title = String::new();
-
-    while let Some(event) = stream.next().await {
-        match event {
-            AssistantMessageEvent::TextDelta { delta, .. } => title.push_str(&delta),
-            AssistantMessageEvent::Error { error, .. } => {
-                anyhow::bail!(
-                    "title generation failed: {}",
-                    error
-                        .error_message
-                        .unwrap_or_else(|| "unknown provider error".to_string())
-                );
-            },
-            _ => {},
-        }
-    }
+    let message = provider.complete(model, &context, &options).await?;
+    let title = message
+        .content
+        .iter()
+        .filter_map(|content| match content {
+            crate::ai::types::AssistantContent::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect::<String>();
 
     normalize_title(&title).ok_or_else(|| anyhow::anyhow!("title generation returned no text"))
 }

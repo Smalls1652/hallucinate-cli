@@ -1469,6 +1469,18 @@ impl OpenaiCompatProvider {
         serde_json::Value::Object(body)
     }
 
+    /// Build a non-streaming Chat Completions request body.
+    fn build_completion_request_body(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: &StreamOptions,
+    ) -> serde_json::Value {
+        let mut body = self.build_request_body(model, context, options);
+        body["stream"] = serde_json::json!(false);
+        body
+    }
+
     /// Convert tools to the flat function format used by the Responses API.
     fn convert_responses_tools(
         &self,
@@ -1542,7 +1554,185 @@ impl OpenaiCompatProvider {
     }
 }
 
+/// Convert a non-streaming Chat Completions response into an assistant message.
+fn parse_completion_response(
+    response: &serde_json::Value,
+    model: &Model,
+) -> Result<crate::ai::types::AssistantMessage, ProviderError> {
+    let choice = response
+        .get("choices")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|choices| choices.first())
+        .ok_or_else(|| ProviderError::Stream("completion response contained no choices".into()))?;
+    let message = choice
+        .get("message")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| ProviderError::Stream("completion choice contained no message".into()))?;
+
+    let mut content = Vec::new();
+    for field in ["reasoning_content", "reasoning", "thinking"] {
+        if let Some(thinking) = message
+            .get(field)
+            .and_then(serde_json::Value::as_str)
+            .filter(|text| !text.is_empty())
+        {
+            content.push(AssistantContent::Thinking(
+                crate::ai::types::ThinkingContent::new(thinking),
+            ));
+        }
+    }
+    if let Some(text) = message
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .filter(|text| !text.is_empty())
+    {
+        content.push(AssistantContent::Text(crate::ai::types::TextContent::new(
+            text,
+        )));
+    }
+    if let Some(tool_calls) = message
+        .get("tool_calls")
+        .and_then(serde_json::Value::as_array)
+    {
+        for tool_call in tool_calls {
+            let id = tool_call
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| ProviderError::Stream("tool call is missing its ID".into()))?;
+            let function = tool_call
+                .get("function")
+                .and_then(serde_json::Value::as_object)
+                .ok_or_else(|| ProviderError::Stream("tool call is missing its function".into()))?;
+            let name = function
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| ProviderError::Stream("tool call is missing its name".into()))?;
+            let arguments = function
+                .get("arguments")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    ProviderError::Stream("tool call is missing its arguments".into())
+                })?;
+            let arguments = serde_json::from_str(arguments).map_err(|error| {
+                ProviderError::Stream(format!("tool call arguments are invalid JSON: {error}"))
+            })?;
+
+            content.push(AssistantContent::ToolCall(crate::ai::types::ToolCall::new(
+                id, name, arguments,
+            )));
+        }
+    }
+
+    let stop_reason = match choice
+        .get("finish_reason")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("stop") | None => StopReason::Stop,
+        Some("tool_calls") | Some("function_call") => StopReason::ToolUse,
+        Some("length") => StopReason::Length,
+        Some(other) => {
+            return Err(ProviderError::Stream(format!(
+                "unsupported completion finish reason: {other}"
+            )));
+        },
+    };
+    let mut message = crate::ai::types::AssistantMessage::new(
+        content,
+        Api::OpenaiCompletions,
+        &model.provider,
+        &model.id,
+        stop_reason,
+    );
+    message.response_id = response
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    message.response_model = response
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    if let Some(usage) = parse_usage(response) {
+        message.usage = usage;
+    }
+
+    Ok(message)
+}
+
 impl Provider for OpenaiCompatProvider {
+    /// Create a non-streaming Chat Completions response for a one-shot task.
+    fn complete(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: &StreamOptions,
+    ) -> Pin<Box<dyn Future<Output = ProviderResult<crate::ai::types::AssistantMessage>> + Send + '_>>
+    {
+        let base_url = self.config.base_url.clone();
+        let api_key = options
+            .api_key
+            .as_deref()
+            .unwrap_or(&self.config.api_key)
+            .to_owned();
+        let body = self.build_completion_request_body(model, context, options);
+        let client = self.client.clone();
+        let max_retries = self.config.max_retries;
+        let cancellation = options.cancellation.clone();
+        let model = model.clone();
+
+        Box::pin(async move {
+            let headers = self.request_headers(&api_key)?;
+            let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+            let mut attempt = 0;
+
+            let response = loop {
+                match tokio::select! {
+                    response = client.post(&url).headers(headers.clone()).json(&body).send() => response,
+                    _ = wait_for_cancellation(cancellation.as_ref()) => {
+                        return Err(ProviderError::Stream("provider request was cancelled".to_string()));
+                    },
+                } {
+                    Ok(response) if response.status().is_success() => break response,
+                    Ok(response) => {
+                        let status = response.status().as_u16();
+                        let retry_after = retry_after_delay(&response);
+                        let error_text = response.text().await.unwrap_or_default();
+                        if should_retry_status(status) && attempt < max_retries {
+                            let delay = retry_after.unwrap_or_else(|| retry_delay(attempt));
+                            tokio::select! {
+                                _ = tokio::time::sleep(delay) => {},
+                                _ = wait_for_cancellation(cancellation.as_ref()) => {
+                                    return Err(ProviderError::Stream("provider request was cancelled".to_string()));
+                                },
+                            }
+                            attempt += 1;
+                        } else {
+                            return Err(ProviderError::Api(error_text, status));
+                        }
+                    },
+                    Err(error) if is_retryable_transport_error(&error) && attempt < max_retries => {
+                        let delay = retry_delay(attempt);
+                        tokio::select! {
+                            _ = tokio::time::sleep(delay) => {},
+                            _ = wait_for_cancellation(cancellation.as_ref()) => {
+                                return Err(ProviderError::Stream("provider request was cancelled".to_string()));
+                            },
+                        }
+                        attempt += 1;
+                    },
+                    Err(error) => return Err(ProviderError::Http(error)),
+                }
+            };
+
+            let completion = tokio::select! {
+                completion = response.json::<serde_json::Value>() => completion?,
+                _ = wait_for_cancellation(cancellation.as_ref()) => {
+                    return Err(ProviderError::Stream("provider request was cancelled".to_string()));
+                },
+            };
+            parse_completion_response(&completion, &model)
+        })
+    }
+
     fn stream(
         &self,
         model: &Model,
@@ -1801,6 +1991,62 @@ mod tests {
             messages[1]["content"][1]["image_url"]["url"],
             "data:image/png;base64,aGVsbG8="
         );
+    }
+
+    #[tokio::test]
+    async fn non_streaming_completion_returns_a_complete_message() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("POST", "/chat/completions")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "model": "test",
+                "stream": false,
+            })))
+            .with_status(200)
+            .with_body(
+                serde_json::json!({
+                    "id": "chatcmpl_1",
+                    "model": "test",
+                    "choices": [{
+                        "message": { "role": "assistant", "content": "one shot" },
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {
+                        "prompt_tokens": 3,
+                        "completion_tokens": 2,
+                        "total_tokens": 5
+                    }
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let provider = OpenaiCompatProvider::new(OpenaiCompatConfig {
+            base_url: server.url(),
+            api_key: "test".to_string(),
+            ..Default::default()
+        });
+        let model = Model::new(
+            "test",
+            "Test",
+            Api::OpenaiCompletions,
+            "test-provider",
+            server.url(),
+            false,
+            4096,
+            100,
+        );
+
+        let message = provider
+            .complete(&model, &Context::default(), &StreamOptions::new())
+            .await
+            .unwrap();
+
+        assert_eq!(message.content[0].text_content(), Some("one shot"));
+        assert_eq!(message.stop_reason, StopReason::Stop);
+        assert_eq!(message.provider, "test-provider");
+        assert_eq!(message.response_id.as_deref(), Some("chatcmpl_1"));
+        assert_eq!(message.usage.total_tokens, 5);
     }
 
     #[tokio::test]
