@@ -6,20 +6,81 @@
 
 use std::io::{self, BufRead, Write};
 
+use anyhow::Result;
+use clap::{ArgAction, Args};
 use hallucinate_agent::{agent::runtime::Agent, ai::types::Message, config::settings::Settings};
 use hallucinate_session::manager::{SessionCreateOptions, SessionManager};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::cli::args::Cli;
+/// Arguments for RPC mode.
+#[derive(Args, Debug, Clone)]
+pub struct RpcArgs {
+    /// Model to use as a configured model ID or "provider/model" pair.
+    #[arg(short = 'm', long = "model")]
+    pub model: Option<String>,
+
+    /// API key for the provider. Overrides environment variables and stored
+    /// credentials. Environment fallback also accepts OPENAI_API_KEY.
+    #[arg(long = "api-key", env = "HALLUCINATE_API_KEY")]
+    pub api_key: Option<String>,
+
+    /// Base URL for the API (for OpenAI-compatible providers).
+    #[arg(long = "base-url")]
+    pub base_url: Option<String>,
+
+    /// Shell executable for the bash tool. Overrides the settings file and
+    /// SHELL environment variable.
+    #[arg(long = "shell")]
+    pub shell: Option<String>,
+
+    /// Maximum number of tokens in the response.
+    #[arg(long = "max-tokens")]
+    pub max_tokens: Option<u32>,
+
+    /// Temperature for sampling (0.0 - 2.0).
+    #[arg(long = "temperature")]
+    pub temperature: Option<f64>,
+
+    /// System prompt to use.
+    #[arg(long = "system-prompt")]
+    pub system_prompt: Option<String>,
+
+    /// Attach an image to a print-mode prompt. May be repeated.
+    #[arg(long = "image", action = ArgAction::Append)]
+    pub images: Vec<std::path::PathBuf>,
+
+    /// Load a skill Markdown file or a directory of skills. May be repeated.
+    #[arg(long = "skill", action = ArgAction::Append)]
+    pub skills: Vec<std::path::PathBuf>,
+
+    /// Disable automatic discovery of user and project skills.
+    #[arg(long = "no-skills")]
+    pub no_skills: bool,
+}
+
+impl From<&RpcArgs> for hallucinate_agent::config::RuntimeOverrides {
+    fn from(args: &RpcArgs) -> Self {
+        Self {
+            model: args.model.clone(),
+            api_key: args.api_key.clone(),
+            base_url: args.base_url.clone(),
+            shell: args.shell.clone(),
+            max_tokens: args.max_tokens,
+            temperature: args.temperature,
+            system_prompt: args.system_prompt.clone(),
+        }
+    }
+}
 
 /// Run the RPC mode server, reading JSON-RPC requests from stdin and writing
 /// responses to stdout.
-pub async fn run(
-    cli: &Cli,
+pub async fn rpc_command(
+    args: &RpcArgs,
     settings: &Settings,
-) -> Result<(), anyhow::Error> {
+) -> Result<()> {
     hallucinate_agent::config::paths::ensure_directories()?;
+
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
 
@@ -59,7 +120,7 @@ pub async fn run(
         let is_notification = request.id.is_none()
             && request.jsonrpc.as_deref() == Some("2.0")
             && request.method.is_some();
-        let response = handle_request(request, cli, settings).await;
+        let response = handle_request(request, args, settings).await;
 
         // JSON-RPC notifications are processed but do not receive a response.
         if !is_notification {
@@ -75,7 +136,7 @@ pub async fn run(
 /// Dispatch a single RPC request to the appropriate handler based on method.
 async fn handle_request(
     request: RpcRequest,
-    cli: &Cli,
+    args: &RpcArgs,
     settings: &Settings,
 ) -> RpcResponse {
     let id = request.id.clone().unwrap_or(Value::Null);
@@ -103,7 +164,7 @@ async fn handle_request(
         "ping" => RpcResponse::result(id, json!({ "pong": true })),
         "list_sessions" => list_sessions(id),
         "create_session" => create_session(request.params.as_ref(), id),
-        "chat" => chat(request.params.as_ref(), id, cli, settings).await,
+        "chat" => chat(request.params.as_ref(), id, args, settings).await,
         _ => RpcResponse::error(-32601, "Method not found", id, method),
     }
 }
@@ -166,7 +227,7 @@ fn create_session(
 async fn chat(
     params: Option<&Value>,
     id: Value,
-    cli: &Cli,
+    args: &RpcArgs,
     settings: &Settings,
 ) -> RpcResponse {
     let params = match object_params(params) {
@@ -197,13 +258,12 @@ async fn chat(
     };
 
     let show_thinking = match optional_bool(Some(params), "thinking") {
-        Ok(value) => value.unwrap_or_else(|| {
-            hallucinate_agent::config::resolve_show_thinking(settings, cli.thinking)
-        }),
+        Ok(value) => value
+            .unwrap_or_else(|| hallucinate_agent::config::resolve_show_thinking(settings, false)),
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
 
-    let runtime_overrides = hallucinate_agent::config::RuntimeOverrides::from(cli);
+    let runtime_overrides = hallucinate_agent::config::RuntimeOverrides::from(args);
     let model = match hallucinate_agent::config::resolve_model(
         settings,
         runtime_overrides.model.as_ref(),
@@ -296,7 +356,7 @@ async fn chat(
     )
     .with_cwd(session.cwd.clone());
 
-    if let Some(system_prompt) = &cli.system_prompt {
+    if let Some(system_prompt) = &args.system_prompt {
         agent = agent.with_system_prompt(system_prompt.clone());
     }
 
@@ -534,6 +594,7 @@ mod tests {
     use clap::Parser;
 
     use super::*;
+    use crate::cli::{Cli, CliCommands};
 
     #[test]
     fn rpc_response_success_has_a_jsonrpc_id() {
@@ -546,19 +607,30 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_wrong_jsonrpc_version() {
-        let response = handle_request(
-            RpcRequest {
-                jsonrpc: Some("1.0".to_string()),
-                method: Some("ping".to_string()),
-                params: None,
-                id: Some(json!(1)),
-            },
-            &Cli::parse_from(["hallucinate"]),
-            &Settings::default(),
-        )
-        .await;
+        let cli = Cli::try_parse_from(["hallucinate", "rpc"]);
 
-        assert_eq!(response.error.unwrap().code, -32600);
+        let cli = match cli {
+            Ok(value) => value,
+            Err(error) => panic!("Failed to parse CLI: {}", error),
+        };
+
+        if let Some(CliCommands::Rpc(args)) = &cli.command {
+            let response = handle_request(
+                RpcRequest {
+                    jsonrpc: Some("1.0".to_string()),
+                    method: Some("ping".to_string()),
+                    params: None,
+                    id: Some(json!(1)),
+                },
+                args,
+                &Settings::default(),
+            )
+            .await;
+
+            assert_eq!(response.error.unwrap().code, -32600);
+        } else {
+            panic!("Test command was not `hallucinate rpc`")
+        }
     }
 
     #[test]
@@ -593,42 +665,53 @@ mod tests {
 
         let cli = Cli::try_parse_from([
             "hallucinate",
+            "rpc",
             "--model",
             "test-model",
             "--base-url",
             server.url().as_str(),
             "--api-key",
             "test-key",
-        ])
-        .unwrap();
+        ]);
+
+        let cli = match cli {
+            Ok(value) => value,
+            Err(error) => panic!("Failed to parse CLI: {}", error),
+        };
 
         let mut settings = Settings::default();
         settings
             .providers
             .insert("openai".to_string(), Default::default());
 
-        let response = chat(
-            Some(&json!({ "message": "say hello" })),
-            json!(7),
-            &cli,
-            &settings,
-        )
-        .await;
+        if let Some(CliCommands::Rpc(args)) = &cli.command {
+            let response = chat(
+                Some(&json!({ "message": "say hello" })),
+                json!(7),
+                args,
+                &settings,
+            )
+            .await;
 
-        let result = response.result.unwrap();
-        assert_eq!(result["message"], "hello");
+            let result = response.result.unwrap();
+            assert_eq!(result["message"], "hello");
 
-        let session_id = result["session_id"].as_str().unwrap().to_string();
+            let session_id = result["session_id"].as_str().unwrap().to_string();
 
-        let mut manager = SessionManager::new();
-        manager.resume(&session_id).unwrap();
+            let mut manager = SessionManager::new();
+            manager.resume(&session_id).unwrap();
 
-        let messages = manager.current_storage().unwrap().load_messages().unwrap();
-        assert!(matches!(&messages[0], Message::User(message) if message.content == "say hello"));
-        assert!(
-            matches!(&messages[1], Message::Assistant(message) if message.content[0].text_content() == Some("hello"))
-        );
+            let messages = manager.current_storage().unwrap().load_messages().unwrap();
+            assert!(
+                matches!(&messages[0], Message::User(message) if message.content == "say hello")
+            );
+            assert!(
+                matches!(&messages[1], Message::Assistant(message) if message.content[0].text_content() == Some("hello"))
+            );
 
-        SessionManager::delete_session(&session_id).unwrap();
+            SessionManager::delete_session(&session_id).unwrap();
+        } else {
+            panic!("Test command was not `hallucinate rpc`")
+        }
     }
 }

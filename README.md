@@ -42,6 +42,8 @@ make build-release-artifacts
 
 ## Quick Start
 
+For full documentation on how to use `hallucinate`, [click here](docs/README.md).
+
 ### 1. Configure a provider
 
 Models are not included by default. Add at least one provider and model to `settings.toml` before starting a run mode. For example:
@@ -82,13 +84,13 @@ hallucinate
 ### 4. Print mode — one-shot prompt
 
 ```bash
-hallucinate -p "Explain why metalcore music is sometimes referred to as unga-bunga music"
+hallucinate print "Explain why metalcore music is sometimes referred to as unga-bunga music"
 ```
 
 ### 5. RPC mode — JSON-RPC over stdin/stdout
 
 ```bash
-hallucinate --rpc
+hallucinate rpc
 ```
 
 ## Usage
@@ -98,19 +100,17 @@ hallucinate [OPTIONS] [COMMAND]
 
 Commands:
   auth  Save, remove, or list provider API keys
+  print Send a prompt and print the response, then exit
+  rpc   Run in RPC mode (JSON-RPC over stdin/stdout)
 
 Options:
   -m, --model <MODEL>                       Model to use as a configured model ID or "provider/model" pair
       --api-key <API_KEY>                   API key for the provider. Overrides environment variables and stored credentials.
       --base-url <BASE_URL>                 Base URL for the API (for OpenAI-compatible providers)
       --shell <SHELL>                       Shell executable for the bash tool
-  -p, --print <PRINT>                       Print mode: send prompt and print the response, then exit
-      --rpc                                 Run in RPC mode (JSON-RPC over stdin/stdout)
-      --interactive                         Run in interactive mode (default)
       --session <SESSION>                   Resume this persisted session in interactive mode
       --max-tokens <MAX_TOKENS>             Maximum number of tokens in the response
       --thinking                            Show model thinking/reasoning in output
-      --no-thinking                         Hide model thinking/reasoning in output
       --temperature <TEMPERATURE>           Temperature for sampling (0.0 - 2.0)
       --system-prompt <SYSTEM_PROMPT>       System prompt to use
       --image <IMAGES>                      Attach an image to a print-mode prompt (repeatable)
@@ -159,7 +159,7 @@ Full terminal UI with:
 Send a prompt and receive the full response on stdout. Ideal for scripting and CI pipelines.
 
 ```bash
-hallucinate -p "What files are in the current directory?"
+hallucinate print "What files are in the current directory?"
 ```
 
 ### RPC Mode

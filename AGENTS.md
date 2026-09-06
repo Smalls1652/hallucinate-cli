@@ -86,18 +86,15 @@ crates/
 ├── hallucinate-cli/         # CLI binary crate
 │   ├── src/
 │   │   ├── main.rs          # CLI entry point
-│   │   ├── cli/             # CLI commands (args, mod)
-│   │   │   ├── args.rs      # Argument parsing (clap derive, subcommands)
-│   │   │   └── mod.rs
-│   │   ├── modes/           # Run mode startup policy
-│   │   │   ├── mod.rs
-│   │   │   ├── print.rs     # Print mode (-p "prompt")
-│   │   │   ├── rpc.rs       # RPC mode (JSON-RPC)
+│   │   ├── cli/             # CLI commands (args, subcommands, modes)
+│   │   │   ├── mod.rs       # Argument parsing (clap derive, subcommands)
 │   │   │   ├── auth.rs      # Auth CLI subcommand handler
-│   │   │   └── interactive.rs # Interactive TUI startup
-│   │   ├── logging.rs       # Tracing/logging setup
-│   │   └── tests/
-│   │       └── rpc.rs       # RPC integration tests
+│   │   │   ├── interactive.rs # Interactive TUI startup
+│   │   │   ├── print.rs     # Print mode (-p "prompt")
+│   │   │   └── rpc.rs       # RPC mode (JSON-RPC)
+│   │   └── logging.rs       # Tracing/logging setup
+|   ├── tests/
+|   |   |   └── rpc.rs       # RPC integration tests
 │   └── Cargo.toml
 ├── hallucinate-agent/       # Agent core library crate
 │   ├── src/
@@ -176,10 +173,6 @@ crates/
 - Sub-modules live in subdirectories (e.g., `tools/`, `providers/`, `components/`)
 - Use `mod.rs` for module declarations within subdirectories
 - Workspace-level dependencies are declared in root `Cargo.toml` under `[workspace.dependencies]`
-
-### Note on Removed Modules
-
-The `protocol/` directory (CBOR protocol implementation) has been removed. The RPC mode now uses newline-delimited JSON-RPC 2.0 instead. The `hallucinate-agent::agent::runtime::Agent` consolidates the former `agent.rs` and `agent_loop.rs` into a single runtime module.
 
 ### Adding Dependencies
 

@@ -6,7 +6,7 @@ use std::{
 #[test]
 fn rpc_process_handles_requests_and_notifications() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_hallucinate"))
-        .arg("--rpc")
+        .arg("rpc")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()

@@ -374,19 +374,19 @@ Templates support shell-like argument syntax:
 
 ## CLI Flags
 
+The CLI uses a **subcommand-based** architecture. Global options apply to all subcommands; some subcommands accept additional options.
+
+### Global Options
+
 | Flag | Description |
 | --- | --- |
-| `--model <selector>` | Model to use (`provider/model` or bare ID). |
+| `-m, --model <selector>` | Model to use (`provider/model` or bare ID). |
 | `--api-key <key>` | API key override. |
 | `--base-url <url>` | API endpoint override. |
 | `--shell <path>` | Shell executable override. |
-| `-p, --print <prompt>` | Print mode: send prompt, print response, exit. |
-| `--rpc` | Run in RPC mode (JSON-RPC over stdin/stdout). |
-| `--interactive` | Run in interactive TUI mode (default). |
-| `--session <id>` | Resume a persisted session. |
+| `--session <id>` | Resume a persisted session in interactive mode. |
 | `--max-tokens <n>` | Response max tokens override. |
 | `--thinking` | Show model thinking output. |
-| `--no-thinking` | Hide model thinking output. |
 | `--temperature <n>` | Sampling temperature override. |
 | `--system-prompt <text>` | Custom system prompt. |
 | `--image <path>` | Attach an image (repeatable). |
@@ -395,6 +395,15 @@ Templates support shell-like argument syntax:
 | `--prompt-template <path>` | Load a prompt template file or directory (repeatable). |
 | `--no-prompt-templates` | Disable automatic template discovery. |
 | `--debug` | Write diagnostic logs to the cache directory. |
+
+### Subcommands
+
+| Subcommand | Description |
+| --- | --- |
+| `hallucinate` | Run in interactive TUI mode (default, no subcommand required). |
+| `hallucinate print <prompt>` | Print mode: send prompt, print response, exit. |
+| `hallucinate rpc` | Run in RPC mode (JSON-RPC over stdin/stdout). |
+| `hallucinate auth` | Manage stored provider API keys (`set`, `remove`, `list`). |
 
 ## Auth Subcommand
 
@@ -405,6 +414,8 @@ hallucinate auth set <provider> [--api-key <key>]
 hallucinate auth remove <provider>
 hallucinate auth list
 ```
+
+`auth set` accepts an optional `--api-key` flag; when omitted, the command falls back to the `HALLUCINATE_<PROVIDER>_API_KEY` environment variable.
 
 ## Interactive Slash Commands
 

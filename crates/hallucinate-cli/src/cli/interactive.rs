@@ -4,18 +4,18 @@
 //! live in focused child modules so this module only owns shared state and
 //! terminal setup.
 
-use anyhow::Context;
+use anyhow::{Context, Result};
 use hallucinate_agent::{agent::runtime::Agent, config::settings::Settings};
 use hallucinate_session::SessionManager;
 use hallucinate_tui::interactive::InteractiveTui;
 
-use crate::cli::args::Cli;
+use crate::cli::Cli;
 
 /// Run interactive mode.
-pub async fn run(
+pub async fn interactive_command(
     cli: &Cli,
     settings: &Settings,
-) -> Result<(), anyhow::Error> {
+) -> Result<()> {
     // Ensure directories exist
     hallucinate_agent::config::paths::ensure_directories()?;
     let discarded_sessions = SessionManager::discard_historical_empty_sessions()?;
