@@ -3,7 +3,8 @@
 use anyhow::{Result, anyhow};
 use clap::{ArgAction, Args};
 use hallucinate_agent::{
-    ai::types::{AssistantContent, Context, Message, StreamOptions, UserMessage}, config::settings::Settings,
+    ai::types::{AssistantContent, Context, Message, StreamOptions, UserMessage},
+    config::settings::Settings,
 };
 use hallucinate_tui::components::markdown_to_ansi;
 
@@ -89,6 +90,7 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
     let system_prompt = hallucinate_agent::agent::system_prompt::build_system_prompt_for_cwd(
         args.system_prompt.as_deref(),
         Some(&cwd),
+        false,
     );
 
     context = context.with_system_prompt(system_prompt);
@@ -119,7 +121,9 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
 
     let response = provider.complete(&model, &context, &options).await?;
 
-    let response_text = response.content.iter()
+    let response_text = response
+        .content
+        .iter()
         .filter_map(|item| {
             if let AssistantContent::Text(text) = item {
                 Some(text.text.clone())
@@ -131,12 +135,12 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
 
     let response_text = match response_text.first() {
         Some(value) => value.as_ref(),
-        None => return Err(anyhow!("No response text found"))
+        None => return Err(anyhow!("No response text found")),
     };
 
     let output = match args.pretty {
         true => markdown_to_ansi(response_text),
-        false => response_text.to_string()
+        false => response_text.to_string(),
     };
 
     print!("{}", output);

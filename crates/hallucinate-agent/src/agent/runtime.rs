@@ -499,12 +499,14 @@ impl Agent {
         let started_at = Instant::now();
         let prompt_refresh_started_at = Instant::now();
         let cwd = self.cwd.as_deref().map(std::path::Path::new);
+        let has_tools = self.config.enable_tools && !self.tool_registry.is_empty();
         let mut system_prompt = crate::agent::system_prompt::build_system_prompt_for_cwd(
             self.system_prompt.as_deref(),
             cwd,
+            has_tools,
         );
 
-        if self.config.enable_tools && self.tool_registry.get_tool("read").is_some() {
+        if has_tools && self.tool_registry.get_tool("read").is_some() {
             system_prompt.push_str(&crate::agent::skills::format_skills_for_prompt(
                 &self.skills,
             ));
