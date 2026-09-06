@@ -128,6 +128,18 @@ impl Agent {
         }
     }
 
+    /// Create a new agent with no tools.
+    pub fn with_no_tools(
+        provider: Box<dyn Provider>,
+        model: Model,
+        config: AgentConfig,
+    ) -> Self {
+        let mut agent = Self::new(provider, model, config);
+        agent.invalidate_context_base();
+
+        agent
+    }
+
     /// Create a new agent with built-in tools and an image resize policy.
     pub fn with_all_tools_and_image_resize(
         provider: Box<dyn Provider>,

@@ -76,14 +76,16 @@ impl From<&PrintArgs> for hallucinate_agent::config::RuntimeOverrides {
 
 /// Run print mode with the given CLI arguments and settings.
 pub async fn print_command(args: &PrintArgs) -> Result<()> {
-    let settings = &Settings::load()?;
+    let mut settings = Settings::load()?;
+    settings.enable_tools = false;
 
     // Resolve model
     let model = hallucinate_agent::config::resolve_model(
-        settings,
+        &settings,
         args.model.as_ref(),
         args.base_url.as_ref(),
     )?;
+
 
     // Build context
     let images = futures::future::try_join_all(args.images.iter().map(|path| {
@@ -123,7 +125,7 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
 
     // Create provider for the model's provider group.
     let provider = hallucinate_agent::config::create_provider_for_model(
-        settings,
+        &settings,
         args.base_url.as_ref(),
         args.api_key.as_ref(),
         &model,
@@ -135,8 +137,6 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
     // Markdown needs the complete response in order to parse fenced code
     // blocks and other constructs correctly. Collect deltas and render once
     // the stream is complete instead of printing raw Markdown as it arrives.
-    let show_thinking = hallucinate_agent::config::resolve_show_thinking(settings, false);
-
     let mut response = String::new();
     let mut thinking = String::new();
 
@@ -186,7 +186,7 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
                         .join("\n");
                 }
 
-                let output = visible_output(&response, &thinking, show_thinking);
+                let output = visible_output(&response, &thinking, false);
 
                 let rendered = if std::io::stdout().is_terminal() {
                     markdown_to_ansi(&output)
