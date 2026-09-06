@@ -119,7 +119,7 @@ impl Cli {
                 CliCommands::Completions(args) => completions_command(args),
             },
 
-            None => interactive_command(self).await
+            None => interactive_command(self).await,
         }
     }
 }
