@@ -75,10 +75,9 @@ impl From<&RpcArgs> for hallucinate_agent::config::RuntimeOverrides {
 
 /// Run the RPC mode server, reading JSON-RPC requests from stdin and writing
 /// responses to stdout.
-pub async fn rpc_command(
-    args: &RpcArgs,
-    settings: &Settings,
-) -> Result<()> {
+pub async fn rpc_command(args: &RpcArgs) -> Result<()> {
+    let settings = &Settings::load()?;
+
     hallucinate_agent::config::paths::ensure_directories()?;
 
     let stdin = io::stdin();

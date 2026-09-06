@@ -21,16 +21,13 @@ pub enum AuthCommand {
 }
 
 impl SubcommandHandler for AuthCommand {
-    fn handle_subcommand(
-        &self,
-        settings: &Settings,
-    ) -> anyhow::Result<()> {
+    fn handle_subcommand(&self) -> anyhow::Result<()> {
         match self {
-            AuthCommand::Set(args) => auth_set_command(args, settings),
+            AuthCommand::Set(args) => auth_set_command(args),
 
-            AuthCommand::Remove(args) => auth_remove_command(args, settings),
+            AuthCommand::Remove(args) => auth_remove_command(args),
 
-            AuthCommand::List => auth_list_command(settings),
+            AuthCommand::List => auth_list_command(),
         }
     }
 }
@@ -48,11 +45,8 @@ pub struct AuthSetArgs {
 }
 
 /// Save an API key for a provider.
-pub fn auth_set_command(
-    args: &AuthSetArgs,
-    settings: &Settings,
-) -> Result<()> {
-    let mut settings = settings.clone();
+pub fn auth_set_command(args: &AuthSetArgs) -> Result<()> {
+    let mut settings = Settings::load_global()?;
 
     let key = args
         .api_key
@@ -132,11 +126,8 @@ pub struct AuthRemoveArgs {
 }
 
 /// Remove a saved API key for a provider.
-pub fn auth_remove_command(
-    args: &AuthRemoveArgs,
-    settings: &Settings,
-) -> Result<()> {
-    let mut settings = settings.clone();
+pub fn auth_remove_command(args: &AuthRemoveArgs) -> Result<()> {
+    let mut settings = Settings::load_global()?;
 
     if settings.remove_api_key(&args.provider)? {
         println!(
@@ -154,7 +145,9 @@ pub fn auth_remove_command(
 }
 
 /// List providers that have saved credentials.
-pub fn auth_list_command(settings: &Settings) -> Result<()> {
+pub fn auth_list_command() -> Result<()> {
+    let settings = Settings::load_global()?;
+
     let mut providers: Vec<_> = settings.credential_store.provider_ids().collect();
     providers.sort_unstable();
 

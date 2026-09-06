@@ -75,10 +75,9 @@ impl From<&PrintArgs> for hallucinate_agent::config::RuntimeOverrides {
 }
 
 /// Run print mode with the given CLI arguments and settings.
-pub async fn print_command(
-    args: &PrintArgs,
-    settings: &Settings,
-) -> Result<()> {
+pub async fn print_command(args: &PrintArgs) -> Result<()> {
+    let settings = &Settings::load()?;
+
     // Resolve model
     let model = hallucinate_agent::config::resolve_model(
         settings,

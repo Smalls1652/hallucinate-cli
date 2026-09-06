@@ -8,7 +8,6 @@ mod rpc;
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
-use hallucinate_agent::config::settings::Settings;
 
 pub use self::{
     auth::AuthCommand,
@@ -109,23 +108,11 @@ impl Cli {
     /// Execute the CLI command, loading settings and dispatching to the
     /// appropriate run mode.
     pub async fn run(&self) -> Result<()> {
-        // All run modes share the same persisted settings and CLI overrides. Do
-        // not replace a malformed settings file with defaults while modifying
-        // auth; that could discard unrelated configuration.
-        let settings = if self.command.is_some() {
-            // Authentication commands persist only the global settings. Project
-            // overrides are runtime configuration and must not be copied into
-            // the user's global settings file.
-            Settings::load_global()?
-        } else {
-            Settings::load()?
-        };
-
         if let Some(command) = &self.command {
-            return command.route_subcommand(&settings).await;
+            return command.route_subcommand().await;
         }
 
-        interactive_command(self, &settings).await
+        interactive_command(self).await
     }
 }
 
@@ -145,21 +132,18 @@ pub enum CliCommands {
     Rpc(RpcArgs),
 
     /// Generate shell completions.
-    Completions(CompletionsArgs)
+    Completions(CompletionsArgs),
 }
 
 impl CliCommands {
     /// Route to the appropriate subcommand handler.
-    pub async fn route_subcommand(
-        &self,
-        settings: &Settings,
-    ) -> Result<()> {
+    pub async fn route_subcommand(&self) -> Result<()> {
         match self {
-            Self::Auth { command } => command.handle_subcommand(settings),
+            Self::Auth { command } => command.handle_subcommand(),
 
-            Self::Print(args) => print_command(args, settings).await,
+            Self::Print(args) => print_command(args).await,
 
-            Self::Rpc(args) => rpc_command(args, settings).await,
+            Self::Rpc(args) => rpc_command(args).await,
 
             Self::Completions(args) => completions_command(args),
         }
@@ -168,11 +152,8 @@ impl CliCommands {
 
 /// Trait for handling CLI subcommands.
 pub trait SubcommandHandler {
-    /// Handle the subcommand with the given settings.
-    fn handle_subcommand(
-        &self,
-        settings: &Settings,
-    ) -> Result<()>;
+    /// Handle the subcommand.
+    fn handle_subcommand(&self) -> Result<()>;
 }
 
 #[cfg(test)]

@@ -12,10 +12,9 @@ use hallucinate_tui::interactive::InteractiveTui;
 use crate::cli::Cli;
 
 /// Run interactive mode.
-pub async fn interactive_command(
-    cli: &Cli,
-    settings: &Settings,
-) -> Result<()> {
+pub async fn interactive_command(cli: &Cli) -> Result<()> {
+    let settings = &Settings::load()?;
+
     // Ensure directories exist
     hallucinate_agent::config::paths::ensure_directories()?;
     let discarded_sessions = SessionManager::discard_historical_empty_sessions()?;
