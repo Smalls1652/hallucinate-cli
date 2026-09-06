@@ -108,11 +108,19 @@ impl Cli {
     /// Execute the CLI command, loading settings and dispatching to the
     /// appropriate run mode.
     pub async fn run(&self) -> Result<()> {
-        if let Some(command) = &self.command {
-            return command.route_subcommand().await;
-        }
+        match &self.command {
+            Some(subcommand) => match subcommand {
+                CliCommands::Auth { command } => command.handle_subcommand(),
 
-        interactive_command(self).await
+                CliCommands::Print(args) => print_command(args).await,
+
+                CliCommands::Rpc(args) => rpc_command(args).await,
+
+                CliCommands::Completions(args) => completions_command(args),
+            },
+
+            None => interactive_command(self).await
+        }
     }
 }
 
@@ -133,21 +141,6 @@ pub enum CliCommands {
 
     /// Generate shell completions.
     Completions(CompletionsArgs),
-}
-
-impl CliCommands {
-    /// Route to the appropriate subcommand handler.
-    pub async fn route_subcommand(&self) -> Result<()> {
-        match self {
-            Self::Auth { command } => command.handle_subcommand(),
-
-            Self::Print(args) => print_command(args).await,
-
-            Self::Rpc(args) => rpc_command(args).await,
-
-            Self::Completions(args) => completions_command(args),
-        }
-    }
 }
 
 /// Trait for handling CLI subcommands.
