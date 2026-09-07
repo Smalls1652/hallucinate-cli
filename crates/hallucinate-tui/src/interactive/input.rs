@@ -9,6 +9,8 @@ use std::{
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use hallucinate_agent::{ai::types::Message, config::settings::SessionTitleGenerationMode};
 
+use ratatui::crossterm;
+
 use super::{AgentRunCompletion, AutocompleteItem, ChatSelection, InteractiveTui};
 use crate::{
     alt_screen::{Message as TuiMessage, MessageRole},

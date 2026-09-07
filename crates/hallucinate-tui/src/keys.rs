@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crossterm::event::{KeyCode, KeyModifiers};
+use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 
 /// A key with normalized modifier flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

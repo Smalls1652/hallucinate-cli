@@ -1,5 +1,5 @@
 //! Editor component
-use crossterm::event::KeyCode;
+use ratatui::crossterm::event::KeyCode;
 /// A multi-line editor with cursor movement, undo/redo, and text manipulation.
 use ratatui::Frame;
 use ratatui::{
@@ -907,7 +907,7 @@ fn byte_at_display_column(
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyModifiers};
+    use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 
     use super::*;
 
@@ -1039,7 +1039,7 @@ mod tests {
 
     #[test]
     fn alt_left_arrow_moves_cursor_back_one_word() {
-        use crossterm::event::KeyModifiers;
+        use ratatui::crossterm::event::KeyModifiers;
 
         let mut editor = Editor::new("");
         editor.set_content("hello world foo");
@@ -1066,7 +1066,7 @@ mod tests {
 
     #[test]
     fn alt_right_arrow_moves_cursor_forward_one_word() {
-        use crossterm::event::KeyModifiers;
+        use ratatui::crossterm::event::KeyModifiers;
 
         let mut editor = Editor::new("");
         editor.set_content("hello world foo");
@@ -1090,7 +1090,7 @@ mod tests {
 
     #[test]
     fn word_navigation_handles_unicode_characters() {
-        use crossterm::event::KeyModifiers;
+        use ratatui::crossterm::event::KeyModifiers;
 
         let mut editor = Editor::new("");
         // "ab😀 cd" — 😀 is 4 bytes, total length is 9.

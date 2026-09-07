@@ -22,7 +22,7 @@ use hallucinate_agent::{
     },
 };
 use hallucinate_session::manager::SessionManager;
-use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
+use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect, crossterm};
 
 use crate::{
     alt_screen::{Message as TuiMessage, MessageRole, TranscriptRenderer},
@@ -529,13 +529,6 @@ impl InteractiveTui {
 
     /// Restore the terminal after leaving interactive mode.
     fn exit_raw_mode(&mut self) {
-        // Restore the line discipline before sending terminal escape sequences.
-        // On Linux, leaving raw mode after leaving the alternate screen can
-        // leave the parent shell with the terminal still configured for
-        // character-at-a-time input when cleanup is interrupted or flushed in
-        // the wrong order.
-        let _ = crossterm::terminal::disable_raw_mode();
-
         if self.keyboard_enhancement_enabled {
             let _ = crossterm::execute!(
                 std::io::stdout(),
@@ -550,6 +543,8 @@ impl InteractiveTui {
             crossterm::terminal::LeaveAlternateScreen,
             crossterm::cursor::Show,
         );
+
+        let _ = crossterm::terminal::disable_raw_mode();
     }
 
     /// Add a system message describing loaded context files, skills, and

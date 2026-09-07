@@ -50,7 +50,6 @@ futures = "0.3.34"
 tokio-stream = "0.1.19"
 
 # TUI
-crossterm = "0.29.0"
 unicode-width = "0.2.2"
 comrak = "0.54.0"
 

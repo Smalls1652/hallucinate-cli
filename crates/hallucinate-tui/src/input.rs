@@ -1,6 +1,6 @@
 //! Keyboard and terminal event conversion for the interactive event loop.
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
+use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
 
 use super::keys::Key;
 
@@ -115,7 +115,7 @@ fn key_to_key_event(key_event: KeyEvent) -> Key {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyEvent, KeyEventKind};
+    use ratatui::crossterm::event::{KeyEvent, KeyEventKind};
 
     use super::*;
 
