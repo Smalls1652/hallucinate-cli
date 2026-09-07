@@ -454,7 +454,7 @@ impl InteractiveTui {
 
         let result = self.run_loop();
         let cleanup_result = self.session_manager.discard_empty_current();
-        self.exit_raw_mode();
+        self.exit_raw_mode()?;
 
         result?;
         cleanup_result.map(|_| ())
@@ -528,23 +528,24 @@ impl InteractiveTui {
     }
 
     /// Restore the terminal after leaving interactive mode.
-    fn exit_raw_mode(&mut self) {
+    fn exit_raw_mode(&mut self) -> Result<(), anyhow::Error> {
         if self.keyboard_enhancement_enabled {
-            let _ = crossterm::execute!(
+            crossterm::execute!(
                 std::io::stdout(),
                 crossterm::event::PopKeyboardEnhancementFlags
-            );
+            )?;
         }
 
-        let _ = crossterm::execute!(
+        crossterm::execute!(
             std::io::stdout(),
             crossterm::event::DisableMouseCapture,
             crossterm::event::DisableBracketedPaste,
             crossterm::terminal::LeaveAlternateScreen,
-            crossterm::cursor::Show,
-        );
+        )?;
 
-        let _ = crossterm::terminal::disable_raw_mode();
+        crossterm::terminal::disable_raw_mode()?;
+
+        Ok(())
     }
 
     /// Add a system message describing loaded context files, skills, and
