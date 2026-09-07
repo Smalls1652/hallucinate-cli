@@ -11,6 +11,8 @@ readme.workspace = true
 homepage.workspace = true
 repository.workspace = true
 
+default-run = "hallucinate"
+
 [[bin]]
 name = "hallucinate"
 path = "src/main.rs"
