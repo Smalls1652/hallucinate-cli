@@ -529,21 +529,30 @@ impl InteractiveTui {
 
     /// Restore the terminal after leaving interactive mode.
     fn exit_raw_mode(&mut self) -> Result<(), anyhow::Error> {
+        let mut cleanup_error = crossterm::terminal::disable_raw_mode().err();
+
         if self.keyboard_enhancement_enabled {
-            crossterm::execute!(
+            if let Err(error) = crossterm::execute!(
                 std::io::stdout(),
                 crossterm::event::PopKeyboardEnhancementFlags
-            )?;
+            ) {
+                cleanup_error.get_or_insert(error);
+            }
         }
 
-        crossterm::execute!(
+        if let Err(error) = crossterm::execute!(
             std::io::stdout(),
             crossterm::event::DisableMouseCapture,
             crossterm::event::DisableBracketedPaste,
             crossterm::terminal::LeaveAlternateScreen,
-        )?;
+            crossterm::cursor::Show,
+        ) {
+            cleanup_error.get_or_insert(error);
+        }
 
-        crossterm::terminal::disable_raw_mode()?;
+        if let Some(error) = cleanup_error {
+            return Err(error).context("Failed to restore terminal state");
+        }
 
         Ok(())
     }
