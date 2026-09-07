@@ -36,7 +36,8 @@ If the user's request matches one of skills in the `<available_skills>` section,
 - **Do not attempt to run skills as if they were tools or scripts.**"#;
 
 /// Default system prompt template for agents without configured tools.
-const LIGHTWEIGHT_DEFAULT_SYSTEM_PROMPT: &str = "You are an expert assistant operating inside hallucinate, an agent harness.";
+const LIGHTWEIGHT_DEFAULT_SYSTEM_PROMPT: &str =
+    "You are an expert assistant operating inside hallucinate, an agent harness.";
 
 /// Files which can contribute project or user instructions to the system
 /// prompt. The paths are reported independently of whether their contents can

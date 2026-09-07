@@ -1,8 +1,8 @@
 //! Editor component
-use ratatui::crossterm::event::KeyCode;
 /// A multi-line editor with cursor movement, undo/redo, and text manipulation.
 use ratatui::Frame;
 use ratatui::{
+    crossterm::event::KeyCode,
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},

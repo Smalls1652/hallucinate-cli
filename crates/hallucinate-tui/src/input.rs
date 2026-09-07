@@ -18,22 +18,11 @@ pub enum InputEvent {
 /// Convert a crossterm terminal event into the application's input
 /// representation.
 ///
-/// Handles special cases for macOS Terminal.app Shift+Enter, Kitty protocol
-/// alternate key codes, and release/repeat key events.
+/// Handles special cases for macOS Terminal.app Shift+Enter and
+/// release/repeat key events.
 pub fn parse_event(event: Event) -> InputEvent {
     match event {
         Event::Key(mut key_event) => {
-            // With REPORT_ALTERNATE_KEYS enabled, crossterm represents the
-            // Kitty Shift+Enter sequence as Char('\r') and clears Shift while
-            // applying the alternate codepoint. Restore the logical key
-            // before the editor sees it.
-            if key_event.code == KeyCode::Char('\r') {
-                key_event.code = KeyCode::Enter;
-                if key_event.modifiers == KeyModifiers::NONE {
-                    key_event.modifiers |= KeyModifiers::SHIFT;
-                }
-            }
-
             // Terminal.app historically emits plain Return for Shift+Enter,
             // even though the Shift key is still physically held. Recover the
             // modifier from macOS so the shortcut works without a terminal
@@ -118,24 +107,6 @@ mod tests {
     use ratatui::crossterm::event::{KeyEvent, KeyEventKind};
 
     use super::*;
-
-    #[test]
-    fn kitty_shift_enter_alternate_codepoint_is_restored() {
-        let event = parse_event(Event::Key(KeyEvent::new_with_kind(
-            KeyCode::Char('\r'),
-            KeyModifiers::NONE,
-            KeyEventKind::Press,
-        )));
-
-        assert!(matches!(
-            event,
-            InputEvent::Key(Key {
-                code: KeyCode::Enter,
-                shift: true,
-                ..
-            })
-        ));
-    }
 
     #[test]
     fn command_modifier_is_preserved_for_macos_copy() {

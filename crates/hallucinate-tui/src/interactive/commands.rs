@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use hallucinate_agent::ai::types::Message;
 use hallucinate_session::manager::SessionManager;
-
 use ratatui::crossterm;
 
 use super::{

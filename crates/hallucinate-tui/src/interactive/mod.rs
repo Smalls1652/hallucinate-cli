@@ -22,7 +22,7 @@ use hallucinate_agent::{
     },
 };
 use hallucinate_session::manager::SessionManager;
-use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect, crossterm};
+use ratatui::{Terminal, backend::CrosstermBackend, crossterm, layout::Rect};
 
 use crate::{
     alt_screen::{Message as TuiMessage, MessageRole, TranscriptRenderer},
@@ -76,7 +76,6 @@ impl ChatSelection {
 /// The interactive TUI application.
 pub struct InteractiveTui {
     terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
-    keyboard_enhancement_enabled: bool,
     transcript: TranscriptRenderer,
     editor: Editor,
     /// The last transcript rectangle rendered on screen. Mouse coordinates are
@@ -300,31 +299,7 @@ impl InteractiveTui {
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend).context("Failed to create terminal")?;
 
-        // Enter raw mode separately. Keyboard enhancement makes modified
-        // keys such as Shift+Enter distinguishable from plain Enter in
-        // terminals which support the Kitty keyboard protocol.
         crossterm::terminal::enable_raw_mode().context("Failed to enable raw mode")?;
-
-        let keyboard_enhancement_enabled = matches!(
-            crossterm::terminal::supports_keyboard_enhancement(),
-            Ok(true)
-        );
-
-        if keyboard_enhancement_enabled
-            && let Err(error) = crossterm::execute!(
-                std::io::stdout(),
-                crossterm::event::PushKeyboardEnhancementFlags(
-                    crossterm::event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-                        | crossterm::event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
-                        | crossterm::event::KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
-                        | crossterm::event::KeyboardEnhancementFlags::REPORT_EVENT_TYPES
-                )
-            )
-        {
-            let _ = crossterm::terminal::disable_raw_mode();
-
-            return Err(error).context("Failed to enable keyboard enhancements");
-        }
 
         if let Err(error) = crossterm::execute!(
             std::io::stdout(),
@@ -332,25 +307,11 @@ impl InteractiveTui {
             crossterm::cursor::Hide,
             crossterm::event::EnableBracketedPaste
         ) {
-            if keyboard_enhancement_enabled {
-                let _ = crossterm::execute!(
-                    std::io::stdout(),
-                    crossterm::event::PopKeyboardEnhancementFlags
-                );
-            }
-
             let _ = crossterm::terminal::disable_raw_mode();
 
             return Err(error).context("Failed to enter alternate screen");
         }
         if let Err(error) = input::enable_mouse_capture() {
-            if keyboard_enhancement_enabled {
-                let _ = crossterm::execute!(
-                    std::io::stdout(),
-                    crossterm::event::PopKeyboardEnhancementFlags
-                );
-            }
-
             let _ = crossterm::execute!(
                 std::io::stdout(),
                 crossterm::event::DisableBracketedPaste,
@@ -380,7 +341,6 @@ impl InteractiveTui {
 
         let mut tui = Self {
             terminal,
-            keyboard_enhancement_enabled,
             transcript: {
                 let messages = agent.messages();
                 let mut transcript = session::transcript_from_messages(&messages);
@@ -530,15 +490,6 @@ impl InteractiveTui {
     /// Restore the terminal after leaving interactive mode.
     fn exit_raw_mode(&mut self) -> Result<(), anyhow::Error> {
         let mut cleanup_error = crossterm::terminal::disable_raw_mode().err();
-
-        if self.keyboard_enhancement_enabled {
-            if let Err(error) = crossterm::execute!(
-                std::io::stdout(),
-                crossterm::event::PopKeyboardEnhancementFlags
-            ) {
-                cleanup_error.get_or_insert(error);
-            }
-        }
 
         if let Err(error) = crossterm::execute!(
             std::io::stdout(),
