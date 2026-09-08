@@ -27,10 +27,11 @@ Key features:
 - **Skills System**: Load and execute skills from user config, project `.hallucinate`, shared `.agents` protocol directories, and `--skill` paths
 - **Prompt Templates**: Markdown files with YAML frontmatter that expand slash commands with argument substitution; discovered from user config and project-local directories
 - **Image Support**: Base64 image content and auto-resize via `image` crate
-- **Auth CLI**: `auth set/remove/list` subcommands for provider API key management
+- **Auth CLI**: `auth set/remove/list` subcommands for provider API key management; keys are stored in the platform-native keyring (macOS keychain, Linux keyutils, Windows keyring), not in the settings file
 - **Configurable Shell**: Bash tool supports explicit shell executable and full shell syntax (pipes, redirects, `&&`, `||`)
 - **System Prompt Override**: Place a `SYSTEM.md` in the config directory to replace the built-in system prompt; `AGENTS.md` at project root is appended under `## Project Instructions`
 - **API Variants**: Both `openai-completions` (Chat Completions wire format) and `openai-responses` (Responses API wire format) are supported
+- **Credential Resolution**: API keys are resolved in order: CLI override → environment variables (global, provider-specific, or fallback) → inline `api_key` in provider TOML settings → platform keyring. The `HALLUCINATE_<PROVIDER>_API_KEY` env var is supported for multi-provider setups
 
 **Excluded from scope**: Plugins/extensions, server/client packages, evals framework, telemetry, NPM publish tooling, and CBOR protocol (removed).
 
@@ -106,7 +107,7 @@ crates/
 │   │   │   ├── streaming.rs # Event stream protocol
 │   │   │   ├── images.rs    # Image support (base64, auto-resize)
 │   │   │   ├── title.rs     # Session title generation
-│   │   │   ├── auth.rs      # OAuth, credential store (multi-provider)
+│   │   │   ├── auth.rs      # Platform keyring credential storage (OS-native keyring)
 │   │   │   └── providers/
 │   │   │       ├── mod.rs
 │   │   │       ├── openai_compat.rs  # OpenAI API-compatible provider

@@ -15,7 +15,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ai::{
-        auth::CredentialStore,
+        auth::{
+            get_stored_credential,
+            release_platform_keyring,
+            remove_stored_credential,
+            set_platform_keyring,
+            set_stored_credential,
+        },
         types::{Api, Model, ModelCostRates},
     },
     config::paths,
@@ -82,7 +88,7 @@ pub struct ProviderSettings {
     /// Completions or Responses wire format.
     #[serde(default)]
     pub base_url: Option<String>,
-    /// Optional inline key. Prefer the credential store or environment
+    /// Optional inline key. Prefer the platform keyring or environment
     /// variables for secrets; this is accepted for convenient local setups.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
@@ -156,10 +162,6 @@ pub struct Settings {
     #[serde(default = "default_shell_timeout")]
     pub shell_timeout: u64,
 
-    /// Stored credentials.
-    #[serde(default, skip_serializing_if = "CredentialStore::is_empty")]
-    pub credential_store: CredentialStore,
-
     /// Provider-specific headers for the legacy/default provider.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub provider_headers: HashMap<String, String>,
@@ -214,8 +216,8 @@ pub struct Settings {
     pub session_title: SessionTitleSettings,
 
     /// Whether these settings include a project-local override. This is kept
-    /// out of serialization so credential commands can update the global
-    /// file without copying project settings into it.
+    /// out of serialization for callers that need to distinguish merged
+    /// project settings from global settings.
     #[serde(skip)]
     project_override_loaded: bool,
 }
@@ -381,6 +383,23 @@ fn deserialize_settings(merged: toml::Table) -> Result<Settings, anyhow::Error> 
         .map_err(|error| anyhow::anyhow!("failed to deserialize merged settings: {error}"))
 }
 
+/// Initialize the process-wide platform keyring when it has not been set.
+fn initialize_platform_keyring() -> Result<(), anyhow::Error> {
+    if keyring_core::get_default_store().is_none() {
+        set_platform_keyring()?;
+    }
+
+    Ok(())
+}
+
+/// Return whether a keyring operation failed because no credential exists.
+fn is_missing_credential(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<keyring_core::Error>(),
+        Some(keyring_core::Error::NoEntry)
+    )
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -389,7 +408,6 @@ impl Default for Settings {
             base_url: None,
             shell: None,
             shell_timeout: default_shell_timeout(),
-            credential_store: CredentialStore::new(),
             provider_headers: HashMap::new(),
             providers: HashMap::new(),
             timeout_ms: default_timeout_ms(),
@@ -513,9 +531,9 @@ impl Settings {
         Ok(())
     }
 
-    /// Save an API key for a provider and persist the updated settings.
+    /// Save an API key for a provider in the platform keyring.
     pub fn save_api_key(
-        &mut self,
+        &self,
         provider: &str,
         api_key: &str,
     ) -> Result<(), anyhow::Error> {
@@ -528,47 +546,57 @@ impl Settings {
             anyhow::bail!("API key cannot be empty");
         }
 
-        if self.project_override_loaded {
-            let mut global = Self::load_global()?;
-            global.credential_store.set(provider, api_key);
-            global.save()?;
-        }
-        self.credential_store.set(provider, api_key);
-
-        if !self.project_override_loaded {
-            self.save()?;
-        }
-
+        initialize_platform_keyring()?;
+        set_stored_credential(provider, api_key)?;
+        release_platform_keyring()?;
         Ok(())
     }
 
-    /// Remove a provider's stored API key and persist the updated settings.
+    /// Remove a provider's API key from the platform keyring.
+    ///
+    /// Returns `Ok(false)` when the provider has no stored credential.
     pub fn remove_api_key(
-        &mut self,
+        &self,
         provider: &str,
     ) -> Result<bool, anyhow::Error> {
-        let removed = if self.project_override_loaded {
-            let mut global = Self::load_global()?;
-            let removed = global.credential_store.remove(provider);
-
-            if removed {
-                global.save()?;
-            }
-
-            removed
-        } else {
-            self.credential_store.remove(provider)
-        };
-
-        self.credential_store.remove(provider);
-        if removed && !self.project_override_loaded {
-            self.save()?;
+        let provider = provider.trim();
+        if provider.is_empty() {
+            anyhow::bail!("provider ID cannot be empty");
         }
 
-        Ok(removed)
+        initialize_platform_keyring()?;
+
+        match remove_stored_credential(provider) {
+            Ok(()) => Ok(true),
+            Err(error) if is_missing_credential(&error) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
-    /// Return all models defined in provider groups, in deterministic order.
+    /// Return configured providers that have credentials in the platform
+    /// keyring.
+    ///
+    /// Platform keyrings cannot enumerate credentials portably, so this only
+    /// checks the default provider and providers declared in these settings.
+    pub fn providers_with_stored_api_keys(&self) -> Result<Vec<String>, anyhow::Error> {
+        initialize_platform_keyring()?;
+
+        let mut providers = self.providers.keys().cloned().collect::<Vec<_>>();
+        if !providers.iter().any(|provider| provider == &self.provider) {
+            providers.push(self.provider.clone());
+        }
+        providers.sort_unstable();
+
+        providers
+            .into_iter()
+            .filter_map(|provider| match get_stored_credential(&provider) {
+                Ok(_) => Some(Ok(provider)),
+                Err(error) if is_missing_credential(&error) => None,
+                Err(error) => Some(Err(error)),
+            })
+            .collect()
+    }
+
     pub fn configured_models(&self) -> Vec<Model> {
         let mut providers: Vec<_> = self.providers.iter().collect();
         providers.sort_by(|left, right| left.0.cmp(right.0));
@@ -653,15 +681,15 @@ impl Settings {
             .get(provider)
             .and_then(|provider| provider.api_key.clone())
             .or_else(|| {
-                self.credential_store
-                    .get(provider)
-                    .map(|c| c.api_key.clone())
+                initialize_platform_keyring()
+                    .ok()
+                    .and_then(|()| get_stored_credential(provider).ok())
             })
             .or_else(|| {
                 (provider == self.provider).then(|| {
-                    self.credential_store
-                        .get("openai")
-                        .map(|credential| credential.api_key.clone())
+                    initialize_platform_keyring()
+                        .ok()
+                        .and_then(|()| get_stored_credential("openai").ok())
                 })?
             })
     }
@@ -759,11 +787,6 @@ mod tests {
             model = "example/title-model"
             generation_mode = "before"
 
-            [credential_store.credentials.example]
-            provider_id = "example"
-            api_key = "sk-test"
-            stored_at = 0
-
             [provider_headers]
             x-test = "enabled"
             "#,
@@ -796,7 +819,7 @@ mod tests {
             settings.provider_headers.get("x-test"),
             Some(&"enabled".to_string())
         );
-        assert_eq!(settings.resolve_api_key(None).as_deref(), Some("sk-test"));
+        assert!(settings.resolve_api_key(None).is_none());
     }
 
     #[test]
@@ -814,26 +837,17 @@ mod tests {
     }
 
     #[test]
-    fn saving_settings_persists_credentials() {
+    fn saving_settings_does_not_serialize_credentials() {
         let path = std::env::temp_dir().join(format!(
             "hallucinate-settings-test-{}-{}.toml",
             std::process::id(),
             temporary_suffix()
         ));
 
-        let mut settings = Settings::default();
-        settings.credential_store.set("openrouter", "sk-test");
-        settings.save_to(&path).unwrap();
+        Settings::default().save_to(&path).unwrap();
+        let content = fs::read_to_string(&path).unwrap();
 
-        let loaded: Settings = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-
-        assert_eq!(
-            loaded
-                .credential_store
-                .get("openrouter")
-                .map(|credential| credential.api_key.as_str()),
-            Some("sk-test")
-        );
+        assert!(!content.contains("credential_store"));
 
         let _ = fs::remove_file(path);
     }

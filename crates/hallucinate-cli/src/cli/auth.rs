@@ -1,8 +1,8 @@
 //! Command-line management of saved provider authentication.
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
-use hallucinate_agent::config::{paths, settings::Settings};
+use hallucinate_agent::config::settings::Settings;
 
 use crate::cli::SubcommandHandler;
 
@@ -10,7 +10,8 @@ use crate::cli::SubcommandHandler;
 #[derive(Debug, Clone, Subcommand)]
 pub enum AuthCommand {
     /// Save or replace an API key. If omitted, a configured environment
-    /// variable is used (for example HALLUCINATE_OPENAI_API_KEY).
+    /// variable is used (for example HALLUCINATE_OPENAI_API_KEY); otherwise,
+    /// the command prompts for a masked key.
     Set(AuthSetArgs),
 
     /// Remove a provider's saved API key.
@@ -39,14 +40,15 @@ pub struct AuthSetArgs {
     pub provider: String,
 
     /// API key. Prefer an environment variable when possible so the key
-    /// is not recorded in shell history.
+    /// is not recorded in shell history. If omitted and no configured
+    /// environment variable is available, the command prompts for it.
     #[arg(long = "api-key", env = "HALLUCINATE_API_KEY")]
     pub api_key: Option<String>,
 }
 
 /// Save an API key for a provider.
 pub fn auth_set_command(args: &AuthSetArgs) -> Result<()> {
-    let mut settings = Settings::load_global()?;
+    let settings = Settings::load_global()?;
 
     let key = args
         .api_key
@@ -54,32 +56,34 @@ pub fn auth_set_command(args: &AuthSetArgs) -> Result<()> {
         .filter(|key| !key.is_empty())
         .map(str::to_owned)
         .or_else(|| environment_api_key(&settings, &args.provider))
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "No API key supplied. Use --api-key or set HALLUCINATE_{}_API_KEY",
-                &args
-                    .provider
-                    .to_ascii_uppercase()
-                    .replace(|character: char| !character.is_ascii_alphanumeric(), "_")
-            )
-        })?;
+        .map(Ok)
+        .unwrap_or_else(prompt_for_api_key)?;
 
     settings.save_api_key(&args.provider, &key)?;
 
-    let project_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-
     println!(
-        "Saved credentials for provider '{}' in {}.",
+        "Saved credentials for provider '{}' in the platform keyring.",
         &args.provider,
-        paths::settings_file()
-            .map(|path| paths::display_path(path, &project_dir))
-            .unwrap_or_else(|| "the settings file".to_string())
     );
 
     Ok(())
 }
 
-/// Find a key from the provider-specific or legacy environment variables.
+/// Prompt for a masked API key, rejecting an empty response.
+fn prompt_for_api_key() -> Result<String> {
+    let config = rpassword::ConfigBuilder::new()
+        .password_feedback_mask('*')
+        .build();
+
+    let key = rpassword::prompt_password_with_config("API key: ", config)?;
+
+    if key.is_empty() {
+        bail!("API key cannot be empty");
+    }
+
+    Ok(key)
+}
+
 /// Stored credentials are intentionally not used as a fallback for `set`:
 /// running `auth set` should either receive a new key or explicitly use the
 /// environment, rather than silently re-saving the old value.
@@ -127,7 +131,7 @@ pub struct AuthRemoveArgs {
 
 /// Remove a saved API key for a provider.
 pub fn auth_remove_command(args: &AuthRemoveArgs) -> Result<()> {
-    let mut settings = Settings::load_global()?;
+    let settings = Settings::load_global()?;
 
     if settings.remove_api_key(&args.provider)? {
         println!(
@@ -148,7 +152,7 @@ pub fn auth_remove_command(args: &AuthRemoveArgs) -> Result<()> {
 pub fn auth_list_command() -> Result<()> {
     let settings = Settings::load_global()?;
 
-    let mut providers: Vec<_> = settings.credential_store.provider_ids().collect();
+    let mut providers = settings.providers_with_stored_api_keys()?;
     providers.sort_unstable();
 
     if providers.is_empty() {

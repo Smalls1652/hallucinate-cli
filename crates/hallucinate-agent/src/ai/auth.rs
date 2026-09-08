@@ -1,119 +1,78 @@
-//! Credentials used to authenticate with providers.
+//! Platform-native credentials used to authenticate with providers.
 //!
-//! The credential store is embedded in
-//! [`Settings`](crate::config::settings::Settings) and is serialized to the
-//! user's settings file. It intentionally stores API keys by provider ID so
-//! multiple OpenAI-compatible providers can be used in the same installation.
-use std::{
-    collections::HashMap,
-    time::{SystemTime, UNIX_EPOCH},
-};
+//! API keys are stored by provider ID in the operating system's secure
+//! credential store, rather than being serialized to the settings file.
 
-/// A stored API key credential.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Credential {
-    /// The provider identifier this credential belongs to.
-    pub provider_id: String,
-    /// The API key value.
-    pub api_key: String,
-    /// Unix timestamp (seconds) when this credential was stored.
-    pub stored_at: u64,
+macro_rules! credential_entry {
+    ($provider_id:expr) => {
+        keyring_core::Entry::new(
+            format!("hallucinate__{}", $provider_id).as_str(),
+            $provider_id,
+        )
+    };
 }
 
-/// Credentials stored as part of `Settings` and serialized to its settings
-/// file.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct CredentialStore {
-    /// Provider ID to credential mapping.
-    #[serde(default)]
-    credentials: HashMap<String, Credential>,
+/// Retrieve a stored API key credential for the given provider from the
+/// platform keyring.
+///
+/// Returns the API key string on success, or an error if the credential cannot
+/// be retrieved from the keyring.
+pub fn get_stored_credential(provider_id: &str) -> anyhow::Result<String> {
+    let entry = credential_entry!(provider_id)?;
+
+    let api_key = entry.get_password()?;
+
+    Ok(api_key)
 }
 
-impl CredentialStore {
-    /// Create a new, empty credential store.
-    pub fn new() -> Self {
-        Self::default()
-    }
+/// Store an API key credential for the given provider in the platform keyring.
+///
+/// The key is persisted in the OS-native keyring under a name derived from the
+/// provider ID.
+pub fn set_stored_credential(
+    provider_id: &str,
+    api_key: &str,
+) -> anyhow::Result<()> {
+    let entry = credential_entry!(provider_id)?;
 
-    /// Look up the credential for a provider by its ID.
-    pub fn get(
-        &self,
-        provider_id: &str,
-    ) -> Option<&Credential> {
-        self.credentials.get(provider_id)
-    }
+    entry.set_password(api_key)?;
 
-    /// Store or replace the API key for a provider.
-    pub fn set(
-        &mut self,
-        provider_id: impl Into<String>,
-        api_key: impl Into<String>,
-    ) {
-        let provider_id = provider_id.into();
-
-        self.credentials.insert(
-            provider_id.clone(),
-            Credential {
-                provider_id,
-                api_key: api_key.into(),
-                stored_at: unix_timestamp(),
-            },
-        );
-    }
-
-    /// Remove credentials for a provider, returning whether they existed.
-    pub fn remove(
-        &mut self,
-        provider_id: &str,
-    ) -> bool {
-        self.credentials.remove(provider_id).is_some()
-    }
-
-    /// Return provider IDs with stored credentials in no particular order.
-    pub fn provider_ids(&self) -> impl Iterator<Item = &str> {
-        self.credentials.keys().map(String::as_str)
-    }
-
-    /// Return `true` if no credentials are stored.
-    pub fn is_empty(&self) -> bool {
-        self.credentials.is_empty()
-    }
+    Ok(())
 }
 
-/// Return the current time as a Unix timestamp in seconds.
-fn unix_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
+/// Remove a stored API key credential for the given provider from the platform
+/// keyring.
+///
+/// Returns an error if the credential cannot be deleted.
+pub fn remove_stored_credential(provider_id: &str) -> anyhow::Result<()> {
+    let entry = credential_entry!(provider_id)?;
+
+    entry.delete_credential()?;
+
+    Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Set the default keyring store to the platform-native implementation.
+///
+/// On macOS this uses the keychain, on Linux the keyutils store, and on Windows
+/// the native Windows keyring. In tests a mock store is used.
+pub fn set_platform_keyring() -> anyhow::Result<()> {
+    let store = cfg_select! {
+        target_os = "macos" => apple_native_keyring_store::keychain::Store::new()?,
+        target_os = "linux" => linux_keyutils_keyring_store::Store::new()?,
+        target_os = "windows" => windows_native_keyring_store::Store::new()?,
+        test => keyring_core::mock::Store::new()?,
+        _ => panic!("Unsupported platform :("),
+    };
 
-    #[test]
-    fn credential_store_roundtrips_values() {
-        let mut store = CredentialStore::new();
-        assert!(store.get("openai").is_none());
+    keyring_core::set_default_store(store);
 
-        store.set("openai", "sk-test-key");
-        let cred = store.get("openai").unwrap();
-        assert_eq!(cred.api_key, "sk-test-key");
-        assert_eq!(cred.provider_id, "openai");
-        assert!(cred.stored_at > 0);
+    Ok(())
+}
 
-        assert!(store.remove("openai"));
-        assert!(!store.remove("openai"));
-        assert!(store.get("openai").is_none());
-    }
+/// Clear the default keyring store, releasing the platform-native keyring.
+pub fn release_platform_keyring() -> anyhow::Result<()> {
+    keyring_core::unset_default_store();
 
-    #[test]
-    fn setting_a_provider_replaces_its_existing_key() {
-        let mut store = CredentialStore::new();
-        store.set("local", "first");
-        store.set("local", "second");
-
-        assert_eq!(store.get("local").unwrap().api_key, "second");
-        assert_eq!(store.provider_ids().collect::<Vec<_>>(), vec!["local"]);
-    }
+    Ok(())
 }

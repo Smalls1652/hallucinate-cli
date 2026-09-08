@@ -4,7 +4,7 @@ Complete reference for all configuration options in `hallucinate`.
 
 ## Overview
 
-`hallucinate` reads configuration from a **TOML** settings file and a set of environment variables. Provider credentials are stored in the same file but separated into a dedicated `credential_store` section.
+`hallucinate` reads configuration from a **TOML** settings file and a set of environment variables. Provider credentials are stored in the operating system's secure credential store (keyring), not in the settings file.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -26,7 +26,6 @@ Complete reference for all configuration options in `hallucinate`.
 | `session_title.model` | `string` | Active model | Model selector used to generate session titles. |
 | `session_title.generation_mode` | `string` | `"parallel"` | Generate alongside (`parallel`) or before (`before`) the first response. |
 | `providers` | `table` | — | Multi-provider model definitions. |
-| `credential_store` | `table` | — | Stored API keys per provider. |
 | `provider_headers` | `table` | — | Extra HTTP headers for the default provider. |
 
 ## Settings File Location
@@ -65,7 +64,7 @@ output = 10.00
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `base_url` | `string` | — | OpenAI-compatible endpoint for this provider. |
-| `api_key` | `string` | — | Inline API key (prefer the credential store instead). |
+| `api_key` | `string` | — | Inline API key (prefer the platform keyring or environment variables). |
 | `headers` | `table` | — | Additional HTTP headers sent with every request. |
 | `models` | `table` | — | Models provided by this provider, keyed by model ID. |
 
@@ -92,22 +91,7 @@ output = 10.00
 | `openai-completions` | Chat Completions wire format. |
 | `openai-responses` | Responses API wire format. |
 
-## Credential Store
 
-API keys are stored in the `credential_store` section. Use the `hallucinate auth set <provider>` command to populate this section securely.
-
-```toml
-[credential_store.credentials.openrouter]
-provider_id = "openrouter"
-api_key = "sk-or-..."
-stored_at = 1725120000
-```
-
-| Field | Description |
-| --- | --- |
-| `provider_id` | Provider identifier this credential belongs to. |
-| `api_key` | The stored API key. |
-| `stored_at` | Unix timestamp (seconds) when the credential was saved. |
 
 ## Global Settings
 
@@ -121,7 +105,7 @@ default_model = "openai/gpt-4o"
 
 ### `provider`
 
-Credential namespace for the default provider. Used to resolve keys from the credential store when no provider is explicitly specified. Defaults to `"openai"`.
+Credential namespace for the default provider. Used to resolve keys from the platform keyring when no provider is explicitly specified. Defaults to `"openai"`.
 
 ```toml
 provider = "openai"
@@ -260,7 +244,7 @@ x-custom-header = "value"
 | `HALLUCINATE_<PROVIDER>_API_KEY` | Provider-specific key (e.g., `HALLUCINATE_OPENROUTER_API_KEY`). |
 | `SHELL` | Shell executable for the bash tool (overridden by `shell` setting). |
 
-Key resolution order: `--api-key` flag → `HALLUCINATE_API_KEY` → `OPENAI_API_KEY` (for default provider) → `HALLUCINATE_<PROVIDER>_API_KEY` → inline `api_key` in provider settings → stored credential.
+Key resolution order: `--api-key` flag → `HALLUCINATE_API_KEY` → `OPENAI_API_KEY` (for default provider) → `HALLUCINATE_<PROVIDER>_API_KEY` → inline `api_key` in provider settings → stored credential in the platform keyring.
 
 ## System Prompt
 
@@ -407,7 +391,7 @@ The CLI uses a **subcommand-based** architecture. Global options apply to all su
 
 ## Auth Subcommand
 
-Manage stored provider API keys.
+Manage stored provider API keys in the platform keyring.
 
 ```bash
 hallucinate auth set <provider> [--api-key <key>]
@@ -415,7 +399,7 @@ hallucinate auth remove <provider>
 hallucinate auth list
 ```
 
-`auth set` accepts an optional `--api-key` flag; when omitted, the command falls back to the `HALLUCINATE_<PROVIDER>_API_KEY` environment variable.
+`auth set` accepts an optional `--api-key` flag; when omitted, the command falls back to the `HALLUCINATE_<PROVIDER>_API_KEY` environment variable. If no environment variable is set, the command prompts for a masked key. Keys are stored in the platform-native keyring (macOS keychain, Linux keyutils, Windows keyring) and are never written to the settings file.
 
 ## Interactive Slash Commands
 
@@ -463,11 +447,6 @@ generation_mode = "parallel"
 
 [provider_headers]
 x-request-source = "hallucinate"
-
-[credential_store.credentials.openai]
-provider_id = "openai"
-api_key = "sk-..."
-stored_at = 1725120000
 
 [providers.openai]
 base_url = "https://api.openai.com/v1"

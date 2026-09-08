@@ -90,7 +90,7 @@ impl InteractiveTui {
 
         match operation {
             "list" => {
-                let mut providers: Vec<_> = self.settings.credential_store.provider_ids().collect();
+                let mut providers = self.settings.providers_with_stored_api_keys()?;
                 providers.sort_unstable();
 
                 if providers.is_empty() {

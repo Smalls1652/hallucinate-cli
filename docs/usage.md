@@ -356,7 +356,7 @@ hallucinate auth set openai
 hallucinate auth set openai --api-key "sk-..."
 ```
 
-The `auth set` command falls back to `HALLUCINATE_<PROVIDER>_API_KEY` (e.g., `HALLUCINATE_OPENAI_API_KEY`) when `--api-key` is omitted.
+The `auth set` command falls back to `HALLUCINATE_<PROVIDER>_API_KEY` (e.g., `HALLUCINATE_OPENAI_API_KEY`) when `--api-key` is omitted. If no environment variable is available, the command prompts for a masked key. All keys are stored in the platform-native keyring (macOS keychain, Linux keyutils, Windows keyring) and never written to the settings file.
 
 ### Listing and Removing
 
