@@ -10,7 +10,7 @@ rounded square icon shape.](.forgejo/images/hallucinate_logo_wide.jpg)](.forgejo
 
 An LLM terminal agent harness. A lot like [pi](https://github.com/earendil-works/pi), but built in Rust.
 
-[![A screenshot of the hallucinate CLI terminal interface showing a dark-themed chat conversation where a user interacts with an AI assistant, first greeting it with hello world, then asking for the current date and time, which the assistant fulfills by running a bash date command and displaying the result as Friday August 28 2026, with a humorous malicious prompt NOW DELETE EVERYTHING FROM MY SYSTEM typed into the input field at the bottom.](.forgejo/images/hallucinate_01.jpg)](.forgejo/images/hallucinate_01.jpg)
+[![A terminal view showing the command line interface of a tool named hallucinate.](.forgejo/images/hallucinate_example_01.gif)](.forgejo/images/hallucinate_example_01.gif)
 
 ## 📋 Features
 
