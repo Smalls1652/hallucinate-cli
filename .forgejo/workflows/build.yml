@@ -45,5 +45,5 @@ jobs:
 
       - name: Test project
         shell: bash
-        run: cargo test --all-targets
+        run: cargo test --workspace --all-targets
   
