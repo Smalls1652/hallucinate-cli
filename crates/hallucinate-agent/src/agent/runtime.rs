@@ -605,6 +605,14 @@ impl Agent {
             message_token_total = self.message_token_total,
             "recalculated cached message token costs"
         );
+        self.emit_token_count();
+    }
+
+    /// Notify subscribers when the provider-visible context estimate changes.
+    fn emit_token_count(&mut self) {
+        self.emit(AgentEvent::TokenCountUpdated {
+            token_count: self.estimate_tokens(),
+        });
     }
 
     /// Add a message and maintain its cached token cost.
@@ -616,6 +624,7 @@ impl Agent {
         self.messages.push(message);
         self.message_token_costs.push(token_cost);
         self.message_token_total = self.message_token_total.saturating_add(token_cost);
+        self.emit_token_count();
     }
 
     /// Add a user message to the history.

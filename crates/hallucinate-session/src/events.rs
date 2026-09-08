@@ -72,6 +72,7 @@ pub(crate) fn archive_event(event: &AgentEvent) -> Option<(&'static str, serde_j
         // state. The validated ToolCallDetected event records the durable
         // lifecycle entry once the provider has completed its JSON payload.
         AgentEvent::ToolExecutionOutput { .. }
+        | AgentEvent::TokenCountUpdated { .. }
         | AgentEvent::AssistantTextDelta { .. }
         | AgentEvent::AssistantThinkingDelta { .. }
         | AgentEvent::AssistantMessageCompleted { .. }
@@ -135,6 +136,10 @@ mod tests {
             .map(|(name, _)| name)
             .collect::<Vec<_>>();
         assert_eq!(names.len(), events.len());
+        assert_eq!(
+            archive_event(&AgentEvent::TokenCountUpdated { token_count: 42 }),
+            None
+        );
         assert_eq!(
             archive_event(&AgentEvent::AssistantTextDelta {
                 delta: "x".to_string()

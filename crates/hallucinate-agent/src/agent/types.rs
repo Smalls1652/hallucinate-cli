@@ -122,6 +122,9 @@ pub enum AgentEvent {
         message: Box<AssistantMessage>,
     },
 
+    /// The estimated number of tokens currently retained in the context.
+    TokenCountUpdated { token_count: u64 },
+
     /// A streamed tool call began. Its arguments may still be incomplete.
     ToolCallStarted {
         content_index: usize,
@@ -216,6 +219,10 @@ impl fmt::Display for AgentEvent {
 
             AgentEvent::AssistantMessageCompleted { turn_number, .. } => {
                 write!(f, "[assistant] completed turn #{turn_number}")
+            },
+
+            AgentEvent::TokenCountUpdated { token_count } => {
+                write!(f, "[token_count] {token_count}")
             },
 
             AgentEvent::ToolCallStarted { tool_call, .. } => {
