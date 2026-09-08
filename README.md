@@ -207,10 +207,6 @@ crates/
 ├── hallucinate-agent/       # Provider contracts, runtime, tools, config, skills
 ├── hallucinate-session/     # CLI-oriented JSONL session persistence
 └── hallucinate-tui/         # Terminal primitives and interactive controller
-    └── src/
-        ├── interactive/     # Controller, commands, input, rendering, sessions
-        ├── slash_commands.rs # Canonical interactive command catalog
-        └── components/      # Editor and markdown renderer
 ```
 
 | Crate | Description |
