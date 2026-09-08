@@ -95,6 +95,11 @@ pub struct ProviderSettings {
     /// Additional HTTP headers to send with every request.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub headers: HashMap<String, String>,
+    /// Whether streaming requests include usage data in `stream_options`.
+    ///
+    /// When unset, `stream_options` is omitted from requests for this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_usage: Option<bool>,
     /// Models provided by this provider, keyed by model ID.
     #[serde(default)]
     pub models: HashMap<String, ModelSettings>,

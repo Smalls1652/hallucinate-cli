@@ -138,6 +138,10 @@ pub fn agent_config(
         enable_tools: settings.enable_tools,
         temperature: overrides.temperature.or(settings.temperature),
         max_tokens: resolve_max_tokens(settings, overrides.max_tokens, model),
+        include_usage: settings
+            .providers
+            .get(&model.provider)
+            .and_then(|provider| provider.include_usage),
         include_tool_definitions: true,
         max_concurrent_tool_calls: settings.max_concurrent_tool_calls,
     }

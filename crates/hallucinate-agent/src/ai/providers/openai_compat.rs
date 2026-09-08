@@ -2375,6 +2375,29 @@ mod tests {
         assert_eq!(body["stream"], true);
     }
 
+    #[test]
+    fn includes_usage_option_in_streaming_completion_requests() {
+        let provider = OpenaiCompatProvider::new(OpenaiCompatConfig::default());
+        let model = Model::new(
+            "test",
+            "Test",
+            Api::OpenaiCompletions,
+            "openai",
+            "http://localhost/v1",
+            false,
+            128_000,
+            16_384,
+        );
+
+        let body = provider.build_request_body(
+            &model,
+            &Context::default(),
+            &StreamOptions::new().with_include_usage(false),
+        );
+
+        assert_eq!(body["stream_options"]["include_usage"], false);
+    }
+
     #[tokio::test]
     async fn streamed_responses_accumulate_text_and_usage() {
         let mut server = mockito::Server::new_async().await;

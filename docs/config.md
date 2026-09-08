@@ -45,6 +45,7 @@ Providers are defined under the `providers` section. Each provider groups a base
 ```toml
 [providers.openai]
 base_url = "https://api.openai.com/v1"
+include_usage = true
 
 [providers.openai.models.gpt-4o]
 name = "GPT-4o"
@@ -66,6 +67,7 @@ output = 10.00
 | `base_url` | `string` | — | OpenAI-compatible endpoint for this provider. |
 | `api_key` | `string` | — | Inline API key (prefer the platform keyring or environment variables). |
 | `headers` | `table` | — | Additional HTTP headers sent with every request. |
+| `include_usage` | `bool` | — | Include `{ "stream_options": { "include_usage": value } }` in streaming requests. |
 | `models` | `table` | — | Models provided by this provider, keyed by model ID. |
 
 ### Model-Level Fields
@@ -450,6 +452,7 @@ x-request-source = "hallucinate"
 
 [providers.openai]
 base_url = "https://api.openai.com/v1"
+include_usage = true
 
 [providers.openai.models."gpt-5.6-luna"]
 name = "GPT-5.6 Luna"
