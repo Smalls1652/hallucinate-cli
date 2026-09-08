@@ -1,4 +1,4 @@
-# hallucinate-cli
+# Hallucinate
 
 > [!CAUTION]
 > I'm making this for myself. Use it if you want to, but I can't provide support for you.
