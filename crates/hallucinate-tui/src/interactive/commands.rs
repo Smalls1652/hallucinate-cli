@@ -70,6 +70,7 @@ impl InteractiveTui {
 
         self.history_index = self.message_history.len();
         self.token_count = agent.estimate_tokens();
+        self.token_count_is_estimated = true;
 
         self.show_notice(format!("Resumed session {}.", short_session_id(session_id)));
 
@@ -395,6 +396,7 @@ impl InteractiveTui {
                 if let Some(agent) = self.agent.as_mut() {
                     agent.reload_system_prompt();
                     self.token_count = agent.estimate_tokens();
+                    self.token_count_is_estimated = true;
                 }
 
                 self.show_notice(format!(
@@ -714,6 +716,7 @@ impl InteractiveTui {
 
         self.model = model.clone();
         self.token_count = agent.estimate_tokens();
+        self.token_count_is_estimated = true;
 
         self.show_notice(format!(
             "Switched to {}/{} (context: {}, max output: {}).",
@@ -801,6 +804,7 @@ impl InteractiveTui {
         self.message_history.clear();
         self.history_index = 0;
         self.token_count = agent.estimate_tokens();
+        self.token_count_is_estimated = true;
 
         self.add_new_session_message();
 

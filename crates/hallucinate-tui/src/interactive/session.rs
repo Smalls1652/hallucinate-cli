@@ -68,6 +68,7 @@ impl InteractiveTui {
                     self.token_count = self
                         .token_count
                         .saturating_add(estimate_streamed_text_tokens(delta));
+                    self.token_count_is_estimated = true;
                     received_delta = true;
                 },
 
@@ -77,10 +78,19 @@ impl InteractiveTui {
                     self.token_count = self
                         .token_count
                         .saturating_add(estimate_streamed_text_tokens(delta));
+                    self.token_count_is_estimated = true;
                     received_delta = true;
                 },
 
                 AgentEvent::AssistantMessageCompleted { message, .. } => {
+                    if message.usage.total_tokens > 0 {
+                        // Providers report the actual prompt token count when
+                        // the completed message includes usage data.
+                        self.token_count = message.usage.input;
+                        self.token_count_is_estimated = false;
+                    } else {
+                        self.token_count_is_estimated = true;
+                    }
                     let (content, thinking, tool_calls) = display_assistant_message(message);
                     self.streaming_tool_call_indices.clear();
 
@@ -100,6 +110,7 @@ impl InteractiveTui {
 
                 AgentEvent::TokenCountUpdated { token_count } => {
                     self.token_count = *token_count;
+                    self.token_count_is_estimated = true;
                 },
 
                 AgentEvent::ToolCallStarted {
@@ -264,7 +275,9 @@ impl InteractiveTui {
 
         while let Ok(completion) = self.agent_completion_rx.try_recv() {
             completed_run = true;
-            self.token_count = completion.agent.estimate_tokens();
+            if self.token_count_is_estimated {
+                self.token_count = completion.agent.estimate_tokens();
+            }
             self.agent_cancellation = None;
             let operation = completion.operation;
             let result = completion.result;

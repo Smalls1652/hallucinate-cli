@@ -156,6 +156,7 @@ impl InteractiveTui {
                 &self.agent_state,
                 &self.session_manager,
                 self.token_count,
+                self.token_count_is_estimated,
                 &self.model,
                 self.show_thinking,
                 self.notice.as_ref(),
@@ -808,6 +809,7 @@ fn render_status_bar(
     agent_state: &AgentState,
     session_manager: &hallucinate_session::SessionManager,
     token_count: u64,
+    token_count_is_estimated: bool,
     model: &hallucinate_agent::ai::types::Model,
     show_thinking: bool,
     notice: Option<&super::EphemeralNotice>,
@@ -830,7 +832,11 @@ fn render_status_bar(
         .and_then(|session| session.title.as_deref())
         .filter(|title| !title.trim().is_empty());
 
-    let token_count = token_count;
+    let token_count = if token_count_is_estimated {
+        format!("~{token_count} tokens")
+    } else {
+        format!("{token_count} tokens")
+    };
 
     let status_text = Line::from(vec![
         Span::styled(
@@ -860,10 +866,7 @@ fn render_status_bar(
             Span::styled(session_id, Style::default().fg(Color::Green))
         },
         Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            format!("{} tokens", token_count),
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled(token_count, Style::default().fg(Color::DarkGray)),
         Span::styled(" | ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             format!("model: {}/{}", model.provider, model.id),
