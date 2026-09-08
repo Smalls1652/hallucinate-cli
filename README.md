@@ -3,7 +3,7 @@
 > [!CAUTION]
 > I'm making this for myself. Use it if you want to, but I can't provide support for you.
 
-An LLM-powered coding agent and terminal harness — a lot like [pi](https://github.com/earendil-works/pi), but built in Rust.
+An LLM terminal agent harness. A lot like [pi](https://github.com/earendil-works/pi), but built in Rust.
 
 [![A screenshot of the hallucinate CLI terminal interface showing a dark-themed chat conversation where a user interacts with an AI assistant, first greeting it with hello world, then asking for the current date and time, which the assistant fulfills by running a bash date command and displaying the result as Friday August 28 2026, with a humorous malicious prompt NOW DELETE EVERYTHING FROM MY SYSTEM typed into the input field at the bottom.](.forgejo/images/hallucinate_01.jpg)](.forgejo/images/hallucinate_01.jpg)
 
