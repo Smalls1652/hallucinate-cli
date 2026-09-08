@@ -86,7 +86,7 @@ impl InteractiveTui {
                     if message.usage.total_tokens > 0 {
                         // Providers report the actual prompt token count when
                         // the completed message includes usage data.
-                        self.token_count = message.usage.input;
+                        self.token_count = message.usage.total_tokens;
                         self.token_count_is_estimated = false;
                     } else {
                         self.token_count_is_estimated = true;
