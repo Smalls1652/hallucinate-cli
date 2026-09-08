@@ -1,5 +1,10 @@
 # Hallucinate
 
+[![The image displays the Hallucinate logo featuring a stylized robotic face icon with a rounded square design set against a dark blue gradient background. The robot head is rendered in
+glowing neon blue and white tones, giving it a holographic, futuristic appearance. Two simple circular dots serve as eyes on a dark screen-like face, framed by a luminous border that
+appears to emit light from within. Below the head sits what resembles a computer terminal or server unit with a plus symbol and ventilation lines, all enclosed within a softly glowing
+rounded square icon shape.](.forgejo/images/hallucinate_logo_wide.jpg)](.forgejo/images/hallucinate_logo_wide.jpg)
+
 > [!CAUTION]
 > I'm making this for myself. Use it if you want to, but I can't provide support for you.
 
@@ -7,25 +12,30 @@ An LLM terminal agent harness. A lot like [pi](https://github.com/earendil-works
 
 [![A screenshot of the hallucinate CLI terminal interface showing a dark-themed chat conversation where a user interacts with an AI assistant, first greeting it with hello world, then asking for the current date and time, which the assistant fulfills by running a bash date command and displaying the result as Friday August 28 2026, with a humorous malicious prompt NOW DELETE EVERYTHING FROM MY SYSTEM typed into the input field at the bottom.](.forgejo/images/hallucinate_01.jpg)](.forgejo/images/hallucinate_01.jpg)
 
-## Features
+## 📋 Features
 
-- **Interactive TUI** — Full terminal UI with syntax-highlighted markdown, multi-line editor with word-level cursor navigation, undo support, and keyboard-driven session/model pickers
-- **Print mode** — Send a prompt and get the response printed to stdout, then exit
-- **RPC mode** — JSON-RPC over stdin/stdout for programmatic integration
-- **Provider support** — Supports any OpenAI-compatible provider with either Completions or Responses API endpoints
-- **Tool use** — Built-in tools for `bash`, `grep`, `find`, `ls`, `read`, `write`, and `edit`
-- **Image support** — Attach images to prompts for multimodal models (bmp, gif, jpeg, png, webp)
-- **Skills & prompt templates** — Auto-discovered from user and project directories; manual loading via CLI flags
-- **Thinking/reasoning visibility** — Toggle display of model chain-of-thought
-- **Context window management** — Automatic compaction and truncation
-- **Cross-platform** — macOS, Linux, and Windows support with cross-compilation
+- **Interactive TUI** - Full terminal UI with syntax-highlighted markdown, multi-line editor with word-level cursor navigation, undo support, and keyboard-driven session/model pickers
+- **Print mode** - Send a prompt and get the response printed to stdout, then exit
+- **RPC mode** - JSON-RPC over stdin/stdout for programmatic integration
+- **Provider support** - Supports any OpenAI-compatible provider with either Completions or Responses API endpoints
+- **Tool use** - Built-in tools for `bash`, `grep`, `find`, `ls`, `read`, `write`, and `edit`
+- **Image support** - Attach images to prompts for multimodal models (bmp, gif, jpeg, png, webp)
+- **Skills & prompt templates** - Auto-discovered from user and project directories; manual loading via CLI flags
+- **Thinking/reasoning visibility** - Toggle display of model chain-of-thought
+- **Context window management** - Automatic compaction and truncation
 
-## Installation
+## ⬇️ Installation
+
+### From registry
+
+```bash
+cargo install --index "sparse+https://git.smalls.online/api/packages/smalls/cargo/" hallucinate-cli
+```
 
 ### From source
 
 ```bash
-cargo install --path ./crates/hallucinate
+cargo install --path ./crates/hallucinate-cli
 ```
 
 ### Build manually
@@ -38,9 +48,9 @@ make build-release-artifacts
 ### Requirements
 
 - Rust 1.85+ (uses edition 2024)
-- A supported LLM provider API key
+- A supported LLM provider API and API key
 
-## Quick Start
+## 🏃 Quick Start
 
 For full documentation on how to use `hallucinate`, [click here](docs/README.md).
 
@@ -81,19 +91,19 @@ hallucinate auth remove <provider>
 hallucinate
 ```
 
-### 4. Print mode — one-shot prompt
+### 4. Print mode - one-shot prompt
 
 ```bash
 hallucinate print "Explain why metalcore music is sometimes referred to as unga-bunga music"
 ```
 
-### 5. RPC mode — JSON-RPC over stdin/stdout
+### 5. RPC mode - JSON-RPC over stdin/stdout
 
 ```bash
 hallucinate rpc
 ```
 
-## Usage
+## 💻 Usage
 
 ```text
 hallucinate [OPTIONS] [COMMAND]
@@ -123,70 +133,7 @@ Options:
   -V, --version                             Print version
 ```
 
-## Authentication
-
-Providers are managed via the `auth` subcommand. Keys are stored securely and resolved through environment variables (e.g., `HALLUCINATE_OPENAI_API_KEY`).
-
-```bash
-hallucinate auth set <provider> [--api-key <KEY>]
-hallucinate auth remove <provider>
-hallucinate auth list
-```
-
-## Configuration
-
-Settings are loaded from the application's config directory. You can override individual settings via CLI flags.
-
-The built-in system prompt can be replaced with a `SYSTEM.md` file in the application's global config directory. A project-level `AGENTS.md` in the working directory is appended to the system prompt. Interactive sessions show any discovered prompt files under the `Context` section when they start.
-
-Project-local settings overrides are also supported.
-
-## Modes
-
-### Interactive Mode
-
-Full terminal UI with:
-
-- Syntax-highlighted markdown rendering with dimmed code blocks
-- Multi-line editor with word-level cursor navigation, undo/redo, and Shift+Enter for newlines
-- Keyboard-driven session picker and model picker overlays
-- Slash-command autocomplete (accept with Enter)
-- Merged transcript cards for consecutive assistant turns
-- Session management with fork support
-
-### Print Mode
-
-Send a prompt and receive the full response on stdout. Ideal for scripting and CI pipelines.
-
-```bash
-hallucinate print "What files are in the current directory?"
-```
-
-### RPC Mode
-
-Exposes a JSON-RPC interface over stdin/stdout for integration with editors, CI systems, or other tools.
-
-## Skills & Prompt Templates
-
-### Skills
-
-Load custom skill definitions from Markdown files or directories:
-
-```bash
-hallucinate --skill ./skills/git/SKILL.md --skill ./skills/release/
-```
-
-### Prompt Templates
-
-Load reusable prompt templates:
-
-```bash
-hallucinate --prompt-template ./prompts/review.md
-```
-
-Both skills and prompt templates are auto-discovered from user and project directories unless disabled with `--no-skills` and `--no-prompt-templates`.
-
-## Build
+## 🏗️ Build
 
 | Target | Command |
 | --- | --- |
@@ -197,27 +144,19 @@ Both skills and prompt templates are auto-discovered from user and project direc
 | Check for errors | `make check` |
 | Clean | `make clean` |
 
-## Project Structure
+## 📂 Project Structure
 
 The project is a Cargo workspace with four crates:
 
-```text
-crates/
-├── hallucinate-cli/         # CLI parsing and print/RPC/interactive startup
-├── hallucinate-agent/       # Provider contracts, runtime, tools, config, skills
-├── hallucinate-session/     # CLI-oriented JSONL session persistence
-└── hallucinate-tui/         # Terminal primitives and interactive controller
-```
-
 | Crate | Description |
 | --- | --- |
-| `hallucinate-cli` | CLI binary — argument parsing and run-mode startup policy |
-| `hallucinate-agent` | Agent core — LLM provider abstraction, runtime, tools, config, and skills |
+| `hallucinate-cli` | CLI binary - argument parsing and run-mode startup policy |
+| `hallucinate-agent` | Agent core - LLM provider abstraction, runtime, tools, config, and skills |
 | `hallucinate-session` | CLI-oriented append-only JSONL session persistence and lifecycle archival |
-| `hallucinate-tui` | Terminal UI and interactive controller — rendering, editor, input, and commands |
+| `hallucinate-tui` | Terminal UI and interactive controller - rendering, editor, input, and commands |
 
-## License
+## 🤝 License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
 Copyright (c) 2026 Smalls.Online (Timothy Small)
