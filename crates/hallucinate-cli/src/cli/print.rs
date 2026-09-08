@@ -96,7 +96,8 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
     context = context.with_system_prompt(system_prompt);
 
     // Build stream options
-    let mut options = StreamOptions::new();
+    let mut options = StreamOptions::new().with_include_usage(true);
+
     if let Some(api_key) = args.api_key.as_deref().filter(|key| !key.is_empty()) {
         options = options.with_api_key(api_key);
     }

@@ -1466,6 +1466,13 @@ impl OpenaiCompatProvider {
         // Streaming
         body.insert("stream".into(), true.into());
 
+        if let Some(include_usage) = options.include_usage {
+            let mut stream_opts = serde_json::Map::new();
+            stream_opts.insert("include_usage".into(), serde_json::json!(include_usage));
+
+            body.insert("stream_options".into(), stream_opts.into());
+        }
+
         serde_json::Value::Object(body)
     }
 

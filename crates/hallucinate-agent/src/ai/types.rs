@@ -682,6 +682,9 @@ pub struct StreamOptions {
     /// Session identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Include usage data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_usage: Option<bool>,
     /// Signal used to stop the HTTP request when the owning agent is
     /// cancelled. This is local runtime state and is never serialized.
     #[serde(skip)]
@@ -714,6 +717,14 @@ impl StreamOptions {
         max: u32,
     ) -> Self {
         self.max_tokens = Some(max);
+        self
+    }
+
+    pub fn with_include_usage(
+        mut self,
+        include: bool,
+    ) -> Self {
+        self.include_usage = Some(include);
         self
     }
 

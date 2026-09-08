@@ -684,7 +684,7 @@ impl Agent {
         self.turn_context = Some(TurnContext::new(turn_number));
 
         // Build stream options
-        let mut options = StreamOptions::new();
+        let mut options = StreamOptions::new().with_include_usage(true);
 
         if let Some(temp) = self.config.temperature {
             options = options.with_temperature(temp);
