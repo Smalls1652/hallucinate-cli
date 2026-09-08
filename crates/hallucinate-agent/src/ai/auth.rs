@@ -58,10 +58,10 @@ pub fn remove_stored_credential(provider_id: &str) -> anyhow::Result<()> {
 /// the native Windows keyring. In tests a mock store is used.
 pub fn set_platform_keyring() -> anyhow::Result<()> {
     let store = cfg_select! {
+        test => keyring_core::mock::Store::new()?,
         target_os = "macos" => apple_native_keyring_store::keychain::Store::new()?,
         target_os = "linux" => linux_keyutils_keyring_store::Store::new()?,
         target_os = "windows" => windows_native_keyring_store::Store::new()?,
-        test => keyring_core::mock::Store::new()?,
         _ => panic!("Unsupported platform :("),
     };
 
