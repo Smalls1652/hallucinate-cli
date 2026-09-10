@@ -52,6 +52,8 @@ pub enum MessageRole {
     Tool,
     /// A system-level instruction.
     System,
+    /// An error produced by the agent or TUI.
+    Error,
 }
 
 /// A tool call in a message.

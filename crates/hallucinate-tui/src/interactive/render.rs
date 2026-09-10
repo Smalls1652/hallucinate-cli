@@ -302,6 +302,7 @@ fn render_transcript(
                     MessageRole::Assistant => (Color::LightCyan, "✦", "Assistant"),
                     MessageRole::Tool => (Color::LightMagenta, "⚙", "Tool"),
                     MessageRole::System => (Color::DarkGray, "·", "Notice"),
+                    MessageRole::Error => (Color::LightRed, "✗", "Error"),
                 };
 
                 let muted = Style::default().fg(Color::DarkGray);

@@ -53,7 +53,13 @@ impl InteractiveTui {
                             // Response complete, ready for next input
                         },
                         AgentState::Error(msg) => {
-                            self.show_notice(format!("❌ Error: {}", msg));
+                            self.transcript.add_message(TuiMessage {
+                                role: MessageRole::Error,
+                                content: msg.clone(),
+                                thinking: String::new(),
+                                tool_calls: Vec::new(),
+                                timestamp: chrono::Utc::now(),
+                            });
                         },
                         AgentState::Aborted => {
                             self.show_notice("Agent aborted.");
@@ -152,6 +158,16 @@ impl InteractiveTui {
 
                 AgentEvent::TurnCompleted { .. } => {
                     self.session_manager.touch();
+                },
+
+                AgentEvent::Error { message } => {
+                    self.transcript.add_message(TuiMessage {
+                        role: MessageRole::Error,
+                        content: message.clone(),
+                        thinking: String::new(),
+                        tool_calls: Vec::new(),
+                        timestamp: chrono::Utc::now(),
+                    });
                 },
 
                 _ => {},
