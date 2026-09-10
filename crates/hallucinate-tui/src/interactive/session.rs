@@ -65,20 +65,12 @@ impl InteractiveTui {
                 AgentEvent::AssistantTextDelta { delta, .. } => {
                     let index = self.ensure_streaming_assistant_message();
                     self.transcript.append_to_message(index, delta);
-                    self.token_count = self
-                        .token_count
-                        .saturating_add(estimate_streamed_text_tokens(delta));
-                    self.token_count_is_estimated = true;
                     received_delta = true;
                 },
 
                 AgentEvent::AssistantThinkingDelta { delta } => {
                     let index = self.ensure_streaming_assistant_message();
                     self.transcript.append_thinking_to_message(index, delta);
-                    self.token_count = self
-                        .token_count
-                        .saturating_add(estimate_streamed_text_tokens(delta));
-                    self.token_count_is_estimated = true;
                     received_delta = true;
                 },
 
@@ -412,14 +404,6 @@ pub(super) fn transcript_from_messages(messages: &[Message]) -> TranscriptRender
     }
 
     transcript
-}
-
-/// Estimate the incremental context cost of streamed text.
-///
-/// The completed message event replaces this provisional count with the
-/// agent's complete message estimate, including wire framing and tool calls.
-fn estimate_streamed_text_tokens(text: &str) -> u64 {
-    (text.len() as u64).div_ceil(3)
 }
 
 /// Convert an agent response into the transcript representation.

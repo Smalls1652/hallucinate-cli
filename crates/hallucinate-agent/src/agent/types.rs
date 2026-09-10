@@ -1,9 +1,10 @@
 //! Agent-specific types: states, events, and configuration.
 
-use std::fmt;
+use std::{fmt, sync::LazyLock};
 
 use base64::Engine;
 use image::GenericImageView;
+use tokenizers::{Tokenizer, models::wordlevel::WordLevel, pre_tokenizers::whitespace::Whitespace};
 
 use crate::ai::types::{
     AssistantMessage,
@@ -375,12 +376,23 @@ pub struct PendingToolCall {
 /// Provider-neutral token estimator used for context pressure decisions.
 ///
 /// There is no dependable universal tokenizer for the OpenAI-compatible and
-/// custom models supported by this crate. This estimator deliberately uses the
-/// same conservative byte-based policy for every provider, so compaction
-/// occurs before an unknown provider context window is exceeded rather than
-/// after it.
+/// custom models supported by this crate. This estimator uses `tokenizers` to
+/// split text into words and punctuation, then estimates each piece's subword
+/// cost conservatively. This is more representative than counting raw bytes
+/// while remaining independent of a particular provider's tokenizer.
 #[derive(Debug, Default)]
 pub struct TokenEstimator;
+
+/// Tokenize lexical pieces consistently before estimating their subword cost.
+///
+/// The word-level model intentionally maps every piece to its unknown token:
+/// its vocabulary is not used for counting, while its pre-tokenizer supplies
+/// the stable word-and-punctuation boundaries used by the estimate.
+static ESTIMATION_TOKENIZER: LazyLock<Tokenizer> = LazyLock::new(|| {
+    let mut tokenizer = Tokenizer::new(WordLevel::default());
+    tokenizer.with_pre_tokenizer(Some(Whitespace));
+    tokenizer
+});
 
 impl TokenEstimator {
     /// Create an estimator for `model`.
@@ -468,7 +480,7 @@ impl TokenEstimator {
         system_tokens + tool_tokens
     }
 
-    /// Estimate tokens with a provider-neutral conservative byte policy.
+    /// Estimate tokens using tokenizer-defined lexical boundaries.
     fn estimate_text_tokens(
         &self,
         text: &str,
@@ -477,10 +489,26 @@ impl TokenEstimator {
             return 0;
         }
 
-        // Three bytes per token is intentionally more conservative than the
-        // legacy four-character approximation, especially for CJK text,
-        // emoji, JSON, and provider-specific tokenizers.
-        (text.len() as u64).div_ceil(3)
+        let Ok(encoding) = ESTIMATION_TOKENIZER.encode(text, false) else {
+            // Encoding with the built-in tokenizer is expected to succeed.
+            // Retain a conservative fallback in case that invariant changes.
+            return (text.len() as u64).div_ceil(3);
+        };
+
+        encoding
+            .get_offsets()
+            .iter()
+            .map(|(start, end)| {
+                // Four bytes per subword is a conservative approximation for
+                // the provider tokenizer after lexical splitting. Each
+                // tokenizer-produced word or punctuation piece costs at least
+                // one token.
+                u64::try_from(end.saturating_sub(*start))
+                    .unwrap_or(u64::MAX)
+                    .div_ceil(4)
+                    .max(1)
+            })
+            .sum()
     }
 
     /// Estimate a serialized JSON value without retaining the temporary
@@ -539,10 +567,10 @@ mod tests {
     fn fallback_estimator_handles_ascii_cjk_emoji_and_json() {
         let estimator = TokenEstimator::fallback();
 
-        assert_eq!(estimator.estimate_text_tokens("Hello"), 2);
+        assert_eq!(estimator.estimate_text_tokens("Hello, world!"), 5);
         assert_eq!(estimator.estimate_text_tokens(""), 0);
-        assert!(estimator.estimate_text_tokens("こんにちは") >= 5);
-        assert!(estimator.estimate_text_tokens("😀😀😀") >= 4);
+        assert!(estimator.estimate_text_tokens("こんにちは") >= 4);
+        assert!(estimator.estimate_text_tokens("😀😀😀") >= 3);
         assert!(estimator.estimate_json_tokens(&serde_json::json!({"command": "echo hello"})) > 0);
     }
 
