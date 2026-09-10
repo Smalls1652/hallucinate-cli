@@ -104,6 +104,8 @@ pub struct InteractiveTui {
     session_title_settings: SessionTitleSettings,
     /// Agent waiting for a before-response title request to complete.
     pending_title_agent: Option<Agent>,
+    /// Whether a before-response session-title request is in progress.
+    title_generation_in_progress: bool,
     /// Whether the current session is eligible to receive a generated title.
     title_generation_pending: bool,
     /// The transcript entry receiving content from the current assistant
@@ -364,6 +366,7 @@ impl InteractiveTui {
             title_completion_rx,
             session_title_settings,
             pending_title_agent: None,
+            title_generation_in_progress: false,
             title_generation_pending,
             streaming_message_index: None,
             streaming_tool_call_indices: HashMap::new(),

@@ -661,6 +661,8 @@ impl InteractiveTui {
 
             if self.session_title_settings.generation_mode == SessionTitleGenerationMode::Before {
                 self.pending_title_agent = Some(agent);
+                self.title_generation_in_progress = true;
+                self.render_state.status = true;
                 tokio::spawn(async move {
                     let result = generate_title.await.map_err(|error| error.to_string());
                     let _ = title_completion_tx.send(super::SessionTitleCompletion { result });

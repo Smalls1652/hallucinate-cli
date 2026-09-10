@@ -241,6 +241,8 @@ impl InteractiveTui {
 
         while let Ok(completion) = self.title_completion_rx.try_recv() {
             completed_title = true;
+            self.title_generation_in_progress = false;
+            self.render_state.status = true;
 
             match completion.result {
                 Ok(title) => {

@@ -165,6 +165,7 @@ impl InteractiveTui {
                 self.token_count_is_estimated,
                 &self.model,
                 self.show_thinking,
+                self.title_generation_in_progress,
                 self.notice.as_ref(),
             );
 
@@ -819,15 +820,20 @@ fn render_status_bar(
     token_count_is_estimated: bool,
     model: &hallucinate_agent::ai::types::Model,
     show_thinking: bool,
+    title_generation_in_progress: bool,
     notice: Option<&super::EphemeralNotice>,
 ) {
-    let state_str = match agent_state {
-        AgentState::Idle => "idle".to_string(),
-        AgentState::Streaming => "streaming...".to_string(),
-        AgentState::ToolExecuting => "executing tools...".to_string(),
-        AgentState::TurnComplete => "idle".to_string(),
-        AgentState::Error(message) => format!("error: {}", message),
-        AgentState::Aborted => "aborted".to_string(),
+    let state_str = if title_generation_in_progress {
+        "generating title...".to_string()
+    } else {
+        match agent_state {
+            AgentState::Idle => "idle".to_string(),
+            AgentState::Streaming => "streaming...".to_string(),
+            AgentState::ToolExecuting => "executing tools...".to_string(),
+            AgentState::TurnComplete => "idle".to_string(),
+            AgentState::Error(message) => format!("error: {}", message),
+            AgentState::Aborted => "aborted".to_string(),
+        }
     };
 
     let session_id = session_manager
