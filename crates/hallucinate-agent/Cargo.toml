@@ -34,7 +34,7 @@ uuid.workspace = true
 mockito.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-linux-keyutils-keyring-store.workspace = true
+zbus-secret-service-keyring-store = { workspace = true, features = ["crypto-rust"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { workspace = true, features = ["keychain"] }
