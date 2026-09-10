@@ -824,7 +824,7 @@ fn render_status_bar(
         AgentState::Idle => "idle".to_string(),
         AgentState::Streaming => "streaming...".to_string(),
         AgentState::ToolExecuting => "executing tools...".to_string(),
-        AgentState::TurnComplete => "response complete".to_string(),
+        AgentState::TurnComplete => "idle".to_string(),
         AgentState::Error(message) => format!("error: {}", message),
         AgentState::Aborted => "aborted".to_string(),
     };
