@@ -595,6 +595,34 @@ impl InteractiveTui {
         });
     }
 
+    /// Add an error message to the transcript once. The agent normally emits
+    /// an error event before its background task completes, while some
+    /// operations only report their failure through task completion.
+    fn add_error_message(
+        &mut self,
+        content: impl Into<String>,
+    ) {
+        let content = content.into();
+
+        if self
+            .transcript
+            .messages()
+            .last()
+            .is_some_and(|message| message.role == MessageRole::Error && message.content == content)
+        {
+            return;
+        }
+
+        self.transcript.add_message(TuiMessage {
+            role: MessageRole::Error,
+            content,
+            thinking: String::new(),
+            tool_calls: Vec::new(),
+            timestamp: chrono::Utc::now(),
+        });
+        self.render_state.transcript = true;
+    }
+
     /// Add a compaction checkpoint as a synthetic tool result. The regular
     /// full-tool-output toggle controls whether the complete checkpoint is
     /// expanded or rendered as a compact preview.

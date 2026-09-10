@@ -52,15 +52,11 @@ impl InteractiveTui {
                         AgentState::TurnComplete => {
                             // Response complete, ready for next input
                         },
-                        AgentState::Error(msg) => {
-                            self.transcript.add_message(TuiMessage {
-                                role: MessageRole::Error,
-                                content: msg.clone(),
-                                thinking: String::new(),
-                                tool_calls: Vec::new(),
-                                timestamp: chrono::Utc::now(),
-                            });
-                        },
+                        // Error details arrive in the matching `Error` event
+                        // and belong in the transcript rather than the
+                        // status bar. State changes only update the lifecycle
+                        // indicator.
+                        AgentState::Error(_) => {},
                         AgentState::Aborted => {
                             self.show_notice("Agent aborted.");
                         },
@@ -160,15 +156,7 @@ impl InteractiveTui {
                     self.session_manager.touch();
                 },
 
-                AgentEvent::Error { message } => {
-                    self.transcript.add_message(TuiMessage {
-                        role: MessageRole::Error,
-                        content: message.clone(),
-                        thinking: String::new(),
-                        tool_calls: Vec::new(),
-                        timestamp: chrono::Utc::now(),
-                    });
-                },
+                AgentEvent::Error { message } => self.add_error_message(message),
 
                 _ => {},
             }
@@ -335,15 +323,12 @@ impl InteractiveTui {
             }
 
             if let Err(error) = result {
-                if operation == Some(AgentRunOperation::Compact) {
-                    self.add_system_message(format!("Context compaction failed: {error}"));
-                }
+                // Most failed runs emit `AgentEvent::Error` before their task
+                // completion arrives. Manual compaction only changes state,
+                // however, so record the completion error as a fallback.
+                self.add_error_message(&error);
 
                 if !matches!(self.agent_state, AgentState::Aborted | AgentState::Error(_)) {
-                    // The matching Error/Aborted event has already been
-                    // consumed by process_events; the
-                    // status bar is the single visible
-                    // error presentation here.
                     self.agent_state = AgentState::Error(error);
                 }
             } else if operation == Some(AgentRunOperation::Compact) {
