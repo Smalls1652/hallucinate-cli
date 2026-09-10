@@ -29,13 +29,13 @@ An LLM terminal agent harness. A lot like [pi](https://github.com/earendil-works
 ### From registry
 
 ```bash
-cargo install --index "sparse+https://git.smalls.online/api/packages/smalls/cargo/" hallucinate-cli
+cargo install --index "sparse+https://git.smalls.online/api/packages/smalls/cargo/" hallucinate
 ```
 
 ### From source
 
 ```bash
-cargo install --path ./crates/hallucinate-cli
+cargo install --path ./crates/hallucinate
 ```
 
 ### Build manually
@@ -150,7 +150,7 @@ The project is a Cargo workspace with four crates:
 
 | Crate | Description |
 | --- | --- |
-| `hallucinate-cli` | CLI binary - argument parsing and run-mode startup policy |
+| `hallucinate` | CLI binary - argument parsing and run-mode startup policy |
 | `hallucinate-agent` | Agent core - LLM provider abstraction, runtime, tools, config, and skills |
 | `hallucinate-session` | CLI-oriented append-only JSONL session persistence and lifecycle archival |
 | `hallucinate-tui` | Terminal UI and interactive controller - rendering, editor, input, and commands |

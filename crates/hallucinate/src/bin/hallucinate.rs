@@ -1,13 +1,11 @@
-//! Hallucinate CLI - AI coding agent powered by LLMs.
+//! Hallucinate CLI - Terminal-based AI agent
 //!
 //! A terminal-based AI assistant that supports interactive, print, and RPC
 //! modes.
 
-mod cli;
-mod logging;
 
 use clap::Parser;
-use cli::Cli;
+use hallucinate::cli::Cli;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -17,7 +15,7 @@ async fn main() -> Result<(), anyhow::Error> {
     hallucinate_agent::config::paths::ensure_directories()?;
 
     if cli.debug
-        && let Some(path) = logging::init_debug_logging()?
+        && let Some(path) = hallucinate::logging::init_debug_logging()?
     {
         let project_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         eprintln!(

@@ -1230,6 +1230,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "hallucinate"
+version = "0.2.2"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap_complete",
+ "futures",
+ "hallucinate-agent",
+ "hallucinate-session",
+ "hallucinate-tui",
+ "mockito",
+ "rpassword",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "hallucinate-agent"
 version = "0.2.2"
 dependencies = [
@@ -1256,26 +1276,6 @@ dependencies = [
  "tracing",
  "uuid",
  "windows-native-keyring-store",
-]
-
-[[package]]
-name = "hallucinate-cli"
-version = "0.2.2"
-dependencies = [
- "anyhow",
- "clap",
- "clap_complete",
- "futures",
- "hallucinate-agent",
- "hallucinate-session",
- "hallucinate-tui",
- "mockito",
- "rpassword",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

@@ -2,18 +2,18 @@
 
 ## Project Overview
 
-**hallucinate-cli** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search), session management, skills, prompt templates, and multiple run modes (interactive, print, RPC).
+**hallucinate** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search), session management, skills, prompt templates, and multiple run modes (interactive, print, RPC).
 
 This is a **Cargo workspace** with four crates:
 
 | Crate | Path | Description | Publish |
 | --- | --- | --- | --- |
-| `hallucinate-cli` | `crates/hallucinate-cli` | CLI binary — entry point, argument parsing, run modes, session management, logging | `smalls-personal` |
+| `hallucinate` | `crates/hallucinate` | CLI binary — entry point, argument parsing, run modes, session management, logging | `smalls-personal` |
 | `hallucinate-agent` | `crates/hallucinate-agent` | Agent core library — LLM provider abstraction, agent runtime, tools, config, skills, prompt templates | `smalls-personal` |
 | `hallucinate-session` | `crates/hallucinate-session` | CLI-oriented JSONL session persistence and lifecycle archival | `smalls-personal` |
 | `hallucinate-tui` | `crates/hallucinate-tui` | Terminal UI and interactive controller — ratatui rendering, editor, input, commands | `smalls-personal` |
 
-**Dependency graph**: `hallucinate-tui` → `hallucinate-agent` · `hallucinate-cli` → `hallucinate-agent` + `hallucinate-tui` + `hallucinate-session`
+**Dependency graph**: `hallucinate-tui` → `hallucinate-agent` · `hallucinate` → `hallucinate-agent` + `hallucinate-tui` + `hallucinate-session`
 
 Key features:
 
@@ -65,7 +65,7 @@ cargo build
 # Build release
 make build-release
 # or
-cargo build --release --package hallucinate-cli
+cargo build --release --package hallucinate
 
 # Run the binary
 cargo run
@@ -84,19 +84,22 @@ make check
 
 ```plain
 crates/
-├── hallucinate-cli/         # CLI binary crate
+├── hallucinate/         # CLI binary crate (library + binary)
+│   ├── Cargo.toml
 │   ├── src/
-│   │   ├── main.rs          # CLI entry point
+│   │   ├── lib.rs           # Library crate root, re-exports
+│   │   ├── bin/
+│   │   │   └── hallucinate.rs  # CLI entry point
 │   │   ├── cli/             # CLI commands (args, subcommands, modes)
 │   │   │   ├── mod.rs       # Argument parsing (clap derive, subcommands)
 │   │   │   ├── auth.rs      # Auth CLI subcommand handler
+│   │   │   ├── completions.rs  # Shell completions generation
 │   │   │   ├── interactive.rs # Interactive TUI startup
 │   │   │   ├── print.rs     # Print mode (-p "prompt")
 │   │   │   └── rpc.rs       # RPC mode (JSON-RPC)
 │   │   └── logging.rs       # Tracing/logging setup
-|   ├── tests/
-|   |   |   └── rpc.rs       # RPC integration tests
-│   └── Cargo.toml
+│   └── tests/
+│       └── rpc.rs           # RPC integration tests
 ├── hallucinate-agent/       # Agent core library crate
 │   ├── src/
 │   │   ├── lib.rs           # Crate root, re-exports
@@ -217,12 +220,12 @@ cargo +nightly fmt -- --emit files
 cargo test
 
 # Run tests in a specific crate
-cargo test -p hallucinate-cli
+cargo test -p hallucinate
 cargo test -p hallucinate-agent
 cargo test -p hallucinate-tui
 
 # Run a specific test
-cargo test -p hallucinate-cli specific_test_name
+cargo test -p hallucinate specific_test_name
 
 # Run tests with output
 cargo test -- --nocapture

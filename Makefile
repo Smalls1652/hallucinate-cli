@@ -1,5 +1,5 @@
 # Define package variables
-PACKAGE_NAME := hallucinate-cli
+PACKAGE_NAME := hallucinate
 PACKAGE_BINARY := hallucinate
 
 # Define project directory variables
@@ -149,7 +149,7 @@ build-release-artifacts:
 
 # Perform a release install from the repo.
 install:
-	@cargo install --path "./crates/hallucinate-cli" --locked
+	@cargo install --path "./crates/hallucinate" --locked
 
 # Clean the Rust target directory.
 clean:
@@ -160,6 +160,10 @@ clean:
 # Format all code in the project.
 format:
 	@cargo +nightly fmt -- --emit files
+
+# Run tests.
+test:
+	@cargo test --workspace --all-targets
 
 # Check for errors.
 check:

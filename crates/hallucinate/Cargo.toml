@@ -1,5 +1,5 @@
 [package]
-name = "hallucinate-cli"
+name = "hallucinate"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
@@ -15,7 +15,7 @@ default-run = "hallucinate"
 
 [[bin]]
 name = "hallucinate"
-path = "src/main.rs"
+path = "src/bin/hallucinate.rs"
 
 [dependencies]
 hallucinate-agent.workspace = true
