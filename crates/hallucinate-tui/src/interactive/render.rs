@@ -52,6 +52,12 @@ impl ratatui::widgets::Widget for TranscriptViewport<'_> {
         area: Rect,
         buffer: &mut ratatui::buffer::Buffer,
     ) {
+        // Unlike Paragraph, this lightweight viewport does not render trailing
+        // spaces for every row. Clear its complete area first so shorter rows,
+        // blank rows, and rows which disappear after a scroll cannot leave
+        // cells from the preceding frame on screen.
+        ratatui::widgets::Clear.render(area, buffer);
+
         for (row, line) in self
             .lines
             .iter()
@@ -1794,6 +1800,27 @@ mod tests {
 
         assert_eq!(buffer.cell((0, 0)).unwrap().symbol(), "s");
         assert_eq!(buffer.cell((0, 1)).unwrap().symbol(), "t");
+    }
+
+    #[test]
+    fn cached_viewport_clears_cells_not_covered_by_shorter_rows() {
+        let lines = vec![Line::from("short")];
+        let area = Rect::new(0, 0, 10, 2);
+        let mut buffer = ratatui::buffer::Buffer::empty(area);
+        buffer.cell_mut((8, 0)).unwrap().set_symbol("x");
+        buffer.cell_mut((0, 1)).unwrap().set_symbol("y");
+
+        ratatui::widgets::Widget::render(
+            TranscriptViewport {
+                lines: &lines,
+                scroll: 0,
+            },
+            area,
+            &mut buffer,
+        );
+
+        assert_eq!(buffer.cell((8, 0)).unwrap().symbol(), " ");
+        assert_eq!(buffer.cell((0, 1)).unwrap().symbol(), " ");
     }
 
     #[test]
