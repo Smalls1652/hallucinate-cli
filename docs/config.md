@@ -26,6 +26,7 @@ Complete reference for all configuration options in `hallucinate`.
 | `session_title.model` | `string` | Active model | Model selector used to generate session titles. |
 | `session_title.generation_mode` | `string` | `"parallel"` | Generate alongside (`parallel`) or before (`before`) the first response. |
 | `providers` | `table` | — | Multi-provider model definitions. |
+| `mcp_servers` | `table` | — | Local stdio or remote HTTP MCP servers whose discovered tools are added to the agent. |
 | `provider_headers` | `table` | — | Extra HTTP headers for the default provider. |
 
 ## Settings File Location
@@ -92,8 +93,6 @@ output = 10.00
 | --- | --- |
 | `openai-completions` | Chat Completions wire format. |
 | `openai-responses` | Responses API wire format. |
-
-
 
 ## Global Settings
 
@@ -227,6 +226,63 @@ generation_mode = "parallel" # or "before"
 `generation_mode = "parallel"` (the default), title generation and the first
 agent response run concurrently. `"before"` saves the generated title before
 starting the first agent response.
+
+### `mcp_servers`
+
+MCP servers may be either local stdio processes (`command`) or remote streamable HTTP endpoints (`url`). Exactly one transport field is required. Hallucinate starts or connects to each configured server when an interactive or RPC agent is created, initializes it, and adds the tools returned by `tools/list`. By default, tools retain their remote names after non-alphanumeric characters are converted to `_`. If an MCP tool name collides with a built-in tool or a tool from another MCP server, startup fails; set `tool_prefix` to disambiguate the server's tools.
+
+```toml
+# Local stdio server
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+env = { LOG_LEVEL = "warn" }
+tool_prefix = "fs"
+
+# Containerized local stdio server. `-i` preserves JSON-RPC stdin and
+# `--rm` removes the container when Hallucinate stops the runtime command.
+[mcp_servers.filesystem_container]
+command = "docker"
+args = [
+  "run", "-i", "--rm",
+  "--mount", "type=bind,src=/path/to/workspace,dst=/workspace",
+  "mcp/filesystem", "/workspace",
+]
+tool_prefix = "container_fs"
+
+# Remote streamable HTTP server with no authentication
+[mcp_servers.example]
+url = "https://mcp.example.com/mcp"
+auth = { type = "no-auth" }
+tool_prefix = "example"
+
+# Remote server using an Authorization: Bearer API key
+[mcp_servers.protected]
+url = "https://mcp.protected.example/mcp"
+auth = { type = "api-key", api_key = "replace-me" }
+tool_prefix = "protected"
+
+# API keys can also use a vendor-specific header and no prefix.
+[mcp_servers.vendor]
+url = "https://mcp.vendor.example/mcp"
+auth = { type = "api-key", api_key = "replace-me", header = "X-API-Key", prefix = "" }
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `command` | `string` | Executable used to start a local server over stdio, including a container runtime such as `docker`, `podman`, or `nerdctl`. Mutually exclusive with `url`. |
+| `args` | `array` | Command-line arguments passed to a local server. |
+| `env` | `table` | Environment variables added to a local server process. |
+| `url` | `string` | `http` or `https` streamable HTTP endpoint for a remote server. Mutually exclusive with `command`. |
+| `tool_prefix` | `string` | Optional prefix prepended to each tool name. Set this when unprefixed names would collide. |
+| `auth.type` | `"no-auth"` or `"api-key"` | Remote authentication mode. Defaults to `"no-auth"`. |
+| `auth.api_key` | `string` | API key sent when `auth.type = "api-key"`. |
+| `auth.header` | `string` | API-key HTTP header; defaults to `Authorization`. |
+| `auth.prefix` | `string` | Text prepended to the key; defaults to `Bearer`. |
+
+MCP server processes inherit the application's current environment except for values explicitly overridden by `env`. A local command is executed directly rather than through a shell, so put every container-runtime option in `args`; shell quoting, pipes, and variable expansion are not applied. For a containerized stdio server, use the runtime's stdin/attach option (for Docker-compatible runtimes, `run -i`) and avoid allocating a TTY (`-t`), which can alter the JSON-RPC byte stream. Use the runtime's cleanup option where available (for Docker-compatible runtimes, `--rm`).
+
+The `env` table sets variables for the local command process. Container runtimes do not generally forward them to the container automatically; pass them explicitly through runtime arguments such as `-e NAME` or `--env-file` (and arrange any required host environment value). Remote servers support no authentication (the default) or API-key authentication. API-key authentication sends `Authorization: Bearer <key>` by default; configure `auth.header` and `auth.prefix` for services using a different header format. API keys are currently stored in the settings file, so protect its file permissions.
 
 ### `provider_headers`
 
@@ -438,6 +494,12 @@ auto_resize_images = true
 max_turns = 120
 enable_tools = true
 enable_compaction = true
+show_thinking = false
+
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
 show_thinking = false
 temperature = 0.7
 max_tokens = 32_768

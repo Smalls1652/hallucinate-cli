@@ -528,15 +528,18 @@ mod tests {
     }
 
     #[test]
-    fn unknown_tool_falls_back_to_raw_json() {
+    fn mcp_tool_shows_its_name_and_arguments() {
         let call = ToolCall {
             id: "call-1".to_string(),
-            name: "custom_tool".to_string(),
-            arguments: serde_json::json!({ "foo": "bar" }),
+            name: "github_search_issues".to_string(),
+            arguments: serde_json::json!({ "query": "tool output" }),
             result: None,
         };
 
-        assert_eq!(call.human_readable(), r#"{"foo":"bar"}"#);
+        assert_eq!(
+            call.human_readable(),
+            r#"github_search_issues {"query":"tool output"}"#,
+        );
     }
 
     #[test]

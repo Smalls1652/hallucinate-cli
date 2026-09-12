@@ -176,6 +176,11 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub providers: HashMap<String, ProviderSettings>,
 
+    /// MCP servers whose stdio tools are exposed to the agent. Each map key
+    /// identifies a server and becomes part of its qualified tool names.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub mcp_servers: HashMap<String, crate::agent::tools::mcp::McpServerSettings>,
+
     /// Request timeout in milliseconds.
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
@@ -415,6 +420,7 @@ impl Default for Settings {
             shell_timeout: default_shell_timeout(),
             provider_headers: HashMap::new(),
             providers: HashMap::new(),
+            mcp_servers: HashMap::new(),
             timeout_ms: default_timeout_ms(),
             max_retries: default_max_retries(),
             auto_resize_images: default_auto_resize_images(),
@@ -805,6 +811,7 @@ mod tests {
         );
         assert_eq!(settings.shell.as_deref(), Some("/bin/bash"));
         assert_eq!(settings.shell_timeout, 60);
+        assert!(settings.mcp_servers.is_empty());
         assert_eq!(settings.timeout_ms, 30_000);
         assert!(!settings.auto_resize_images);
         assert_eq!(settings.temperature, Some(0.2));

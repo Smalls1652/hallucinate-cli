@@ -286,6 +286,30 @@ impl Agent {
         self.invalidate_context_base();
     }
 
+    /// Add all tools discovered from configured MCP servers.
+    ///
+    /// MCP tools use their remote names by default. A duplicate name—whether
+    /// from a built-in tool or another MCP server—causes registration to fail.
+    pub async fn add_mcp_servers(
+        &mut self,
+        servers: &std::collections::HashMap<String, crate::agent::tools::mcp::McpServerSettings>,
+    ) -> Result<(), anyhow::Error> {
+        let tools = crate::agent::tools::mcp::load_mcp_tools(servers).await?;
+
+        for tool in tools {
+            if self.tool_registry.get_tool(tool.name()).is_some() {
+                anyhow::bail!(
+                    "MCP tool name conflicts with an existing tool: {}",
+                    tool.name()
+                );
+            }
+            self.tool_registry.add_tool(tool);
+        }
+        self.invalidate_context_base();
+
+        Ok(())
+    }
+
     /// Update the working directory when resuming a session.
     pub fn set_cwd(
         &mut self,

@@ -87,6 +87,8 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
     .with_cwd(cwd.to_string_lossy().into_owned())
     .with_skills(loaded_skills.clone());
 
+    agent.add_mcp_servers(&settings.mcp_servers).await?;
+
     // Apply prompt overrides. Provider credentials and endpoint are resolved
     // when `create_provider` constructs the provider.
     if let Some(system_prompt) = &cli.system_prompt {

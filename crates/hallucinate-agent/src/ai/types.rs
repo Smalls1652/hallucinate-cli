@@ -158,8 +158,10 @@ impl ToolCall {
 
 /// Format a built-in tool call for presentation in a frontend transcript.
 ///
-/// Unknown tools and malformed historic arguments retain their JSON display so
-/// frontends do not need to duplicate formatting policy or discard details.
+/// Unknown tools retain both their name and JSON arguments. This lets frontends
+/// identify dynamically discovered tools, including tools supplied by MCP
+/// servers, without duplicating formatting policy. Malformed arguments for
+/// built-in tools retain their raw display.
 pub fn format_tool_call_summary(
     name: &str,
     arguments: &serde_json::Value,
@@ -196,7 +198,8 @@ pub fn format_tool_call_summary(
             .and_then(serde_json::Value::as_str)
             .map(|path| format!("ls {}", display_tool_path(path, cwd)))
             .unwrap_or_else(|| "ls .".to_string()),
-        _ => fallback,
+        _ if name.is_empty() => fallback,
+        _ => format!("{name} {fallback}"),
     }
 }
 
@@ -857,10 +860,17 @@ mod tests {
     }
 
     #[test]
-    fn unknown_tool_falls_back_to_json() {
-        let call = ToolCall::new("call-1", "custom_tool", serde_json::json!({"foo": "bar"}));
+    fn mcp_tool_shows_its_qualified_name_and_arguments() {
+        let call = ToolCall::new(
+            "call-1",
+            "github_search_issues",
+            serde_json::json!({"query": "tool output"}),
+        );
 
-        assert_eq!(call.human_readable(), r#"{"foo":"bar"}"#);
+        assert_eq!(
+            call.human_readable(),
+            r#"github_search_issues {"query":"tool output"}"#,
+        );
     }
 
     #[test]

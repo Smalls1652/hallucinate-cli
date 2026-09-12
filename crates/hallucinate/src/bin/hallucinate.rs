@@ -3,7 +3,6 @@
 //! A terminal-based AI assistant that supports interactive, print, and RPC
 //! modes.
 
-
 use clap::Parser;
 use hallucinate::cli::Cli;
 

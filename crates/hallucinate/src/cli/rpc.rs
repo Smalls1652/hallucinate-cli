@@ -355,6 +355,15 @@ async fn chat(
     )
     .with_cwd(session.cwd.clone());
 
+    if let Err(error) = agent.add_mcp_servers(&settings.mcp_servers).await {
+        return RpcResponse::error(
+            -32603,
+            "MCP server configuration failed",
+            id,
+            error.to_string(),
+        );
+    }
+
     if let Some(system_prompt) = &args.system_prompt {
         agent = agent.with_system_prompt(system_prompt.clone());
     }
