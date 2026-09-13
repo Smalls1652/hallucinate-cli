@@ -26,6 +26,7 @@ const SKIPPED_DIRECTORIES: &[&str] = &[
 pub enum WalkControl {
     /// Continue with the next candidate file.
     Continue,
+    
     /// Stop traversal because the caller's result budget is full.
     Stop,
 }
@@ -51,16 +52,25 @@ where
     F: FnMut(PathBuf) -> WalkControl,
 {
     let mut candidate_files = 0_usize;
+    
     walk_entries(root, true, limits, |path, file_type| {
         if !file_type.is_file() || !matches_pattern(root, &path, pattern) {
             return WalkControl::Continue;
         }
+    
         if candidate_files >= limits.max_candidate_files {
             return WalkControl::Stop;
         }
+    
         candidate_files += 1;
+    
         visit(path)
     })
+}
+
+enum Pending {
+    Directory(PathBuf),
+    Entry(PathBuf, fs::FileType),
 }
 
 /// Walk directory entries in deterministic lexical depth-first order.
@@ -83,18 +93,15 @@ where
             truncated: visit(root.to_path_buf(), file_type) == WalkControl::Stop,
         });
     }
+    
     if !root.is_dir() {
         return Ok(WalkStatus::default());
-    }
-
-    enum Pending {
-        Directory(PathBuf),
-        Entry(PathBuf, fs::FileType),
     }
 
     let mut status = WalkStatus::default();
     let mut directory_entries = 0_usize;
     let mut pending = vec![Pending::Directory(root.to_path_buf())];
+    
     while let Some(next) = pending.pop() {
         match next {
             Pending::Entry(path, file_type) => {
@@ -102,23 +109,29 @@ where
                     status.truncated = true;
                     return Ok(status);
                 }
+    
                 if recursive && file_type.is_dir() && !is_skipped_directory(&path) {
                     pending.push(Pending::Directory(path));
                 }
             },
+    
             Pending::Directory(directory) => {
                 let remaining_entries = limits
                     .max_directory_entries
                     .saturating_sub(directory_entries);
+    
                 if remaining_entries == 0 {
                     status.truncated = true;
                     break;
                 }
+    
                 let read_dir = match fs::read_dir(&directory) {
                     Ok(read_dir) => read_dir,
                     Err(_) => continue,
                 };
+    
                 let mut children = Vec::new();
+    
                 for entry in read_dir.take(remaining_entries + 1).flatten() {
                     if children.len() == remaining_entries {
                         status.truncated = true;
@@ -126,20 +139,25 @@ where
                     }
                     children.push(entry);
                 }
+    
                 directory_entries += children.len();
                 children.sort_by_key(|entry| entry.file_name());
+    
                 for entry in children.into_iter().rev() {
                     let path = entry.path();
+    
                     if let Ok(file_type) = entry.file_type() {
                         pending.push(Pending::Entry(path, file_type));
                     }
                 }
+    
                 if status.truncated {
                     break;
                 }
             },
         }
     }
+    
     Ok(status)
 }
 
@@ -157,6 +175,7 @@ fn matches_pattern(
     let Some(pattern) = pattern else {
         return true;
     };
+    
     let relative_path = path.strip_prefix(root).unwrap_or(path);
 
     pattern.matches_path(relative_path)

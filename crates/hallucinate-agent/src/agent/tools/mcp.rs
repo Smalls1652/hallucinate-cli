@@ -317,6 +317,7 @@ async fn start_stdio(
 
     let mut process = Command::new(command);
     process.args(&settings.args).envs(&settings.env);
+    
     // An MCP stdio server's stdout is its JSON-RPC transport, so it must
     // always be captured rather than inherited by the user's terminal. Server
     // diagnostics must not disrupt the TUI or RPC output either.

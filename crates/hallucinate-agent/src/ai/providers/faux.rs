@@ -31,8 +31,10 @@ use crate::ai::{
 pub enum FauxResponse {
     /// A text response.
     Text(String, StopReason),
+    
     /// A tool call response.
     ToolCall(String, String, serde_json::Value, StopReason),
+    
     /// An error response.
     Error(String),
 }
@@ -42,10 +44,13 @@ pub enum FauxResponse {
 pub struct FauxProviderState {
     /// Number of times the provider has been called.
     pub call_count: std::sync::atomic::AtomicU32,
+    
     /// Queued responses to return in order.
     pub responses: Arc<Mutex<Vec<FauxResponse>>>,
+    
     /// Request contexts received by the provider, retained for test inspection.
     pub contexts: Arc<Mutex<Vec<Context>>>,
+    
     /// Stream options received with each request, retained for test inspection.
     pub stream_options: Arc<Mutex<Vec<StreamOptions>>>,
 }
@@ -55,6 +60,7 @@ pub struct FauxProviderState {
 pub struct FauxProvider {
     /// The model configured for this provider.
     configured_model: Model,
+    
     /// Shared state holding call count and response queue.
     state: Arc<FauxProviderState>,
 }
@@ -133,6 +139,7 @@ impl Provider for FauxProvider {
 
         Box::pin(async move {
             let stream = self.stream(&model, &context, &options).await?;
+            
             stream.final_message.lock().unwrap().clone().ok_or_else(|| {
                 ProviderError::Stream("faux completion produced no message".to_string())
             })
@@ -226,6 +233,7 @@ impl Provider for FauxProvider {
                             stop_reason,
                         ));
                 },
+                
                 Some(FauxResponse::ToolCall(id, name, args, stop_reason)) => {
                     let tool_call = ToolCall::new(id, name, args);
                     let content = vec![AssistantContent::ToolCall(tool_call.clone())];
@@ -300,6 +308,7 @@ impl Provider for FauxProvider {
 
                     stream.final_message.lock().unwrap().replace(error_msg);
                 },
+                
                 None => {
                     let error_content = Vec::new();
                     let error_msg = AssistantMessage {

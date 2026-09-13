@@ -75,6 +75,7 @@ pub fn set_stored_credential(
     credentials
         .api_keys
         .insert(provider_id.to_string(), api_key.to_string());
+    
     save_stored_credentials(&credentials)
 }
 

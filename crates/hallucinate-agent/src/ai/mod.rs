@@ -6,8 +6,7 @@
 pub mod auth;
 pub mod images;
 pub mod provider;
+pub mod providers;
 pub mod streaming;
 pub mod title;
 pub mod types;
-
-pub mod providers;

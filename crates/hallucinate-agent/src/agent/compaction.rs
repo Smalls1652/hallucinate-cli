@@ -60,6 +60,7 @@ pub fn serialize_messages(messages: &[Message]) -> String {
 fn serialize_message(message: &Message) -> String {
     match message {
         Message::User(message) => format!("<user>\n{}\n</user>", message.content),
+    
         Message::Assistant(message) => {
             let content = message
                 .content
@@ -79,6 +80,7 @@ fn serialize_message(message: &Message) -> String {
 
             format!("<assistant>\n{content}\n</assistant>")
         },
+    
         Message::ToolResult(message) => format!(
             "<tool-result name=\"{}\" id=\"{}\">\n{}\n</tool-result>",
             message.tool_name,

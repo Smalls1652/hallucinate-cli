@@ -21,6 +21,7 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct GrepTool {
     limits: ToolLimits,
+    
     /// Default maximum number of matches to return.
     max_results: usize,
 }
@@ -83,21 +84,26 @@ impl Tool for GrepTool {
                 .get("pattern")
                 .and_then(|value| value.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: pattern"))?;
+        
             let regex = regex::Regex::new(pattern)
                 .map_err(|error| anyhow::anyhow!("Invalid regex pattern '{pattern}': {error}"))?;
+        
             let file_pattern = arguments
                 .get("file_pattern")
                 .and_then(|value| value.as_str())
                 .map(glob::Pattern::new)
                 .transpose()
                 .map_err(|error| anyhow::anyhow!("Invalid file_pattern: {error}"))?;
+        
             let max_results = parse_bounded_usize(
                 arguments,
                 "max_results",
                 self.max_results,
                 MAX_REQUESTED_RESULTS,
             )?;
+        
             let project_dir = cwd.unwrap_or(".").to_string();
+        
             let search_path = resolve_path(
                 arguments
                     .get("path")
@@ -105,7 +111,9 @@ impl Tool for GrepTool {
                     .unwrap_or("."),
                 Some(&project_dir),
             );
+        
             let limits = self.limits.clone();
+        
             let pattern = pattern.to_string();
 
             run_blocking("grep", move || {
@@ -113,6 +121,7 @@ impl Tool for GrepTool {
                 let mut scanned_bytes = 0_usize;
                 let mut result_bytes = 0_usize;
                 let mut scan_truncated = false;
+        
                 let walk_status =
                     walk_matching_files(&search_path, file_pattern.as_ref(), &limits, |path| {
                         let scan_status = scan_file(
@@ -136,11 +145,13 @@ impl Tool for GrepTool {
 
                 if matches.is_empty() {
                     let mut content = format!("No matches found for pattern: {pattern}");
+        
                     if walk_status.truncated || scan_truncated {
                         content.push_str(
                             "\n\n[Search truncated by a result, traversal, or scan-byte limit]",
                         );
                     }
+        
                     return Ok(super::types::ToolResult::success("grep", "grep", content));
                 }
 
@@ -149,11 +160,13 @@ impl Tool for GrepTool {
                     matches.len(),
                     matches.join("\n")
                 );
+        
                 if walk_status.truncated || scan_truncated {
                     content.push_str(
                         "\n\n[Search truncated by a result, traversal, or scan-byte limit]",
                     );
                 }
+        
                 Ok(super::types::ToolResult::success("grep", "grep", content))
             })
             .await
@@ -164,6 +177,7 @@ impl Tool for GrepTool {
 #[derive(Debug, Default)]
 struct ScanStatus {
     truncated: bool,
+    
     stop_walk: bool,
 }
 
@@ -180,11 +194,14 @@ fn scan_file(
     let Ok(file) = File::open(path) else {
         return ScanStatus::default();
     };
+    
     let mut reader = BufReader::new(file);
+    
     let is_binary = match reader.fill_buf() {
         Ok(prefix) => prefix.iter().take(8_192).any(|byte| *byte == 0),
         Err(_) => return ScanStatus::default(),
     };
+    
     if is_binary {
         return ScanStatus::default();
     }
@@ -192,14 +209,17 @@ fn scan_file(
     let mut status = ScanStatus::default();
     let mut file_bytes = 0_usize;
     let mut line_number = 0_usize;
+    
     loop {
         if matches.len() >= max_results {
             status.stop_walk = true;
             break;
         }
+    
         let remaining_file = limits.max_file_scan_bytes.saturating_sub(file_bytes);
         let remaining_search = limits.max_search_bytes.saturating_sub(*scanned_bytes);
         let remaining = remaining_file.min(remaining_search);
+    
         if remaining == 0 {
             status.truncated = true;
             status.stop_walk = *scanned_bytes >= limits.max_search_bytes;
@@ -210,9 +230,11 @@ fn scan_file(
         else {
             break;
         };
+        
         line_number += 1;
         file_bytes += line.len();
         *scanned_bytes += line.len();
+        
         if line.len() == limits.max_grep_line_bytes && !line.ends_with(b"\n") {
             status.truncated = true;
             break;
@@ -221,24 +243,30 @@ fn scan_file(
         let Ok(line) = std::str::from_utf8(&line) else {
             continue;
         };
+        
         if regex.is_match(line) {
             let matched_line = format!(
                 "{}:{line_number}: {}",
                 crate::config::paths::display_path(path, project_dir),
                 line.trim(),
             );
+        
             let next_size = result_bytes
                 .saturating_add(matched_line.len())
                 .saturating_add(1);
+        
             if next_size > limits.max_tool_result_bytes {
                 status.truncated = true;
                 status.stop_walk = true;
                 break;
             }
+        
             *result_bytes = next_size;
+        
             matches.push(matched_line);
         }
     }
+    
     status
 }
 
@@ -250,20 +278,29 @@ fn read_bounded_line(
 ) -> Option<Vec<u8>> {
     let mut line = Vec::new();
     let limit = max_bytes.min(max_line_bytes);
+    
     while line.len() < limit {
         let buffer = reader.fill_buf().ok()?;
+    
         if buffer.is_empty() {
             return (!line.is_empty()).then_some(line);
         }
+    
         let take = buffer.len().min(limit - line.len());
+    
         let newline = buffer[..take].iter().position(|byte| *byte == b'\n');
+    
         let count = newline.map_or(take, |index| index + 1);
+    
         line.extend_from_slice(&buffer[..count]);
+    
         reader.consume(count);
+    
         if newline.is_some() {
             return Some(line);
         }
     }
+    
     (!line.is_empty()).then_some(line)
 }
 

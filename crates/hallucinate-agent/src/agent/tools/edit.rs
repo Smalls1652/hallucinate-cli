@@ -10,6 +10,7 @@ use super::{limits::run_blocking, paths::resolve_path, types::Tool};
 #[derive(Debug, Clone)]
 struct TextEdit {
     old_text: String,
+    
     new_text: String,
 }
 

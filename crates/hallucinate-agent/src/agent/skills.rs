@@ -23,12 +23,16 @@ const MAX_DESCRIPTION_LENGTH: usize = 1024;
 pub struct Skill {
     /// Machine-readable skill name.
     pub name: String,
+    
     /// Brief explanation of when to use the skill.
     pub description: String,
+    
     /// Absolute path to the Markdown file.
     pub file_path: PathBuf,
+    
     /// Directory against which paths in the skill are resolved.
     pub base_dir: PathBuf,
+    
     /// Whether the skill may only be invoked explicitly.
     pub disable_model_invocation: bool,
 }
@@ -38,6 +42,7 @@ pub struct Skill {
 pub struct SkillDiagnostic {
     /// Human-readable diagnostic message.
     pub message: String,
+    
     /// Path to the skill file that caused the diagnostic.
     pub path: PathBuf,
 }
@@ -47,6 +52,7 @@ pub struct SkillDiagnostic {
 pub struct SkillLoadResult {
     /// Successfully loaded skills.
     pub skills: Vec<Skill>,
+    
     /// Non-fatal problems encountered during loading.
     pub diagnostics: Vec<SkillDiagnostic>,
 }
@@ -56,8 +62,10 @@ pub struct SkillLoadResult {
 pub struct SkillLoadOptions {
     /// Working directory whose project-local skills should be loaded.
     pub cwd: PathBuf,
+    
     /// Extra skill files or directories, normally from `--skill`.
     pub skill_paths: Vec<PathBuf>,
+    
     /// Whether to load the standard user and project skill directories,
     /// including the shared `.agents` locations.
     pub include_defaults: bool,
@@ -67,8 +75,10 @@ pub struct SkillLoadOptions {
 struct SkillFrontmatter {
     /// Machine-readable skill name.
     name: Option<String>,
+    
     /// Brief explanation of when to use the skill.
     description: Option<String>,
+    
     /// Whether the skill may only be invoked explicitly.
     #[serde(rename = "disable-model-invocation", default)]
     disable_model_invocation: bool,

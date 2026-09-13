@@ -42,12 +42,16 @@ use crate::ai::{
 pub struct OpenaiCompatConfig {
     /// Base URL for the API (e.g., "https://api.openai.com/v1").
     pub base_url: String,
+    
     /// API key for authentication.
     pub api_key: String,
+    
     /// Optional custom headers.
     pub headers: HashMap<String, String>,
+    
     /// Request timeout in milliseconds.
     pub timeout_ms: u64,
+    
     /// Number of retries for rate limits and temporary server failures.
     pub max_retries: u32,
 }
@@ -70,11 +74,13 @@ impl Default for OpenaiCompatConfig {
 pub struct OpenaiCompatProvider {
     /// Provider configuration (base URL, API key, timeout, etc.).
     config: OpenaiCompatConfig,
+    
     /// Validated custom and content-type headers shared by all requests.
     ///
     /// Header validation happens once at provider construction. Authorization
     /// remains per request because command-line options may override the key.
     static_headers: Result<HeaderMap, String>,
+    
     /// HTTP client for making API requests.
     client: reqwest::Client,
 }
@@ -206,6 +212,7 @@ fn parse_usage(chunk: &serde_json::Value) -> Option<Usage> {
 fn parse_responses_usage(chunk: &serde_json::Value) -> Option<Usage> {
     let mut usage = parse_usage(chunk)?;
     usage.input = usage.input.saturating_sub(usage.cache_read);
+    
     Some(usage)
 }
 
@@ -314,18 +321,25 @@ async fn process_chunk(
 struct ResponsesStreamState {
     /// Maps item IDs to their tool-call index for deduplication.
     tool_indices: HashMap<String, usize>,
+    
     /// Maps tool-call index to the OpenAI call ID.
     tool_call_ids: HashMap<usize, String>,
+    
     /// Maps tool-call index to the OpenAI item ID.
     tool_item_ids: HashMap<usize, String>,
+    
     /// Next available tool-call index when deduplication doesn't match.
     next_tool_index: usize,
+    
     /// Indices of tool calls whose arguments have already been emitted.
     emitted_tool_arguments: HashSet<usize>,
+    
     /// Whether the response has produced any tool call output.
     has_tool_calls: bool,
+    
     /// Whether the response has produced any text output.
     has_text_output: bool,
+    
     /// Whether the response has produced any reasoning/thinking output.
     has_thinking_output: bool,
 }
@@ -369,6 +383,7 @@ impl ResponsesStreamState {
         if let Some(item_id) = item_id.filter(|item_id| !item_id.is_empty()) {
             self.tool_item_ids.insert(index, item_id.to_string());
         }
+        
         if let Some(call_id) = call_id.filter(|call_id| !call_id.is_empty()) {
             self.tool_call_ids.insert(index, call_id.to_string());
         }
@@ -389,7 +404,9 @@ impl ResponsesStreamState {
 #[derive(Debug, PartialEq, Eq)]
 enum ResponsesSseResult {
     Continue,
+    
     Done,
+    
     Failed(String),
 }
 
@@ -413,8 +430,11 @@ fn response_content_index(
         (Some(output_index), Some(content_index)) => output_index
             .saturating_mul(1_000_000)
             .saturating_add(content_index),
+        
         (Some(output_index), None) => output_index,
+        
         (None, Some(content_index)) => content_index,
+        
         (None, None) => 0,
     }
 }
@@ -565,6 +585,7 @@ async fn process_responses_event(
                 builder.append_text(event_content_index(event), delta).await;
             }
         },
+        
         "response.output_text.done" => {
             if !state.has_text_output
                 && let Some(text) = event
@@ -576,6 +597,7 @@ async fn process_responses_event(
                 builder.append_text(event_content_index(event), text).await;
             }
         },
+        
         "response.reasoning_summary_text.delta"
         | "response.reasoning_text.delta"
         | "response.reasoning_summary.delta" => {
@@ -590,6 +612,7 @@ async fn process_responses_event(
                     .await;
             }
         },
+        
         "response.reasoning_summary_text.done" => {
             if !state.has_thinking_output
                 && let Some(text) = event
@@ -603,6 +626,7 @@ async fn process_responses_event(
                     .await;
             }
         },
+        
         "response.refusal.delta" => {
             if let Some(delta) = event
                 .get("delta")
@@ -613,6 +637,7 @@ async fn process_responses_event(
                 builder.append_text(event_content_index(event), delta).await;
             }
         },
+        
         "response.output_item.added" | "response.output_item.done" => {
             if let Some(item) = event.get("item") {
                 process_response_output_item(
@@ -624,6 +649,7 @@ async fn process_responses_event(
                 .await;
             }
         },
+        
         "response.function_call_arguments.delta" => {
             let item_id = event.get("item_id").and_then(|value| value.as_str());
             let index = state.tool_index(response_index(event, "output_index"), item_id);
@@ -647,6 +673,7 @@ async fn process_responses_event(
                 state.emitted_tool_arguments.insert(index);
             }
         },
+        
         "response.function_call_arguments.done" => {
             let item_id = event.get("item_id").and_then(|value| value.as_str());
             let index = state.tool_index(response_index(event, "output_index"), item_id);
@@ -671,6 +698,7 @@ async fn process_responses_event(
                 state.emitted_tool_arguments.insert(index);
             }
         },
+        
         "response.completed" => {
             // Normally all output items have already arrived through their
             // item events. Processing the completed response as a fallback
@@ -684,9 +712,11 @@ async fn process_responses_event(
 
             match response.get("status").and_then(|value| value.as_str()) {
                 Some("incomplete") => *terminal_reason = Some(StopReason::Length),
+                
                 Some("failed") | Some("cancelled") => {
                     return Ok(ResponsesSseResult::Failed(response_stream_error(event)));
                 },
+                
                 _ => {
                     *terminal_reason = Some(if state.has_tool_calls {
                         StopReason::ToolUse
@@ -697,13 +727,16 @@ async fn process_responses_event(
             }
             return Ok(ResponsesSseResult::Done);
         },
+        
         "response.incomplete" => {
             *terminal_reason = Some(StopReason::Length);
             return Ok(ResponsesSseResult::Done);
         },
+        
         "response.failed" | "response.error" | "error" => {
             return Ok(ResponsesSseResult::Failed(response_stream_error(event)));
         },
+        
         _ => {},
     }
 
@@ -758,8 +791,11 @@ const MAX_SSE_RECORD_BYTES: usize = 1_048_576;
 #[derive(Default)]
 struct SseLineBuffer {
     bytes: Vec<u8>,
+    
     cursor: usize,
+    
     record_count: u64,
+    
     max_buffered_bytes: usize,
 }
 
@@ -783,6 +819,7 @@ impl SseLineBuffer {
 
     fn next_line(&mut self) -> Result<Option<&[u8]>, ProviderError> {
         let unread = &self.bytes[self.cursor..];
+        
         let Some(newline) = unread.iter().position(|byte| *byte == b'\n') else {
             if unread.len() > MAX_SSE_RECORD_BYTES {
                 return Err(ProviderError::Stream(format!(
@@ -790,6 +827,7 @@ impl SseLineBuffer {
                     MAX_SSE_RECORD_BYTES
                 )));
             }
+            
             return Ok(None);
         };
 
@@ -992,6 +1030,7 @@ async fn consume_chat_stream(
 async fn wait_for_cancellation(cancellation: Option<&crate::ai::types::RequestCancellation>) {
     match cancellation {
         Some(cancellation) => cancellation.cancelled().await,
+        
         None => std::future::pending().await,
     }
 }
@@ -1042,11 +1081,14 @@ async fn consume_responses_stream(
         .await
         {
             Ok(ResponsesSseResult::Continue) => {},
+            
             Ok(ResponsesSseResult::Done) => done_seen = true,
+            
             Ok(ResponsesSseResult::Failed(error)) => {
                 failure = Some(error);
                 done_seen = true;
             },
+            
             Err(error) => {
                 failure = Some(error.to_string());
                 break;
@@ -1072,7 +1114,9 @@ async fn consume_responses_stream(
         .await
         {
             Ok(ResponsesSseResult::Continue | ResponsesSseResult::Done) => {},
+            
             Ok(ResponsesSseResult::Failed(error)) => failure = Some(error),
+            
             Err(error) => failure = Some(error.to_string()),
         }
     }
@@ -1115,10 +1159,13 @@ impl OpenaiCompatProvider {
         for (key, value) in &config.headers {
             let name = HeaderName::from_bytes(key.as_bytes())
                 .map_err(|error| format!("invalid header name {key:?}: {error}"))?;
+            
             let value = HeaderValue::from_str(value)
                 .map_err(|error| format!("invalid value for header {key:?}: {error}"))?;
+            
             headers.insert(name, value);
         }
+        
         // Authentication and content type are controlled by the provider so a
         // custom header cannot shadow the per-request credentials.
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -1194,6 +1241,7 @@ impl OpenaiCompatProvider {
                         })
                     }
                 },
+                
                 Message::Assistant(a) => {
                     let mut text_parts: Vec<String> = Vec::new();
                     let mut has_tool_calls = false;
@@ -1205,9 +1253,11 @@ impl OpenaiCompatProvider {
                                     text_parts.push(t.text.clone());
                                 }
                             },
+                            
                             AssistantContent::ToolCall(_tc) => {
                                 has_tool_calls = true;
                             },
+                            
                             AssistantContent::Thinking(tc) => {
                                 text_parts.push(format!("<thinking>\n{}\n</thinking>", tc.thinking));
                             },
@@ -1252,6 +1302,7 @@ impl OpenaiCompatProvider {
                         })
                     }
                 },
+                
                 Message::ToolResult(_) => unreachable!("tool results return above")
                 };
 
@@ -1293,6 +1344,7 @@ impl OpenaiCompatProvider {
                         "content": content
                     }));
                 },
+                
                 Message::Assistant(assistant) => {
                     for content in &assistant.content {
                         match content {
@@ -1303,6 +1355,7 @@ impl OpenaiCompatProvider {
                                     input.push(reasoning);
                                 }
                             },
+                
                             AssistantContent::Text(text) if !text.text.is_empty() => {
                                 input.push(serde_json::json!({
                                     "type": "message",
@@ -1316,23 +1369,29 @@ impl OpenaiCompatProvider {
                                     "id": format!("msg_{message_index}")
                                 }));
                             },
+                
                             AssistantContent::ToolCall(tool_call) => {
                                 let (call_id, item_id) = split_response_tool_call_id(&tool_call.id);
+                
                                 let mut function_call = serde_json::json!({
                                     "type": "function_call",
                                     "call_id": call_id,
                                     "name": tool_call.name,
                                     "arguments": tool_call.arguments.to_string()
                                 });
+                
                                 if let Some(item_id) = item_id {
                                     function_call["id"] = serde_json::json!(item_id);
                                 }
+                
                                 input.push(function_call);
                             },
+                
                             AssistantContent::Text(_) => {},
                         }
                     }
                 },
+                
                 Message::ToolResult(result) => {
                     let text = result
                         .content
@@ -1340,7 +1399,9 @@ impl OpenaiCompatProvider {
                         .map(|item| item.text.as_str())
                         .collect::<Vec<_>>()
                         .join("\n");
+                
                     let (call_id, _) = split_response_tool_call_id(&result.tool_call_id);
+                
                     let output = if result.images.is_empty()
                         || !model.input.iter().any(|input| input == "image")
                     {
@@ -1362,6 +1423,7 @@ impl OpenaiCompatProvider {
                                 "text": text
                             })]
                         };
+                
                         content.extend(result.images.iter().map(|image| {
                             serde_json::json!({
                                 "type": "input_image",
@@ -1373,6 +1435,7 @@ impl OpenaiCompatProvider {
                                 )
                             })
                         }));
+                
                         serde_json::Value::Array(content)
                     };
 
@@ -1459,6 +1522,7 @@ impl OpenaiCompatProvider {
         if let Some(temp) = options.temperature {
             body.insert("temperature".into(), temp.into());
         }
+
         if let Some(max_tokens) = options.max_tokens {
             body.insert("max_tokens".into(), max_tokens.into());
         }
@@ -1519,18 +1583,22 @@ impl OpenaiCompatProvider {
         body.insert("model".into(), model.id.clone().into());
 
         let mut input = Vec::new();
+        
         if let Some(system_prompt) = &context.system_prompt {
             let role = if model.reasoning {
                 "developer"
             } else {
                 "system"
             };
+        
             input.push(serde_json::json!({
                 "role": role,
                 "content": system_prompt
             }));
         }
+        
         input.extend(self.convert_responses_input(model, &context.messages));
+        
         body.insert("input".into(), input.into());
 
         if let Some(tools) = &context.tools
@@ -1543,6 +1611,7 @@ impl OpenaiCompatProvider {
                     crate::ai::types::ToolChoice::Auto => "auto",
                     crate::ai::types::ToolChoice::None => "none",
                 };
+        
                 body.insert("tool_choice".into(), value.into());
             }
         }
@@ -1550,6 +1619,7 @@ impl OpenaiCompatProvider {
         if let Some(temp) = options.temperature {
             body.insert("temperature".into(), temp.into());
         }
+        
         if let Some(max_tokens) = options.max_tokens {
             body.insert("max_output_tokens".into(), max_tokens.into());
         }
@@ -1571,12 +1641,14 @@ fn parse_completion_response(
         .and_then(serde_json::Value::as_array)
         .and_then(|choices| choices.first())
         .ok_or_else(|| ProviderError::Stream("completion response contained no choices".into()))?;
+    
     let message = choice
         .get("message")
         .and_then(serde_json::Value::as_object)
         .ok_or_else(|| ProviderError::Stream("completion choice contained no message".into()))?;
 
     let mut content = Vec::new();
+    
     for field in ["reasoning_content", "reasoning", "thinking"] {
         if let Some(thinking) = message
             .get(field)
@@ -1588,6 +1660,7 @@ fn parse_completion_response(
             ));
         }
     }
+    
     if let Some(text) = message
         .get("content")
         .and_then(serde_json::Value::as_str)
@@ -1597,6 +1670,7 @@ fn parse_completion_response(
             text,
         )));
     }
+    
     if let Some(tool_calls) = message
         .get("tool_calls")
         .and_then(serde_json::Value::as_array)
@@ -1606,20 +1680,24 @@ fn parse_completion_response(
                 .get("id")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| ProviderError::Stream("tool call is missing its ID".into()))?;
+    
             let function = tool_call
                 .get("function")
                 .and_then(serde_json::Value::as_object)
                 .ok_or_else(|| ProviderError::Stream("tool call is missing its function".into()))?;
+    
             let name = function
                 .get("name")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| ProviderError::Stream("tool call is missing its name".into()))?;
+    
             let arguments = function
                 .get("arguments")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| {
                     ProviderError::Stream("tool call is missing its arguments".into())
                 })?;
+    
             let arguments = serde_json::from_str(arguments).map_err(|error| {
                 ProviderError::Stream(format!("tool call arguments are invalid JSON: {error}"))
             })?;
@@ -1635,14 +1713,18 @@ fn parse_completion_response(
         .and_then(serde_json::Value::as_str)
     {
         Some("stop") | None => StopReason::Stop,
+    
         Some("tool_calls") | Some("function_call") => StopReason::ToolUse,
+    
         Some("length") => StopReason::Length,
+    
         Some(other) => {
             return Err(ProviderError::Stream(format!(
                 "unsupported completion finish reason: {other}"
             )));
         },
     };
+    
     let mut message = crate::ai::types::AssistantMessage::new(
         content,
         Api::OpenaiCompletions,
@@ -1658,6 +1740,7 @@ fn parse_completion_response(
         .get("model")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
+    
     if let Some(usage) = parse_usage(response) {
         message.usage = usage;
     }
@@ -1675,15 +1758,21 @@ impl Provider for OpenaiCompatProvider {
     ) -> Pin<Box<dyn Future<Output = ProviderResult<crate::ai::types::AssistantMessage>> + Send + '_>>
     {
         let base_url = self.config.base_url.clone();
+    
         let api_key = options
             .api_key
             .as_deref()
             .unwrap_or(&self.config.api_key)
             .to_owned();
+    
         let body = self.build_completion_request_body(model, context, options);
+    
         let client = self.client.clone();
+    
         let max_retries = self.config.max_retries;
+    
         let cancellation = options.cancellation.clone();
+    
         let model = model.clone();
 
         Box::pin(async move {
@@ -1694,48 +1783,60 @@ impl Provider for OpenaiCompatProvider {
             let response = loop {
                 match tokio::select! {
                     response = client.post(&url).headers(headers.clone()).json(&body).send() => response,
+    
                     _ = wait_for_cancellation(cancellation.as_ref()) => {
                         return Err(ProviderError::Stream("provider request was cancelled".to_string()));
                     },
                 } {
                     Ok(response) if response.status().is_success() => break response,
+    
                     Ok(response) => {
                         let status = response.status().as_u16();
                         let retry_after = retry_after_delay(&response);
                         let error_text = response.text().await.unwrap_or_default();
+    
                         if should_retry_status(status) && attempt < max_retries {
                             let delay = retry_after.unwrap_or_else(|| retry_delay(attempt));
                             tokio::select! {
                                 _ = tokio::time::sleep(delay) => {},
+    
                                 _ = wait_for_cancellation(cancellation.as_ref()) => {
                                     return Err(ProviderError::Stream("provider request was cancelled".to_string()));
                                 },
                             }
+    
                             attempt += 1;
                         } else {
                             return Err(ProviderError::Api(error_text, status));
                         }
                     },
+    
                     Err(error) if is_retryable_transport_error(&error) && attempt < max_retries => {
                         let delay = retry_delay(attempt);
+    
                         tokio::select! {
                             _ = tokio::time::sleep(delay) => {},
+    
                             _ = wait_for_cancellation(cancellation.as_ref()) => {
                                 return Err(ProviderError::Stream("provider request was cancelled".to_string()));
                             },
                         }
+    
                         attempt += 1;
                     },
+    
                     Err(error) => return Err(ProviderError::Http(error)),
                 }
             };
 
             let completion = tokio::select! {
                 completion = response.json::<serde_json::Value>() => completion?,
+    
                 _ = wait_for_cancellation(cancellation.as_ref()) => {
                     return Err(ProviderError::Stream("provider request was cancelled".to_string()));
                 },
             };
+    
             parse_completion_response(&completion, &model)
         })
     }
@@ -1748,22 +1849,27 @@ impl Provider for OpenaiCompatProvider {
     ) -> Pin<Box<dyn Future<Output = ProviderResult<AssistantMessageEventStream>> + Send + '_>>
     {
         let request_build_started_at = std::time::Instant::now();
+    
         let base_url = self.config.base_url.clone();
+    
         let api_key = options
             .api_key
             .as_deref()
             .unwrap_or(&self.config.api_key)
             .to_owned();
+    
         let (endpoint, body) = match &model.api {
             Api::OpenaiCompletions => (
                 "chat/completions",
                 self.build_request_body(model, context, options),
             ),
+    
             Api::OpenaiResponses => (
                 "responses",
                 self.build_responses_request_body(model, context, options),
             ),
         };
+    
         tracing::debug!(
             elapsed_ms = request_build_started_at.elapsed().as_millis(),
             message_count = context.messages.len(),
@@ -1774,6 +1880,7 @@ impl Provider for OpenaiCompatProvider {
         let model_id = model.id.clone();
         let model_api = model.api.clone();
         let model_provider = model.provider.clone();
+    
         let client = self.client.clone();
         let max_retries = self.config.max_retries;
         let cancellation = options.cancellation.clone();
@@ -1790,11 +1897,13 @@ impl Provider for OpenaiCompatProvider {
                         .headers(headers.clone())
                         .json(&body)
                         .send() => response,
+    
                     _ = wait_for_cancellation(cancellation.as_ref()) => {
                         return Err(ProviderError::Stream("provider request was cancelled".to_string()));
                     },
                 } {
                     Ok(response) if response.status().is_success() => break response,
+    
                     Ok(response) => {
                         let status = response.status().as_u16();
                         let retry_after = retry_after_delay(&response);
@@ -1813,15 +1922,18 @@ impl Provider for OpenaiCompatProvider {
 
                             tokio::select! {
                                 _ = tokio::time::sleep(delay) => {},
+    
                                 _ = wait_for_cancellation(cancellation.as_ref()) => {
                                     return Err(ProviderError::Stream("provider request was cancelled".to_string()));
                                 },
                             }
+    
                             attempt += 1;
                         } else {
                             return Err(ProviderError::Api(error_text, status));
                         }
                     },
+    
                     Err(error) if is_retryable_transport_error(&error) && attempt < max_retries => {
                         let delay = retry_delay(attempt);
 
@@ -1829,12 +1941,15 @@ impl Provider for OpenaiCompatProvider {
 
                         tokio::select! {
                             _ = tokio::time::sleep(delay) => {},
+    
                             _ = wait_for_cancellation(cancellation.as_ref()) => {
                                 return Err(ProviderError::Stream("provider request was cancelled".to_string()));
                             },
                         }
+    
                         attempt += 1;
                     },
+    
                     Err(error) => return Err(ProviderError::Http(error)),
                 }
             };
@@ -1843,6 +1958,7 @@ impl Provider for OpenaiCompatProvider {
 
             let stream = create_assistant_message_event_stream();
             let producer_stream = stream.clone();
+    
             tokio::spawn(async move {
                 let mut builder =
                     AssistantMessageBuilder::new(producer_stream, model_api.clone(), model_id);
@@ -1857,6 +1973,7 @@ impl Provider for OpenaiCompatProvider {
                     Api::OpenaiCompletions => {
                         consume_chat_stream(response, &mut builder, cancellation.as_ref()).await
                     },
+    
                     Api::OpenaiResponses => {
                         consume_responses_stream(response, &mut builder, cancellation.as_ref())
                             .await
@@ -1865,12 +1982,14 @@ impl Provider for OpenaiCompatProvider {
 
                 match failure {
                     Some(error) => builder.fail(error).await,
+    
                     None => match terminal_reason {
                         Some(reason) => {
                             if let Err(error) = builder.finish(reason).await {
                                 builder.fail(error).await;
                             }
                         },
+    
                         None => {
                             builder
                                 .fail("SSE stream ended without a terminal completion event")
@@ -2003,6 +2122,7 @@ mod tests {
     #[tokio::test]
     async fn non_streaming_completion_returns_a_complete_message() {
         let mut server = mockito::Server::new_async().await;
+        
         let _mock = server
             .mock("POST", "/chat/completions")
             .match_body(mockito::Matcher::PartialJson(serde_json::json!({
@@ -2028,11 +2148,13 @@ mod tests {
             )
             .create_async()
             .await;
+        
         let provider = OpenaiCompatProvider::new(OpenaiCompatConfig {
             base_url: server.url(),
             api_key: "test".to_string(),
             ..Default::default()
         });
+        
         let model = Model::new(
             "test",
             "Test",
@@ -2332,6 +2454,7 @@ mod tests {
             api_key: "test-key".to_string(),
             ..Default::default()
         });
+        
         let context = Context::new(vec![Message::User(UserMessage::new("Hello"))])
             .with_system_prompt("Be concise")
             .with_tools(vec![crate::ai::types::Tool::new(
@@ -2342,11 +2465,13 @@ mod tests {
                     "properties": { "query": { "type": "string" } }
                 }),
             )]);
+        
         let mut options = StreamOptions::new()
             .with_temperature(0.2)
             .with_max_tokens(42);
         options.tool_choice = Some(crate::ai::types::ToolChoice::Auto);
 
+        
         let body = provider.build_responses_request_body(
             &Model::new(
                 "gpt-5",
@@ -2378,6 +2503,7 @@ mod tests {
     #[test]
     fn includes_usage_option_in_streaming_completion_requests() {
         let provider = OpenaiCompatProvider::new(OpenaiCompatConfig::default());
+       
         let model = Model::new(
             "test",
             "Test",
@@ -2401,6 +2527,7 @@ mod tests {
     #[tokio::test]
     async fn streamed_responses_accumulate_text_and_usage() {
         let mut server = mockito::Server::new_async().await;
+        
         let body = [
             serde_json::json!({
                 "type": "response.created",
@@ -2449,6 +2576,7 @@ mod tests {
             api_key: "test".to_string(),
             ..Default::default()
         });
+        
         let model = Model::new(
             "gpt-5",
             "GPT-5",
@@ -2464,7 +2592,9 @@ mod tests {
             .stream(&model, &Context::default(), &StreamOptions::new())
             .await
             .unwrap();
+        
         let events: Vec<_> = stream.by_ref().collect().await;
+        
         let message = events
             .into_iter()
             .find_map(|event| match event {
@@ -2536,7 +2666,9 @@ mod tests {
             .finish(terminal_reason.clone().unwrap())
             .await
             .unwrap();
+        
         let events: Vec<_> = stream.collect().await;
+        
         let tool_call = events
             .into_iter()
             .find_map(|event| match event {
@@ -2587,10 +2719,15 @@ mod tests {
     #[tokio::test]
     async fn responses_sse_accepts_fragmented_crlf_and_final_record() {
         let stream = crate::ai::streaming::create_assistant_message_event_stream();
+        
         let mut builder = AssistantMessageBuilder::new(stream, Api::OpenaiResponses, "test");
+        
         let mut state = ResponsesStreamState::default();
+        
         let mut terminal_reason = None;
+        
         let mut buffer = SseLineBuffer::default();
+        
         let body = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\r\n\r\ndata: {\"type\":\"response.completed\",\"response\":{}}".to_string();
 
         for fragment in body.as_bytes().chunks(5) {
@@ -2619,22 +2756,29 @@ mod tests {
             .unwrap(),
             ResponsesSseResult::Done
         );
+        
         builder.finish(terminal_reason.unwrap()).await.unwrap();
     }
 
     #[tokio::test]
     async fn oversized_unframed_records_fail_for_both_sse_formats() {
         let oversized = vec![b'x'; MAX_SSE_RECORD_BYTES + 1];
+        
         let mut chat_buffer = SseLineBuffer::default();
         let mut responses_buffer = SseLineBuffer::default();
+        
         let chat_stream = crate::ai::streaming::create_assistant_message_event_stream();
         let responses_stream = crate::ai::streaming::create_assistant_message_event_stream();
+        
         let mut chat_builder =
             AssistantMessageBuilder::new(chat_stream, Api::OpenaiCompletions, "test");
         let mut responses_builder =
             AssistantMessageBuilder::new(responses_stream, Api::OpenaiResponses, "test");
+        
         let mut terminal_reason = None;
+        
         let mut responses_state = ResponsesStreamState::default();
+        
         let mut done_seen = false;
 
         assert!(
@@ -2650,6 +2794,7 @@ mod tests {
             .to_string()
             .contains("exceeded")
         );
+        
         assert!(
             process_responses_sse_bytes(
                 &oversized,
