@@ -800,6 +800,7 @@ struct SseLineBuffer {
 }
 
 impl SseLineBuffer {
+    /// Append bytes to the buffer, compacting if there is a pending cursor.
     fn extend(
         &mut self,
         bytes: &[u8],
@@ -817,6 +818,8 @@ impl SseLineBuffer {
         self.max_buffered_bytes = self.max_buffered_bytes.max(self.bytes.len());
     }
 
+    /// Return the next complete SSE line from the buffer, or `None` if the
+    /// buffer does not yet contain a complete line.
     fn next_line(&mut self) -> Result<Option<&[u8]>, ProviderError> {
         let unread = &self.bytes[self.cursor..];
 
@@ -845,10 +848,13 @@ impl SseLineBuffer {
         Ok(Some(&self.bytes[start..self.cursor]))
     }
 
+    /// Return the unconsumed bytes remaining in the buffer.
     fn remaining(&self) -> &[u8] {
         &self.bytes[self.cursor..]
     }
 
+    /// Return an error if the remaining unconsumed bytes exceed the maximum
+    /// record size.
     fn ensure_remaining_within_limit(&self) -> Result<(), ProviderError> {
         if self.remaining().len() > MAX_SSE_RECORD_BYTES {
             return Err(ProviderError::Stream(format!(
@@ -1027,6 +1033,8 @@ async fn consume_chat_stream(
     (terminal_reason, failure)
 }
 
+/// Wait for a cancellation signal, or return immediately if no signal is
+/// provided.
 async fn wait_for_cancellation(cancellation: Option<&crate::ai::types::RequestCancellation>) {
     match cancellation {
         Some(cancellation) => cancellation.cancelled().await,

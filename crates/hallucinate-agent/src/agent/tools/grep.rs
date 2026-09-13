@@ -20,6 +20,7 @@ use super::{
 /// Pattern-based file content search tool.
 #[derive(Debug, Clone)]
 pub struct GrepTool {
+    /// Resource limits for output truncation and streaming.
     limits: ToolLimits,
 
     /// Default maximum number of matches to return.
@@ -176,8 +177,10 @@ impl Tool for GrepTool {
 
 #[derive(Debug, Default)]
 struct ScanStatus {
+    /// Whether the scan was truncated due to size limits.
     truncated: bool,
 
+    /// Whether the walk should stop because the result budget is full.
     stop_walk: bool,
 }
 

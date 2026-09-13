@@ -21,6 +21,7 @@ use super::{
 /// its size has been validated.
 #[derive(Debug, Clone)]
 pub struct ReadTool {
+    /// Resource limits for output truncation and streaming.
     limits: ToolLimits,
 
     /// Whether image files should be resized before attachment.

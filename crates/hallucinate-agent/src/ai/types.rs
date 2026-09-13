@@ -221,6 +221,7 @@ pub fn format_tool_call_summary(
     }
 }
 
+/// Display a tool path relative to the current working directory.
 fn display_tool_path(
     path: &str,
     cwd: &Path,

@@ -14,6 +14,7 @@ use super::{
 /// Directory listing tool.
 #[derive(Debug, Clone)]
 pub struct LsTool {
+    /// Resource limits for output truncation and streaming.
     limits: ToolLimits,
 
     /// Default maximum entries to return.

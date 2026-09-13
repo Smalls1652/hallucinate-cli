@@ -109,7 +109,10 @@ impl fmt::Display for AgentState {
 pub enum AgentEvent {
     /// Agent state changed.
     StateChanged {
+        /// New agent state.
         new_state: AgentState,
+
+        /// Previous agent state.
         old_state: AgentState,
     },
 
@@ -124,7 +127,10 @@ pub enum AgentEvent {
 
     /// A complete assistant response for a turn.
     AssistantMessageCompleted {
+        /// Turn number at completion.
         turn_number: u32,
+
+        /// The completed assistant message.
         message: Box<AssistantMessage>,
     },
 
@@ -133,7 +139,10 @@ pub enum AgentEvent {
 
     /// A streamed tool call began. Its arguments may still be incomplete.
     ToolCallStarted {
+        /// Content index of the tool call.
         content_index: usize,
+
+        /// The tool call that started.
         tool_call: ToolCall,
     },
 
@@ -142,48 +151,79 @@ pub enum AgentEvent {
     /// The call contains all argument text accumulated so far as a raw JSON
     /// string until the provider completes the call.
     ToolCallDelta {
+        /// Content index of the tool call.
         content_index: usize,
+
+        /// The updated tool call.
         tool_call: ToolCall,
     },
 
     /// Tool call detected in assistant response.
     ToolCallDetected {
+        /// Unique identifier for the tool call.
         tool_call_id: String,
+
+        /// Name of the tool to execute.
         tool_name: String,
+
+        /// JSON arguments passed to the tool.
         arguments: serde_json::Value,
     },
 
     /// Tool execution started.
     ToolExecutionStarted {
+        /// Unique identifier for the tool call.
         tool_call_id: String,
+
+        /// Name of the tool to execute.
         tool_name: String,
     },
 
     /// Incremental output from a tool that is still executing.
     ToolExecutionOutput {
+        /// Unique identifier for the tool call.
         tool_call_id: String,
+
+        /// Name of the tool to execute.
         tool_name: String,
+
+        /// Output text produced by the tool.
         output: String,
     },
 
     /// Tool execution completed.
     ToolExecutionCompleted {
+        /// Unique identifier for the tool call.
         tool_call_id: String,
+
+        /// Name of the tool to execute.
         tool_name: String,
+
+        /// Output text produced by the tool.
         result: String,
+
+        /// Whether the result indicates an error.
         is_error: bool,
     },
 
     /// Tool execution failed.
     ToolExecutionFailed {
+        /// Unique identifier for the tool call.
         tool_call_id: String,
+
+        /// Name of the tool to execute.
         tool_name: String,
+
+        /// Error message describing the failure.
         error: String,
     },
 
     /// Turn completed successfully.
     TurnCompleted {
+        /// Turn number at completion.
         turn_number: u32,
+
+        /// Reason why the assistant stopped.
         stop_reason: StopReason,
     },
 
@@ -192,8 +232,13 @@ pub enum AgentEvent {
 
     /// Context compaction performed.
     CompactionPerformed {
+        /// Token count before compaction.
         tokens_before: u64,
+
+        /// Token count after compaction.
         tokens_after: u64,
+        
+        /// Number of summaries added during compaction.
         summaries_added: u32,
     },
 
@@ -532,8 +577,7 @@ impl TokenEstimator {
             .sum()
     }
 
-    /// Estimate a serialized JSON value without retaining the temporary
-    /// representation beyond this calculation.
+    /// Estimate the number of tokens in a serialized JSON value.
     fn estimate_json_tokens(
         &self,
         value: &serde_json::Value,

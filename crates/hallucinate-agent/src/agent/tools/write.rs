@@ -15,6 +15,7 @@ use super::{
 /// Writes content to a file atomically using a temp file.
 #[derive(Debug, Clone, Default)]
 pub struct WriteTool {
+    /// Resource limits for output truncation and streaming.
     limits: ToolLimits,
 }
 

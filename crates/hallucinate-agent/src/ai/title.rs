@@ -40,6 +40,8 @@ pub async fn generate_session_title(
     normalize_title(&title).ok_or_else(|| anyhow::anyhow!("title generation returned no text"))
 }
 
+/// Normalize a model-generated title by trimming whitespace, stripping
+/// surrounding quotes/backticks, and enforcing the 80-character limit.
 fn normalize_title(title: &str) -> Option<String> {
     let title = title
         .trim()

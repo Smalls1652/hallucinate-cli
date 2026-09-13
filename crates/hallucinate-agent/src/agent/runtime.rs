@@ -47,10 +47,13 @@ const UPDATE_SUMMARY_PROMPT: &str = "Update the previous checkpoint with the new
 /// conversion during ordinary context-pressure checks.
 #[derive(Debug, Clone)]
 struct ContextBase {
+    /// The assembled system prompt text.
     system_prompt: Arc<String>,
 
+    /// The provider-visible tool definitions, when enabled.
     tools: Option<Arc<Vec<Tool>>>,
 
+    /// Cached token cost for system prompt and tool definitions.
     static_token_cost: u64,
 }
 

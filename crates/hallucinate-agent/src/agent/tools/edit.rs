@@ -9,8 +9,10 @@ use super::{limits::run_blocking, paths::resolve_path, types::Tool};
 /// A single exact-text replacement requested from the edit tool.
 #[derive(Debug, Clone)]
 struct TextEdit {
+    /// Text to find and replace.
     old_text: String,
 
+    /// Replacement text.
     new_text: String,
 }
 

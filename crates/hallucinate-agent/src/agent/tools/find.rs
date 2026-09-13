@@ -14,6 +14,7 @@ use super::{
 /// Glob-based file search tool.
 #[derive(Debug, Clone)]
 pub struct FindTool {
+    /// Resource limits for output truncation and streaming.
     limits: ToolLimits,
 
     /// Default maximum number of results to return.

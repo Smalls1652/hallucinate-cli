@@ -32,11 +32,6 @@ use crate::{
 /// Model IDs are map keys rather than fields, which keeps the configuration
 /// grouped by provider and makes it possible to use IDs containing characters
 /// such as `/` when they are quoted in TOML.
-/// A model defined under a user provider in `settings.toml`.
-///
-/// Model IDs are map keys rather than fields, which keeps the configuration
-/// grouped by provider and makes it possible to use IDs containing characters
-/// such as `/` when they are quoted in TOML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelSettings {
     /// Human-readable name for the model.
@@ -399,6 +394,10 @@ fn merge_toml_tables(
     }
 }
 
+/// Deserialize a merged TOML table into application settings.
+///
+/// An empty table returns the default settings rather than attempting
+/// deserialization.
 fn deserialize_settings(merged: toml::Table) -> Result<Settings, anyhow::Error> {
     if merged.is_empty() {
         return Ok(Settings::default());
@@ -626,6 +625,7 @@ impl Settings {
             .collect()
     }
 
+    /// Return all configured models sorted by provider ID and model ID.
     pub fn configured_models(&self) -> Vec<Model> {
         let mut providers: Vec<_> = self.providers.iter().collect();
         providers.sort_by(|left, right| left.0.cmp(right.0));

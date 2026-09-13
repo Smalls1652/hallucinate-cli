@@ -27,20 +27,28 @@ const MINIMUM_HALF_WIDTH_TOOL_RESULT_TERMINAL_WIDTH: u16 = 95;
 
 #[derive(Default)]
 pub(super) struct TranscriptLayoutCache {
+    /// Cached visible width in columns.
     width: u16,
 
+    /// Whether the thinking/reasoning surface is shown.
     show_thinking: bool,
 
+    /// Whether timestamps are displayed on messages.
     show_timestamps: bool,
 
+    /// Whether full (untruncated) tool output is shown.
     show_full_tool_output: bool,
 
+    /// Index of the currently streaming message, if any.
     streaming_message_index: Option<usize>,
 
+    /// Layout revision counter for cache invalidation.
     transcript_revision: u64,
 
+    /// Cached visual transcript lines.
     lines: Vec<ratatui::text::Line<'static>>,
 
+    /// Column offset where each line becomes selectable, or `None`.
     selection_line_starts: Vec<Option<usize>>,
 }
 
@@ -50,8 +58,10 @@ pub(super) struct TranscriptLayoutCache {
 /// a scroll-only redraw. This widget borrows the cache and draws only the
 /// viewport, making scroll work proportional to the terminal height.
 struct TranscriptViewport<'a> {
+    /// Cached visual lines to render.
     lines: &'a [ratatui::text::Line<'static>],
 
+    /// Number of rows to skip from the top (scroll offset).
     scroll: usize,
 }
 
@@ -87,6 +97,7 @@ impl TranscriptLayoutCache {
         self.lines.len()
     }
 
+    /// Return whether the cache matches the given transcript configuration.
     fn matches(
         &self,
         transcript: &TranscriptRenderer,
@@ -102,6 +113,7 @@ impl TranscriptLayoutCache {
             && self.transcript_revision == transcript.layout_revision()
     }
 
+    /// Replace the cached layout with a new one for the given transcript.
     fn replace(
         &mut self,
         transcript: &TranscriptRenderer,
@@ -259,6 +271,10 @@ impl InteractiveTui {
 }
 
 /// Render the cached transcript and return any active drag-selection text.
+///
+/// The transcript is laid out into visual rows using cached Markdown rendering.
+/// If the cache is stale it is rebuilt, then a lightweight viewport widget
+/// renders only the visible rows.
 fn render_transcript(
     frame: &mut ratatui::Frame,
     area: Rect,
@@ -816,6 +832,8 @@ fn render_picker<F>(
 }
 
 /// Prefix a picker row with its selected-state marker.
+///
+/// The marker is `> ` for the selected row and `  ` (two spaces) for others.
 fn picker_row(
     index: usize,
     selected: usize,
@@ -1393,6 +1411,9 @@ fn append_tool_result_box(
 }
 
 /// Return the width used by compact transcript surfaces.
+///
+/// In narrow terminals the box fills the remaining width; in wide ones it
+/// stays at half width for a balanced layout.
 fn tool_result_box_width(width: u16) -> usize {
     if width < MINIMUM_HALF_WIDTH_TOOL_RESULT_TERMINAL_WIDTH {
         // Half-width output becomes too narrow for useful content below a
@@ -1517,7 +1538,7 @@ fn tool_result_for_display<'a>(
 /// Truncate a string to one display line and a maximum display width.
 ///
 /// Carriage returns and newlines are replaced with spaces so the result fits
-/// on a single terminal row.
+/// on a single terminal row, then the result is truncated to `max_width`.
 fn truncate_one_line(
     s: &str,
     max_width: usize,

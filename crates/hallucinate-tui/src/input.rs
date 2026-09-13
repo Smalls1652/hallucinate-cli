@@ -7,16 +7,22 @@ use super::keys::Key;
 /// Input values consumed by the interactive UI and editor.
 #[derive(Debug, Clone)]
 pub enum InputEvent {
+    /// A keyboard event.
     Key(Key),
 
+    /// A mouse event.
     Mouse(MouseEvent),
 
+    /// A terminal resize event with new width and height.
     Resize(u16, u16),
 
+    /// The terminal window gained focus.
     FocusGained,
 
+    /// The terminal window lost focus.
     FocusLost,
 
+    /// A pasted text string.
     Paste(String),
 }
 

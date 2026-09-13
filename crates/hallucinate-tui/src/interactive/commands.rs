@@ -923,9 +923,12 @@ where
     changed
 }
 
+/// Trait for picker types that support filtering and selection.
 trait PickerFilter {
+    /// Return a mutable reference to the filter string.
     fn filter_mut(&mut self) -> &mut String;
 
+    /// Return a mutable reference to the selected index.
     fn selected_mut(&mut self) -> &mut usize;
 }
 
@@ -957,6 +960,7 @@ impl PickerFilter for PromptPicker {
     }
 }
 
+/// Navigate picker selection using arrow keys, page keys, and home/end.
 fn match_picker_navigation(
     key: Key,
     selected: &mut usize,
@@ -983,6 +987,7 @@ fn match_picker_navigation(
     }
 }
 
+/// Return whether a filter string matches a value (case-insensitive).
 fn matches_picker_filter(
     value: &str,
     filter: &str,
@@ -990,6 +995,7 @@ fn matches_picker_filter(
     value.to_lowercase().contains(&filter.to_lowercase())
 }
 
+/// Return indices of models matching a filter string.
 fn filtered_model_indices(
     models: &[hallucinate_agent::ai::types::Model],
     filter: &str,
@@ -1001,6 +1007,7 @@ fn filtered_model_indices(
         .collect()
 }
 
+/// Return indices of session picker rows matching a filter string.
 fn filtered_session_indices(
     rows: &[SessionPickerRow],
     filter: &str,
@@ -1011,6 +1018,7 @@ fn filtered_session_indices(
         .collect()
 }
 
+/// Return indices of prompt templates matching a filter string.
 fn filtered_prompt_indices(
     templates: &[hallucinate_agent::agent::prompt_templates::PromptTemplate],
     filter: &str,

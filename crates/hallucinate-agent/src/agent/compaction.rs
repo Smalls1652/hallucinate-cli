@@ -57,6 +57,11 @@ pub fn serialize_messages(messages: &[Message]) -> String {
         .join("\n\n")
 }
 
+/// Serialize a single message into a role-prefixed XML representation.
+///
+/// The output is designed to be unambiguous to an LLM summarizer: role
+/// labels and explicit tool blocks prevent the summarizer from treating
+/// the archived transcript as instructions to follow.
 fn serialize_message(message: &Message) -> String {
     match message {
         Message::User(message) => format!("<user>\n{}\n</user>", message.content),

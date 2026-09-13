@@ -19,6 +19,7 @@ pub struct BashTool {
     /// Maximum execution time in seconds.
     timeout: u64,
 
+    /// Resource limits for output truncation and streaming.
     limits: ToolLimits,
 
     /// Explicit shell executable. `None` uses the user's environment default.
@@ -110,6 +111,7 @@ impl Tool for BashTool {
 }
 
 impl BashTool {
+    /// Execute a shell command, returning the result with captured stdout and stderr.
     async fn execute_inner(
         &self,
         arguments: &serde_json::Value,
@@ -226,13 +228,17 @@ impl BashTool {
     }
 }
 
+/// Captured output from a command stream, including truncation status.
 #[derive(Debug)]
 struct CapturedStream {
+    /// Raw bytes captured from the stream.
     bytes: Vec<u8>,
 
+    /// Whether the stream was truncated due to size limits.
     truncated: bool,
 }
 
+/// Captures output from an async pipe up to a byte limit, emitting to an optional sink.
 async fn capture_pipe<R: AsyncRead + Unpin>(
     mut reader: R,
     limit: usize,
@@ -264,6 +270,7 @@ async fn capture_pipe<R: AsyncRead + Unpin>(
     Ok(CapturedStream { bytes, truncated })
 }
 
+/// Formats a captured stream with a label and optional truncation notice.
 fn format_captured_stream(
     name: &str,
     captured: CapturedStream,
@@ -280,6 +287,7 @@ fn format_captured_stream(
     output
 }
 
+/// Build a platform-specific shell command for executing a shell string.
 #[cfg(unix)]
 fn shell_command(
     command: &str,
@@ -295,6 +303,7 @@ fn shell_command(
     command_process
 }
 
+/// Build a Windows shell command for executing a shell string.
 #[cfg(windows)]
 fn shell_command(
     command: &str,
@@ -318,6 +327,7 @@ fn shell_command(
     command_process
 }
 
+/// Build a shell command for unsupported platforms (falls back to `sh`).
 #[cfg(not(any(unix, windows)))]
 fn shell_command(
     command: &str,

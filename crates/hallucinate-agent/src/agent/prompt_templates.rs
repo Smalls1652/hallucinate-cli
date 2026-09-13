@@ -16,12 +16,16 @@ use crate::config::paths;
 pub struct PromptTemplate {
     /// Slash-command name, derived from the Markdown filename.
     pub name: String,
+
     /// A short description from frontmatter or the first body line.
     pub description: String,
+
     /// Optional usage text from `argument-hint` frontmatter.
     pub argument_hint: Option<String>,
+
     /// Template body, excluding the YAML frontmatter.
     pub content: String,
+
     /// Absolute path to the source file.
     pub file_path: PathBuf,
 }
@@ -31,6 +35,7 @@ pub struct PromptTemplate {
 pub struct PromptTemplateDiagnostic {
     /// Human-readable error message.
     pub message: String,
+
     /// Path to the file that caused the diagnostic.
     pub path: PathBuf,
 }
@@ -40,6 +45,7 @@ pub struct PromptTemplateDiagnostic {
 pub struct PromptTemplateLoadResult {
     /// Successfully loaded prompt templates.
     pub templates: Vec<PromptTemplate>,
+
     /// Non-fatal diagnostics encountered during discovery.
     pub diagnostics: Vec<PromptTemplateDiagnostic>,
 }
