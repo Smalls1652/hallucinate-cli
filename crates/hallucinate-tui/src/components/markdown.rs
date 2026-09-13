@@ -125,6 +125,7 @@ impl Renderer {
                 for line in inline_lines(node, Style::default()) {
                     self.lines.push(with_prefix(line, " ".repeat(indent)));
                 }
+                
                 self.separator();
             },
 
@@ -224,6 +225,7 @@ impl Renderer {
             // For less common container extensions, recursively rendering the
             // children is more useful than dropping their text.
             NodeValue::Item(_) | NodeValue::TableRow(_) | NodeValue::TableCell => self.blocks(node),
+            
             _ => {
                 if node.first_child().is_some() {
                     self.blocks(node);
@@ -400,10 +402,12 @@ impl Renderer {
                         line.push(Span::raw(" ".repeat(left)));
                     }
                     line.extend(cell_line);
+                    
                     if right > 0 {
                         line.push(Span::raw(" ".repeat(right)));
                     }
                     line.push(Span::raw(" "));
+                    
                     line.push(Span::styled("│", border_style));
                 }
 
@@ -548,7 +552,9 @@ fn table_padding(
 ) -> (usize, usize) {
     match alignment {
         TableAlignment::Right => (extra, 0),
+        
         TableAlignment::Center => (extra / 2, extra - extra / 2),
+        
         TableAlignment::None | TableAlignment::Left => (0, extra),
     }
 }
@@ -589,23 +595,41 @@ fn ansi_style(style: Style) -> String {
     if let Some(color) = style.fg {
         codes.push(match color {
             Color::Reset => "39".to_string(),
+            
             Color::Black => "30".to_string(),
+            
             Color::Red => "31".to_string(),
+            
             Color::Green => "32".to_string(),
+            
             Color::Yellow => "33".to_string(),
+            
             Color::Blue => "34".to_string(),
+            
             Color::Magenta => "35".to_string(),
+            
             Color::Cyan => "36".to_string(),
+            
             Color::Gray => "37".to_string(),
+            
             Color::DarkGray => "90".to_string(),
+            
             Color::LightRed => "91".to_string(),
+            
             Color::LightGreen => "92".to_string(),
+            
             Color::LightYellow => "93".to_string(),
+            
             Color::LightBlue => "94".to_string(),
+            
             Color::LightMagenta => "95".to_string(),
+            
             Color::LightCyan => "96".to_string(),
+            
             Color::White => "97".to_string(),
+            
             Color::Rgb(r, g, b) => format!("38;2;{r};{g};{b}"),
+            
             Color::Indexed(index) => format!("38;5;{index}"),
         });
     }
@@ -613,23 +637,41 @@ fn ansi_style(style: Style) -> String {
     if let Some(color) = style.bg {
         codes.push(match color {
             Color::Reset => "49".to_string(),
+            
             Color::Black => "40".to_string(),
+            
             Color::Red => "41".to_string(),
+            
             Color::Green => "42".to_string(),
+            
             Color::Yellow => "43".to_string(),
+            
             Color::Blue => "44".to_string(),
+            
             Color::Magenta => "45".to_string(),
+            
             Color::Cyan => "46".to_string(),
+            
             Color::Gray => "47".to_string(),
+            
             Color::DarkGray => "100".to_string(),
+            
             Color::LightRed => "101".to_string(),
+            
             Color::LightGreen => "102".to_string(),
+            
             Color::LightYellow => "103".to_string(),
+            
             Color::LightBlue => "104".to_string(),
+            
             Color::LightMagenta => "105".to_string(),
+            
             Color::LightCyan => "106".to_string(),
+            
             Color::White => "107".to_string(),
+            
             Color::Rgb(r, g, b) => format!("48;2;{r};{g};{b}"),
+            
             Color::Indexed(index) => format!("48;5;{index}"),
         });
     }

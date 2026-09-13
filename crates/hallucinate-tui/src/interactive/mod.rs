@@ -40,6 +40,7 @@ const EPHEMERAL_NOTICE_DURATION: Duration = Duration::from_secs(4);
 struct EphemeralNotice {
     /// The notice text to display.
     message: String,
+    
     /// When the notice should expire and be cleared.
     expires_at: Instant,
 }
@@ -51,6 +52,7 @@ struct EphemeralNotice {
 struct ChatSelection {
     /// The starting point of the selection.
     anchor: (u16, u16),
+    
     /// The current cursor/focus point of the selection.
     focus: (u16, u16),
 }
@@ -76,77 +78,121 @@ impl ChatSelection {
 /// The interactive TUI application.
 pub struct InteractiveTui {
     terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
+    
     transcript: TranscriptRenderer,
+    
     editor: Editor,
+    
     /// The last transcript rectangle rendered on screen. Mouse coordinates are
     /// relative to the terminal, so retaining this avoids duplicating the
     /// layout calculation in the input path.
     transcript_area: Rect,
+    
     /// The currently selected range in the visible chat transcript.
     chat_selection: Option<ChatSelection>,
+    
     /// Text from the last rendered selection, used by Ctrl+C/Cmd+C.
     selected_text: String,
+    
     /// macOS terminals may consume Cmd+C before it reaches the application.
     /// A completed mouse selection is copied on the next render as a fallback.
     copy_selection_on_render: bool,
+    
     /// The agent is moved into a background task while it produces a response.
     /// It is returned through `agent_completion_rx` when the task finishes.
     agent: Option<Agent>,
+    
     agent_state: AgentState,
+    
     token_count: u64,
+    
     token_count_is_estimated: bool,
+    
     event_rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
+    
     agent_completion_tx: tokio::sync::mpsc::UnboundedSender<AgentRunCompletion>,
+    
     agent_completion_rx: tokio::sync::mpsc::UnboundedReceiver<AgentRunCompletion>,
+    
     title_completion_tx: tokio::sync::mpsc::UnboundedSender<SessionTitleCompletion>,
+    
     title_completion_rx: tokio::sync::mpsc::UnboundedReceiver<SessionTitleCompletion>,
+    
     /// Settings used to create a fresh provider for each generated title.
     session_title_settings: SessionTitleSettings,
+    
     /// Agent waiting for a before-response title request to complete.
     pending_title_agent: Option<Agent>,
+    
     /// Whether a before-response session-title request is in progress.
     title_generation_in_progress: bool,
+    
     /// Whether the current session is eligible to receive a generated title.
     title_generation_pending: bool,
+    
     /// The transcript entry receiving content from the current assistant
     /// stream.
     streaming_message_index: Option<usize>,
+    
     /// Maps streamed assistant content indices to tool-call positions in the
     /// current transcript entry. Content indices are stable for a provider
     /// response while the visible tool-call list contains tool blocks only.
     streaming_tool_call_indices: HashMap<usize, usize>,
+    
     /// Whether reasoning blocks are visible in the transcript.
     show_thinking: bool,
+    
     /// Whether completed tool results use their compact or full display.
     show_full_tool_output: bool,
+    
     /// Project directory used to shorten paths in the transcript.
     project_cwd: PathBuf,
+    
     /// The latest short-lived UI notice. Notices are deliberately not part of
     /// the transcript or session history.
     notice: Option<EphemeralNotice>,
+    
     /// Cancellation handle for the background agent task, if one is running.
     agent_cancellation: Option<AgentCancellation>,
+    
     session_manager: SessionManager,
+    
     running: bool,
+    
     message_history: Vec<String>,
+    
     history_index: usize,
+    
     prompt_templates: Vec<hallucinate_agent::agent::prompt_templates::PromptTemplate>,
+    
     prompt_template_options: hallucinate_agent::agent::prompt_templates::PromptTemplateLoadOptions,
+    
     skills: Vec<hallucinate_agent::agent::skills::Skill>,
+    
     /// Runtime overrides are retained so switching providers uses the same
     /// endpoint/key precedence as the initial model.
     runtime_overrides: RuntimeOverrides,
+    
     settings: Settings,
+    
     model: hallucinate_agent::ai::types::Model,
+    
     models: Vec<hallucinate_agent::ai::types::Model>,
+    
     model_picker: Option<ModelPicker>,
+    
     session_picker: Option<SessionPicker>,
+    
     prompt_picker: Option<PromptPicker>,
+    
     autocomplete_items: Vec<AutocompleteItem>,
+    
     autocomplete_index: usize,
+    
     /// Cached wrapped transcript lines. Scroll-only redraws reuse this layout
     /// rather than reparsing every historic Markdown message.
     transcript_layout_cache: render::TranscriptLayoutCache,
+    
     render_state: RenderState,
 }
 
@@ -162,8 +208,10 @@ enum AgentRunOperation {
 struct AgentRunCompletion {
     /// The agent instance, which retains conversation history.
     agent: Agent,
+    
     /// The result of the agent run — `Ok(())` on success, or an error string.
     result: Result<(), String>,
+    
     /// Operation-specific transcript feedback, if this was not a normal turn.
     operation: Option<AgentRunOperation>,
 }
@@ -179,6 +227,7 @@ struct SessionTitleCompletion {
 struct AutocompleteItem {
     /// The completion text value.
     value: String,
+    
     /// A human-readable description of the completion.
     description: String,
 }
@@ -188,8 +237,10 @@ struct AutocompleteItem {
 struct ModelPicker {
     /// Text used to limit models by display name.
     filter: String,
+    
     /// Model indexes matching `filter`.
     filtered_indices: Vec<usize>,
+    
     /// Index of the currently selected matching model.
     selected: usize,
 }
@@ -199,10 +250,13 @@ struct ModelPicker {
 struct SessionPicker {
     /// Rows captured when the picker opened or was deliberately refreshed.
     rows: Vec<SessionPickerRow>,
+    
     /// Text used to limit sessions by title.
     filter: String,
+    
     /// Row indexes matching `filter`.
     filtered_indices: Vec<usize>,
+    
     /// Index of the currently selected matching session.
     selected: usize,
 }
@@ -212,10 +266,13 @@ struct SessionPicker {
 struct SessionPickerRow {
     /// Full session ID used when the row is selected.
     id: String,
+    
     /// Short session ID displayed in the picker.
     short_id: String,
+    
     /// Last session activity time displayed in the picker.
     datetime: String,
+    
     /// Human-readable session title.
     title: String,
 }
@@ -225,8 +282,10 @@ struct SessionPickerRow {
 struct PromptPicker {
     /// Text used to limit prompt templates by name.
     filter: String,
+    
     /// Template indexes matching `filter`.
     filtered_indices: Vec<usize>,
+    
     /// Index of the currently selected matching template.
     selected: usize,
 }
@@ -235,10 +294,15 @@ struct PromptPicker {
 #[derive(Debug, Clone, Copy)]
 struct RenderState {
     transcript: bool,
+    
     status: bool,
+    
     editor: bool,
+    
     overlays: bool,
+    
     selection: bool,
+    
     terminal_size: bool,
 }
 
@@ -331,21 +395,27 @@ impl InteractiveTui {
             .map(PathBuf::from)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
+    
         // Initialize the immutable context once so the status-bar estimate
         // and the first provider turn share the same prompt-file snapshot.
         agent.reload_system_prompt();
+    
         let agent_state = agent.state().clone();
+    
         let token_count = agent.estimate_tokens();
+    
         let show_thinking =
             hallucinate_agent::config::resolve_show_thinking(&settings, show_thinking_override);
 
         let (agent_completion_tx, agent_completion_rx) = tokio::sync::mpsc::unbounded_channel();
+    
         let (title_completion_tx, title_completion_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let mut tui = Self {
             terminal,
             transcript: {
                 let messages = agent.messages();
+    
                 let mut transcript = session::transcript_from_messages(&messages);
                 transcript.set_show_thinking(show_thinking);
                 transcript
@@ -432,14 +502,18 @@ impl InteractiveTui {
 
         while self.running {
             let received_delta = self.process_events();
+    
             let completed_run = self.process_completed_runs();
             let completed_title = self.process_completed_titles();
+    
             if received_delta {
                 self.render_state.transcript = true;
                 self.render_state.status = true;
+    
                 next_stream_render
                     .get_or_insert_with(|| Instant::now() + Duration::from_millis(16));
             }
+    
             if completed_run || completed_title {
                 self.render_state.mark_all();
             }
@@ -448,12 +522,14 @@ impl InteractiveTui {
 
             let stream_render_due =
                 next_stream_render.is_some_and(|deadline| Instant::now() >= deadline);
+    
             if self.render_state.any() && (!received_delta || stream_render_due) {
                 // Clear before drawing so work performed by rendering itself
                 // (for example the macOS selection-copy fallback) can request
                 // the follow-up status redraw it needs.
                 self.render_state.clear();
                 self.render()?;
+    
                 next_stream_render = None;
 
                 if self.render_state.any() {
@@ -465,6 +541,7 @@ impl InteractiveTui {
             // Poll only while a response is active (which keeps stream events
             // responsive); when idle this blocks until a notice must expire.
             let timeout = self.input_timeout(next_stream_render);
+    
             if self.handle_input(timeout)? {
                 break;
             }
@@ -478,10 +555,12 @@ impl InteractiveTui {
         next_stream_render: Option<Instant>,
     ) -> Duration {
         let now = Instant::now();
+    
         let notice_timeout = self
             .notice
             .as_ref()
             .map(|notice| notice.expires_at.saturating_duration_since(now));
+    
         let stream_timeout =
             next_stream_render.map(|deadline| deadline.saturating_duration_since(now));
 
@@ -620,6 +699,7 @@ impl InteractiveTui {
             tool_calls: Vec::new(),
             timestamp: chrono::Utc::now(),
         });
+    
         self.render_state.transcript = true;
     }
 
@@ -669,6 +749,7 @@ impl InteractiveTui {
             message: content.into(),
             expires_at: Instant::now() + EPHEMERAL_NOTICE_DURATION,
         });
+    
         self.render_state.status = true;
     }
 

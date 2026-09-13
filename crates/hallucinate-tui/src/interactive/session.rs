@@ -46,33 +46,42 @@ impl InteractiveTui {
                             // Text and reasoning are displayed as their delta
                             // events arrive.
                         },
+                        
                         AgentState::ToolExecuting => {
                             // Tool is being executed
                         },
+                        
                         AgentState::TurnComplete => {
                             // Response complete, ready for next input
                         },
+                        
                         // Error details arrive in the matching `Error` event
                         // and belong in the transcript rather than the
                         // status bar. State changes only update the lifecycle
                         // indicator.
                         AgentState::Error(_) => {},
+                        
                         AgentState::Aborted => {
                             self.show_notice("Agent aborted.");
                         },
+                        
                         _ => {},
                     }
                 },
 
                 AgentEvent::AssistantTextDelta { delta, .. } => {
                     let index = self.ensure_streaming_assistant_message();
+                    
                     self.transcript.append_to_message(index, delta);
+                    
                     received_delta = true;
                 },
 
                 AgentEvent::AssistantThinkingDelta { delta } => {
                     let index = self.ensure_streaming_assistant_message();
+                    
                     self.transcript.append_thinking_to_message(index, delta);
+                    
                     received_delta = true;
                 },
 
@@ -85,7 +94,9 @@ impl InteractiveTui {
                     } else {
                         self.token_count_is_estimated = true;
                     }
+                    
                     let (content, thinking, tool_calls) = display_assistant_message(message);
+                    
                     self.streaming_tool_call_indices.clear();
 
                     if let Some(index) = self.streaming_message_index.take() {
@@ -185,6 +196,7 @@ impl InteractiveTui {
 
         let index = self.transcript.messages().len() - 1;
         self.streaming_message_index = Some(index);
+        
         index
     }
 
@@ -239,6 +251,7 @@ impl InteractiveTui {
                         ));
                     }
                 },
+        
                 Err(error) => {
                     self.show_notice(format!("Could not generate session title: {error}"))
                 },
@@ -246,13 +259,16 @@ impl InteractiveTui {
 
             if let Some(agent) = self.pending_title_agent.take() {
                 let completion_tx = self.agent_completion_tx.clone();
+        
                 tokio::spawn(async move {
                     let mut agent = agent;
+        
                     let result = agent
                         .run()
                         .await
                         .map(|_| ())
                         .map_err(|error| error.to_string());
+        
                     let _ = completion_tx.send(AgentRunCompletion {
                         agent,
                         result,
@@ -272,10 +288,13 @@ impl InteractiveTui {
 
         while let Ok(completion) = self.agent_completion_rx.try_recv() {
             completed_run = true;
+        
             if self.token_count_is_estimated {
                 self.token_count = completion.agent.estimate_tokens();
             }
+        
             self.agent_cancellation = None;
+        
             let operation = completion.operation;
             let result = completion.result;
             self.agent = Some(completion.agent);
@@ -294,6 +313,7 @@ impl InteractiveTui {
                 .current_storage()
                 .and_then(|storage| match storage.load_messages() {
                     Ok(messages) => Some(messages),
+        
                     Err(error) => {
                         eprintln!("Warning: could not inspect persisted messages: {error}");
                         None
@@ -338,6 +358,7 @@ impl InteractiveTui {
                     .unwrap_or("No checkpoint summary was returned.")
                     .to_string();
                 self.add_compaction_result(&summary);
+        
                 if let Err(error) = self.session_manager.save_compaction_checkpoint(
                     &summary,
                     self.agent
@@ -347,6 +368,7 @@ impl InteractiveTui {
                 ) {
                     eprintln!("Warning: could not persist compaction checkpoint: {error}");
                 }
+        
                 self.add_system_message("Compacted the current context.");
             }
         }

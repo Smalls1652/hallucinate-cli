@@ -22,17 +22,25 @@ use crate::{
 /// reuse the complete layout without reparsing historic Markdown or cloning
 /// every visual line.
 const COMPACT_TOOL_RESULT_WIDTH: usize = 100;
+
 const MINIMUM_HALF_WIDTH_TOOL_RESULT_TERMINAL_WIDTH: u16 = 95;
 
 #[derive(Default)]
 pub(super) struct TranscriptLayoutCache {
     width: u16,
+    
     show_thinking: bool,
+    
     show_timestamps: bool,
+    
     show_full_tool_output: bool,
+    
     streaming_message_index: Option<usize>,
+    
     transcript_revision: u64,
+    
     lines: Vec<ratatui::text::Line<'static>>,
+    
     selection_line_starts: Vec<Option<usize>>,
 }
 
@@ -43,6 +51,7 @@ pub(super) struct TranscriptLayoutCache {
 /// viewport, making scroll work proportional to the terminal height.
 struct TranscriptViewport<'a> {
     lines: &'a [ratatui::text::Line<'static>],
+    
     scroll: usize,
 }
 
@@ -66,6 +75,7 @@ impl ratatui::widgets::Widget for TranscriptViewport<'_> {
             .enumerate()
         {
             let row_area = Rect::new(area.x, area.y.saturating_add(row as u16), area.width, 1);
+            
             ratatui::widgets::Widget::render(line, row_area, buffer);
         }
     }
@@ -182,9 +192,11 @@ impl InteractiveTui {
             );
             rendered_transcript_area = chunks[1];
             rendered_selection_text = rendered_selection;
+            
             if autocomplete_height > 0 {
                 let start = self.autocomplete_index.saturating_sub(4);
                 let popup_inner_width = usize::from(chunks[2].width.saturating_sub(2));
+            
                 let suggestions = self
                     .autocomplete_items
                     .iter()
@@ -300,13 +312,18 @@ fn render_transcript(
             .flat_map(|(message_index, msg)| {
                 let (role_color, icon, role_label) = match msg.role {
                     MessageRole::User => (Color::LightGreen, "›", "You"),
+            
                     MessageRole::Assistant => (Color::LightCyan, "✦", "Assistant"),
+            
                     MessageRole::Tool => (Color::LightMagenta, "⚙", "Tool"),
+            
                     MessageRole::System => (Color::DarkGray, "·", "Notice"),
+            
                     MessageRole::Error => (Color::LightRed, "✗", "Error"),
                 };
 
                 let muted = Style::default().fg(Color::DarkGray);
+            
                 let starts_card = starts_transcript_card(
                     message_index
                         .checked_sub(1)
@@ -314,12 +331,14 @@ fn render_transcript(
                         .map(|message| message.role),
                     msg.role,
                 );
+            
                 let ends_card = ends_transcript_card(
                     msg.role,
                     messages.get(message_index + 1).map(|message| message.role),
                 );
 
                 let role_style = Style::default().fg(role_color).add_modifier(Modifier::BOLD);
+            
                 let mut lines = Vec::new();
                 let mut line_starts = Vec::new();
 
@@ -423,6 +442,7 @@ fn render_transcript(
                     if let Some(result) = &tool_call.result {
                         let previous_len = lines.len();
                         let is_error = result.starts_with("❌");
+            
                         let result = tool_result_for_display(result, show_full_tool_output);
                         let result = tool_result_content(&result);
 
@@ -489,6 +509,7 @@ fn render_transcript(
                 if ends_card {
                     lines.push(Line::from(Span::styled("╰─", role_color)));
                     line_starts.push(None);
+            
                     lines.push(Line::from(""));
                     line_starts.push(None);
                 } else {
@@ -533,6 +554,7 @@ fn render_transcript(
     // entries rather than cloning the full transcript into a
     // `Paragraph` for every scroll event.
     let active_selection = selection.filter(|selection| selection.has_range());
+    
     let scroll = transcript.scroll_position(lines.len(), usize::from(transcript_inner_area.height));
     frame.render_widget(
         TranscriptViewport {
@@ -568,11 +590,13 @@ fn render_transcript(
             .take(usize::from(transcript_inner_area.height))
             .map(|(line, start)| selection_mask_line(line, start))
             .collect::<Vec<_>>();
+        
         let mut mask_buffer = ratatui::buffer::Buffer::empty(area);
         let mask = Paragraph::new(selection_mask_lines);
         mask.render(transcript_inner_area, &mut mask_buffer);
 
         let buffer = frame.buffer_mut();
+        
         let mut selected_rows = Vec::new();
         for row in start_y..=end_y {
             let from = if row == start_y { start_x } else { area.x };
@@ -607,6 +631,7 @@ fn render_transcript(
         }
         return selected_rows.join("\n");
     }
+    
     String::new()
 }
 
@@ -773,6 +798,7 @@ fn render_picker<F>(
         popup_width,
         popup_height,
     );
+    
     let visible_rows = usize::from(popup_height.saturating_sub(2));
     let start = selected
         .saturating_sub(visible_rows / 2)
@@ -828,10 +854,15 @@ fn render_status_bar(
     } else {
         match agent_state {
             AgentState::Idle => "idle".to_string(),
+    
             AgentState::Streaming => "streaming...".to_string(),
+    
             AgentState::ToolExecuting => "executing tools...".to_string(),
+    
             AgentState::TurnComplete => "idle".to_string(),
+    
             AgentState::Error(_) => "error — see transcript".to_string(),
+    
             AgentState::Aborted => "aborted".to_string(),
         }
     };
@@ -927,6 +958,7 @@ fn streamed_tool_call_summary(
     let summary = match tool_name {
         "bash" => partial_json_string_value(arguments, "command")
             .map(|command| format!("bash {}", truncate_one_line(&command, 100))),
+    
         "read" | "write" | "edit" | "ls" => {
             partial_json_string_value(arguments, "path").map(|path| {
                 format!(
@@ -935,9 +967,12 @@ fn streamed_tool_call_summary(
                 )
             })
         },
+    
         "find" | "grep" => partial_json_string_value(arguments, "pattern")
             .map(|pattern| format!("{tool_name} {}", truncate_one_line(&pattern, 100))),
+    
         "compact" => Some("Context checkpoint".to_string()),
+    
         _ => None,
     };
 
@@ -956,6 +991,7 @@ fn partial_json_string_value(
 ) -> Option<String> {
     let field_key = format!(r#""{field}""#);
     let field_start = arguments.find(&field_key)? + field_key.len();
+    
     let value = arguments[field_start..].trim_start();
     let value = value.strip_prefix(':')?.trim_start();
     if !value.starts_with('"') {
@@ -990,12 +1026,15 @@ fn streamed_json_string_prefix(
     field: &str,
 ) -> Option<String> {
     let field_key = format!(r#""{field}""#);
+    
     let value_start = arguments.find(&field_key)? + field_key.len();
     let value = arguments[value_start..].trim_start();
     let value = value.strip_prefix(':')?.trim_start();
     let encoded_value = value.strip_prefix('"')?;
+    
     let mut escaped = false;
     let mut end = encoded_value.len();
+    
     for (index, character) in encoded_value.char_indices() {
         if character == '"' && !escaped {
             end = index;
@@ -1003,10 +1042,12 @@ fn streamed_json_string_prefix(
         }
 
         escaped = character == '\\' && !escaped;
+    
         if character != '\\' {
             escaped = false;
         }
     }
+    
     let encoded_value = &encoded_value[..end];
 
     serde_json::from_str(&format!(r#""{encoded_value}""#))
@@ -1052,6 +1093,7 @@ fn line_is_empty_card_rail(line: &ratatui::text::Line<'_>) -> bool {
 
 /// Foreground color marker for selectable text in the transcript.
 const SELECTION_MARKER: ratatui::style::Color = ratatui::style::Color::Rgb(1, 2, 3);
+
 /// Foreground color marker for non-selectable text in the transcript.
 const NON_SELECTION_MARKER: ratatui::style::Color = ratatui::style::Color::Rgb(4, 5, 6);
 
@@ -1106,9 +1148,12 @@ fn wrap_line_to_width(
 
     let line_style = line.style;
     let alignment = line.alignment;
+
     let paragraph =
         ratatui::widgets::Paragraph::new(line).wrap(ratatui::widgets::Wrap { trim: false });
-    let line_count = paragraph.line_count(width).max(1);
+
+        let line_count = paragraph.line_count(width).max(1);
+
     let height = u16::try_from(line_count).unwrap_or(u16::MAX);
     let area = ratatui::layout::Rect::new(0, 0, width, height);
 
@@ -1194,6 +1239,7 @@ fn append_thinking_box(
         .bg(Color::Rgb(45, 45, 45))
         .add_modifier(Modifier::DIM);
     let rail_style = Style::default().fg(Color::Gray);
+
     let box_width = tool_result_box_width(width);
     let horizontal_padding = usize::from(box_width >= 3);
     let content_width = box_width.saturating_sub(horizontal_padding * 2).max(1);
@@ -1228,6 +1274,7 @@ fn append_thinking_box(
                 .map(|span| Span::styled(span.content.into_owned(), style))
                 .collect::<Vec<_>>(),
         );
+
         append_thinking_box_line(
             lines,
             thinking_line,
@@ -1255,17 +1302,22 @@ fn append_thinking_box_line(
 ) {
     for line in wrap_line_to_width(line, u16::try_from(content_width).unwrap_or(u16::MAX)) {
         let remaining_width = content_width.saturating_sub(line.width());
+
         let mut spans = vec![Span::styled("│ ", rail_style)];
+
         if horizontal_padding > 0 {
             spans.push(Span::styled(" ".repeat(horizontal_padding), style));
         }
         spans.extend(line.spans);
+
         if remaining_width > 0 {
             spans.push(Span::styled(" ".repeat(remaining_width), style));
         }
+
         if horizontal_padding > 0 {
             spans.push(Span::styled(" ".repeat(horizontal_padding), style));
         }
+
         lines.push(Line::from(spans));
     }
 }
@@ -1296,9 +1348,12 @@ fn append_tool_result_box(
     } else {
         Color::Rgb(15, 65, 30)
     };
+
     let style = Style::default().fg(Color::DarkGray).bg(background);
     let rail_style = Style::default().fg(Color::LightBlue);
+
     let box_width = tool_result_box_width(width);
+
     // Keep the output clear of the coloured box edges without overflowing very
     // narrow terminal layouts.
     let horizontal_padding = usize::from(box_width >= 3);
@@ -1316,17 +1371,22 @@ fn append_tool_result_box(
         ) {
             let content_width_used = line.width();
             let remaining_width = content_width.saturating_sub(content_width_used);
+
             let mut spans = vec![Span::styled("│ ", rail_style)];
+
             if horizontal_padding > 0 {
                 spans.push(Span::styled(" ".repeat(horizontal_padding), style));
             }
             spans.extend(line.spans);
+
             if remaining_width > 0 {
                 spans.push(Span::styled(" ".repeat(remaining_width), style));
             }
+
             if horizontal_padding > 0 {
                 spans.push(Span::styled(" ".repeat(horizontal_padding), style));
             }
+
             lines.push(ratatui::text::Line::from(spans));
         }
     }
@@ -1415,6 +1475,7 @@ fn append_prefixed_lines(
         } else {
             continuation_prefix
         };
+
         let wrapped_lines = wrap_line_to_width(
             ratatui::text::Line::from(ratatui::text::Span::styled(
                 physical_line.trim_end().to_string(),
@@ -1429,8 +1490,10 @@ fn append_prefixed_lines(
             } else {
                 continuation_prefix
             };
+
             let mut spans = vec![ratatui::text::Span::styled(line_prefix, prefix_style)];
             spans.extend(line.spans);
+
             lines.push(ratatui::text::Line::from(spans));
         }
     }
@@ -1559,6 +1622,7 @@ mod tests {
             Some(Color::Rgb(15, 65, 30)),
         );
         assert_eq!(success_lines[1].spans[1].style.fg, Some(Color::DarkGray));
+
         let success_content = success_lines[1]
             .spans
             .iter()
@@ -1744,6 +1808,7 @@ mod tests {
             tool_calls: Vec::new(),
             timestamp: chrono::Utc::now(),
         });
+
         let mut cache = TranscriptLayoutCache::default();
         cache.replace(
             &transcript,
@@ -1770,6 +1835,7 @@ mod tests {
             tool_calls: Vec::new(),
             timestamp: chrono::Utc::now(),
         });
+
         let mut cache = TranscriptLayoutCache::default();
         cache.replace(&transcript, 80, false, None, Vec::new(), Vec::new());
 
@@ -1793,7 +1859,9 @@ mod tests {
             Line::from("second"),
             Line::from("third"),
         ];
+
         let area = Rect::new(0, 0, 10, 2);
+
         let mut buffer = ratatui::buffer::Buffer::empty(area);
 
         ratatui::widgets::Widget::render(
@@ -1812,7 +1880,9 @@ mod tests {
     #[test]
     fn cached_viewport_clears_cells_not_covered_by_shorter_rows() {
         let lines = vec![Line::from("short")];
+
         let area = Rect::new(0, 0, 10, 2);
+
         let mut buffer = ratatui::buffer::Buffer::empty(area);
         buffer.cell_mut((8, 0)).unwrap().set_symbol("x");
         buffer.cell_mut((0, 1)).unwrap().set_symbol("y");

@@ -20,17 +20,23 @@ use super::super::{
 pub struct Editor {
     /// The current text content.
     content: String,
+    
     /// Byte offset of the cursor within `content`.
     cursor_pos: usize,
+    
     /// The preferred display column used when moving through lines of
     /// different lengths.
     vertical_column: Option<usize>,
+    
     /// Placeholder text shown when the editor is empty.
     placeholder: Option<String>,
+    
     /// Style applied to the rendered text.
     style: Style,
+    
     /// Stack for undo/redo operations.
     undo_stack: UndoStack,
+    
     /// Byte offset of the selection anchor (None when no selection is active).
     selection_anchor: Option<usize>,
 }
@@ -491,6 +497,7 @@ impl Editor {
         if let Some(operation) = self.undo_stack.undo(&mut self.content) {
             self.cursor_pos = match operation {
                 EditOperation::Insert { position, .. } => position,
+    
                 EditOperation::Delete {
                     position,
                     deleted_text,
@@ -507,6 +514,7 @@ impl Editor {
         if let Some(operation) = self.undo_stack.redo(&mut self.content) {
             self.cursor_pos = match operation {
                 EditOperation::Insert { position, text } => position + text.len(),
+    
                 EditOperation::Delete { position, .. } => position,
             };
 
@@ -531,10 +539,12 @@ impl Editor {
     ) -> bool {
         match event {
             InputEvent::Key(key) => self.handle_key(key),
+    
             InputEvent::Paste(text) => {
                 self.insert_text(&text);
                 false
             },
+    
             _ => false,
         }
     }
@@ -549,33 +559,45 @@ impl Editor {
                 'a' => {
                     self.cursor_beginning();
                 },
+    
                 'e' => {
                     self.cursor_end();
                 },
+    
                 'b' => {
                     self.cursor_left();
                 },
+    
                 'f' => {
                     self.cursor_right();
                 },
+    
                 'h' | '\x7f' => {
                     self.delete_char_back();
                 },
+    
                 'd' => {
                     self.delete_char();
                 },
+    
                 'p' => {
                     self.undo();
                 },
+    
                 'r' => {
                     self.redo();
                 },
+    
                 'w' => self.delete_word_back(),
+    
                 // Ctrl-J is a reliable fallback for terminals that do not
                 // report Shift+Enter separately from Enter.
                 'j' => self.insert_char('\n'),
+    
                 'k' => self.delete_to_end(),
+    
                 'u' => self.delete_to_beginning(),
+    
                 _ => {},
             },
 
@@ -583,9 +605,11 @@ impl Editor {
                 'b' => {
                     self.word_back();
                 },
+    
                 'f' => {
                     self.word_forward();
                 },
+    
                 _ => {},
             },
 
@@ -737,8 +761,10 @@ impl Editor {
 struct VisualLine {
     /// The display text for this visual line.
     text: String,
+    
     /// Byte offset where this visual line starts in the content.
     start: usize,
+    
     /// Byte offset where this visual line ends in the content.
     end: usize,
 }

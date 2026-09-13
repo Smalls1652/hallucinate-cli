@@ -35,15 +35,19 @@ impl InteractiveTui {
         }
 
         let session = self.session_manager.resume(session_id)?;
+        
         let storage = self
             .session_manager
             .current_storage()
             .expect("resumed session has storage");
+        
         let messages = storage.load_messages()?;
+        
         let checkpoint = storage.load_compaction_checkpoint()?;
 
         let agent = self.agent.as_mut().expect("agent checked above");
         agent.load_history(messages.clone())?;
+        
         if let Some((summary, archived_message_count)) = checkpoint {
             agent.restore_compaction_checkpoint(summary, archived_message_count)?;
         }
@@ -84,6 +88,7 @@ impl InteractiveTui {
         arguments: &str,
     ) -> Result<(), anyhow::Error> {
         let arguments = hallucinate_agent::agent::prompt_templates::parse_command_args(arguments);
+        
         let Some(operation) = arguments.first().map(String::as_str) else {
             self.show_notice("Usage: /auth <list|set|remove> [provider] [api-key]");
             return Ok(());
@@ -216,6 +221,7 @@ impl InteractiveTui {
 
                 let title = command_arguments(&arguments);
                 let title_generation_pending = title.is_none();
+                
                 self.create_empty_session(title, title_generation_pending)?;
                 self.show_notice("Created a new session.");
             },
@@ -225,6 +231,7 @@ impl InteractiveTui {
                     .and_then(|value| value.split_whitespace().next().map(str::to_owned))
                 else {
                     self.open_session_picker();
+                    
                     return Ok(true);
                 };
 
@@ -263,6 +270,7 @@ impl InteractiveTui {
 
                 let Some(session_id) = session_id else {
                     self.show_notice("There is no current session to delete.");
+                    
                     return Ok(true);
                 };
 
@@ -339,6 +347,7 @@ impl InteractiveTui {
             "model" => {
                 let arguments =
                     hallucinate_agent::agent::prompt_templates::parse_command_args(&arguments);
+                
                 if arguments.is_empty() {
                     self.open_model_picker();
                 } else {
@@ -355,9 +364,12 @@ impl InteractiveTui {
 
                 let mut agent = self.agent.take().expect("agent is idle");
                 self.agent_cancellation = Some(agent.cancellation());
+                
                 let completion_tx = self.agent_completion_tx.clone();
+                
                 tokio::spawn(async move {
                     let result = agent.compact().await.map_err(|error| error.to_string());
+                
                     let _ = completion_tx.send(AgentRunCompletion {
                         agent,
                         result,
@@ -395,6 +407,7 @@ impl InteractiveTui {
 
                 if let Some(agent) = self.agent.as_mut() {
                     agent.reload_system_prompt();
+                    
                     self.token_count = agent.estimate_tokens();
                     self.token_count_is_estimated = true;
                 }
@@ -434,6 +447,7 @@ impl InteractiveTui {
     pub fn open_model_picker(&mut self) {
         if self.models.is_empty() {
             self.show_notice("No models are configured.");
+            
             return;
         }
 
@@ -454,14 +468,17 @@ impl InteractiveTui {
     pub fn open_session_picker(&mut self) {
         let sessions = match SessionManager::list() {
             Ok(sessions) => sessions,
+            
             Err(error) => {
                 self.show_notice(format!("Failed to list sessions: {error}"));
+                
                 return;
             },
         };
 
         if sessions.is_empty() {
             self.show_notice("No sessions found.");
+            
             return;
         }
 
@@ -483,7 +500,9 @@ impl InteractiveTui {
                 }
             })
             .collect::<Vec<_>>();
+        
         let current_id = self.session_manager.current_id();
+        
         let selected = rows
             .iter()
             .position(|row| current_id == Some(row.id.as_str()))
@@ -501,6 +520,7 @@ impl InteractiveTui {
     pub fn open_prompt_picker(&mut self) {
         if self.prompt_templates.is_empty() {
             self.show_notice("No prompt templates found.");
+        
             return;
         }
 
@@ -521,6 +541,7 @@ impl InteractiveTui {
             if let Some(cancellation) = &self.agent_cancellation {
                 cancellation.cancel();
             }
+            
             return Ok(());
         }
 
@@ -538,12 +559,14 @@ impl InteractiveTui {
 
         match key.code {
             crossterm::event::KeyCode::Esc => self.session_picker = None,
+            
             crossterm::event::KeyCode::Enter => {
                 let session_id = picker
                     .filtered_indices
                     .get(picker.selected)
                     .and_then(|index| picker.rows.get(*index))
                     .map(|row| row.id.clone());
+            
                 self.session_picker = None;
 
                 if let Some(session_id) = session_id {
@@ -556,8 +579,10 @@ impl InteractiveTui {
                     }
                 }
             },
+            
             _ => {},
         }
+        
         Ok(())
     }
 
@@ -571,6 +596,7 @@ impl InteractiveTui {
             if let Some(cancellation) = &self.agent_cancellation {
                 cancellation.cancel();
             }
+        
             return Ok(());
         }
 
@@ -588,6 +614,7 @@ impl InteractiveTui {
 
         match key.code {
             crossterm::event::KeyCode::Esc => self.prompt_picker = None,
+        
             crossterm::event::KeyCode::Enter => {
                 let template = picker
                     .filtered_indices
@@ -601,8 +628,10 @@ impl InteractiveTui {
                     self.refresh_autocomplete();
                 }
             },
+        
             _ => {},
         }
+        
         Ok(())
     }
 
@@ -616,6 +645,7 @@ impl InteractiveTui {
             if let Some(cancellation) = &self.agent_cancellation {
                 cancellation.cancel();
             }
+        
             return Ok(());
         }
 
@@ -632,6 +662,7 @@ impl InteractiveTui {
 
         match key.code {
             crossterm::event::KeyCode::Esc => self.model_picker = None,
+        
             crossterm::event::KeyCode::Enter => {
                 let model = picker
                     .filtered_indices
@@ -644,8 +675,10 @@ impl InteractiveTui {
                     self.switch_to_model(model)?;
                 }
             },
+        
             _ => {},
         }
+        
         Ok(())
     }
 
@@ -671,6 +704,7 @@ impl InteractiveTui {
 
                 return Ok(());
             }
+        
             model
         };
 
@@ -700,6 +734,7 @@ impl InteractiveTui {
             &self.runtime_overrides,
             &model,
         )?;
+        
         let max_tokens = hallucinate_agent::config::agent_config(
             &self.settings,
             &model,
@@ -735,8 +770,11 @@ impl InteractiveTui {
 
         let show = match argument.as_str() {
             "" => !self.show_thinking,
+        
             "on" | "true" | "yes" => true,
+        
             "off" | "false" | "no" => false,
+        
             _ => {
                 self.show_notice("Usage: /thinking [on|off]");
                 return;
@@ -799,10 +837,14 @@ impl InteractiveTui {
 
         self.streaming_message_index = None;
         self.streaming_tool_call_indices.clear();
+        
         self.title_generation_pending =
             title_generation_pending && self.session_title_settings.enabled;
+        
         self.message_history.clear();
+        
         self.history_index = 0;
+        
         self.token_count = agent.estimate_tokens();
         self.token_count_is_estimated = true;
 
@@ -840,7 +882,9 @@ fn resolve_session_id(input: &str) -> Result<String, anyhow::Error> {
 
     match matches.as_slice() {
         [session_id] => Ok(session_id.clone()),
+    
         [] => Err(anyhow::anyhow!("Session '{}' not found", input)),
+    
         _ => Err(anyhow::anyhow!("session id '{}' is ambiguous", input)),
     }
 }
@@ -857,25 +901,31 @@ where
     let Some(picker) = picker else {
         return false;
     };
+    
     let changed = match key.code {
         crossterm::event::KeyCode::Char(character) if !key.ctrl && !key.alt => {
             picker.filter_mut().push(character);
             true
         },
+    
         crossterm::event::KeyCode::Backspace if !key.ctrl && !key.alt => {
             picker.filter_mut().pop().is_some()
         },
+    
         _ => false,
     };
+    
     if changed {
         update_indices(picker);
         *picker.selected_mut() = 0;
     }
+    
     changed
 }
 
 trait PickerFilter {
     fn filter_mut(&mut self) -> &mut String;
+    
     fn selected_mut(&mut self) -> &mut usize;
 }
 
@@ -915,13 +965,20 @@ fn match_picker_navigation(
     if item_count == 0 {
         return;
     }
+    
     match key.code {
         crossterm::event::KeyCode::Up => *selected = selected.saturating_sub(1),
+    
         crossterm::event::KeyCode::Down => *selected = (*selected + 1).min(item_count - 1),
+    
         crossterm::event::KeyCode::PageUp => *selected = selected.saturating_sub(8),
+    
         crossterm::event::KeyCode::PageDown => *selected = (*selected + 8).min(item_count - 1),
+    
         crossterm::event::KeyCode::Home => *selected = 0,
+    
         crossterm::event::KeyCode::End => *selected = item_count - 1,
+    
         _ => {},
     }
 }

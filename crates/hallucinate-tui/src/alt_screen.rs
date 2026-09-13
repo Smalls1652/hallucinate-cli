@@ -8,18 +8,24 @@ use std::{collections::HashSet, path::Path};
 pub struct TranscriptRenderer {
     /// Stored messages in the transcript.
     messages: Vec<Message>,
+    
     /// Whether to automatically follow new messages.
     follow_mode: bool,
+    
     /// Number of lines to remain above the newest content while unfollowed.
     scroll_offset: usize,
+    
     /// Whether to display timestamps on messages.
     show_timestamps: bool,
+    
     /// Whether to display thinking blocks.
     show_thinking: bool,
+    
     /// A monotonically increasing content revision. Layout caches use this to
     /// avoid treating scroll-only changes as content edits without scanning
     /// every historic message on each redraw.
     layout_revision: u64,
+    
     /// IDs of calls actively executing. This ephemeral state is deliberately
     /// separate from persisted tool results.
     running_tool_call_ids: HashSet<String>,
@@ -30,13 +36,17 @@ pub struct TranscriptRenderer {
 pub struct Message {
     /// The role of the message sender.
     pub role: MessageRole,
+    
     /// User-visible answer text.
     pub content: String,
+    
     /// Model reasoning kept separately so it can be toggled without changing
     /// the answer or the persisted assistant message.
     pub thinking: String,
+    
     /// Tool calls made by the assistant.
     pub tool_calls: Vec<ToolCall>,
+    
     /// When this message was created.
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
@@ -46,12 +56,16 @@ pub struct Message {
 pub enum MessageRole {
     /// A user-submitted message.
     User,
+    
     /// An assistant-generated response.
     Assistant,
+    
     /// A tool call result.
     Tool,
+    
     /// A system-level instruction.
     System,
+    
     /// An error produced by the agent or TUI.
     Error,
 }
@@ -61,11 +75,14 @@ pub enum MessageRole {
 pub struct ToolCall {
     /// Unique identifier for this tool call.
     pub id: String,
+    
     /// The name of the tool being called.
     pub name: String,
+    
     /// Structured arguments passed to the tool. Historic malformed argument
     /// text is retained as a JSON string at the UI boundary.
     pub arguments: serde_json::Value,
+    
     /// Optional result returned by the tool execution.
     pub result: Option<String>,
 }
@@ -240,6 +257,7 @@ impl TranscriptRenderer {
     ) -> Option<usize> {
         let message = self.messages.get_mut(message_index)?;
         message.tool_calls.push(tool_call);
+        
         let tool_call_index = message.tool_calls.len() - 1;
         self.bump_layout_revision();
 
@@ -256,6 +274,7 @@ impl TranscriptRenderer {
         let Some(message) = self.messages.get_mut(message_index) else {
             return false;
         };
+        
         let Some(current_tool_call) = message.tool_calls.get_mut(tool_call_index) else {
             return false;
         };
@@ -324,6 +343,7 @@ impl TranscriptRenderer {
     ) -> bool {
         for index in (0..self.messages.len()).rev() {
             let message = &mut self.messages[index];
+            
             if let Some(call) = message
                 .tool_calls
                 .iter_mut()
@@ -332,6 +352,7 @@ impl TranscriptRenderer {
                 call.result
                     .get_or_insert_with(|| "⏳ ".to_string())
                     .push_str(output);
+                
                 self.bump_layout_revision();
 
                 return true;
@@ -354,6 +375,7 @@ impl TranscriptRenderer {
 
         for index in (0..self.messages.len()).rev() {
             let message = &mut self.messages[index];
+            
             if let Some(call) = message
                 .tool_calls
                 .iter_mut()

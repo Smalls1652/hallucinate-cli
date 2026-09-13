@@ -9,14 +9,19 @@ use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 pub struct Key {
     /// The underlying crossterm key code.
     pub code: KeyCode,
+    
     /// The raw modifier flags from crossterm.
     pub modifiers: KeyModifiers,
+    
     /// Whether the Control modifier is active.
     pub ctrl: bool,
+    
     /// Whether the Alt modifier is active.
     pub alt: bool,
+    
     /// Whether the Shift modifier is active.
     pub shift: bool,
+    
     /// The macOS Command key is reported as SUPER by crossterm.
     pub super_key: bool,
 }
