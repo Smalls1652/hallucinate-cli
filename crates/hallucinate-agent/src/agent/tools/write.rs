@@ -13,17 +13,9 @@ use super::{
 /// File writing tool.
 ///
 /// Writes content to a file atomically using a temp file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct WriteTool {
     limits: ToolLimits,
-}
-
-impl Default for WriteTool {
-    fn default() -> Self {
-        Self {
-            limits: ToolLimits::default(),
-        }
-    }
 }
 
 impl WriteTool {

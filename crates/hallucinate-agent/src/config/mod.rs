@@ -88,7 +88,7 @@ pub fn resolve_model(
     settings.require_configured_providers()?;
 
     if let Some(model_str) = model {
-        return resolve_model_selector(model_str, settings, base_url.as_deref())
+        return resolve_model_selector(model_str, settings, base_url)
             .ok_or_else(|| anyhow::anyhow!("No models available"));
     }
 
@@ -209,7 +209,7 @@ pub fn create_provider_for_model(
             settings
                 .providers
                 .contains_key(&model.provider)
-                .then(|| String::new())
+                .then(String::new)
         })
         .ok_or_else(|| anyhow::anyhow!("No API key configured for provider '{}'. Set HALLUCINATE_API_KEY, HALLUCINATE_{}_API_KEY, configure a credential, or use --api-key", model.provider, model.provider.to_ascii_uppercase()))?;
     let mut headers: HashMap<String, String> = if model.provider == settings.provider {

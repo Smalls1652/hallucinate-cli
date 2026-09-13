@@ -203,14 +203,13 @@ impl InteractiveTui {
             .streaming_tool_call_indices
             .get(&content_index)
             .copied()
-        {
-            if self.transcript.update_tool_call_in_message(
+            && self.transcript.update_tool_call_in_message(
                 message_index,
                 tool_call_index,
                 tui_tool_call.clone(),
-            ) {
-                return;
-            }
+            )
+        {
+            return;
         }
 
         if let Some(tool_call_index) = self

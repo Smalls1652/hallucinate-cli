@@ -155,10 +155,10 @@ impl BashTool {
             Err(_) => {
                 // `kill_on_drop` is a fallback; await explicit cleanup so a
                 // direct child cannot survive a timeout result.
-                if let Err(error) = child.kill().await {
-                    if error.kind() != std::io::ErrorKind::InvalidInput {
-                        return Err(anyhow::anyhow!("Failed to kill timed-out command: {error}"));
-                    }
+                if let Err(error) = child.kill().await
+                    && error.kind() != std::io::ErrorKind::InvalidInput
+                {
+                    return Err(anyhow::anyhow!("Failed to kill timed-out command: {error}"));
                 }
                 child.wait().await.map_err(|error| {
                     anyhow::anyhow!("Failed to reap timed-out command: {error}")

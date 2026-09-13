@@ -466,10 +466,10 @@ impl InteractiveTui {
 
                     // Ctrl+C can interrupt an active response, but never
                     // quits the application. Cmd+C is copy-only on macOS.
-                    if key.ctrl {
-                        if let Some(cancellation) = &self.agent_cancellation {
-                            cancellation.cancel();
-                        }
+                    if key.ctrl
+                        && let Some(cancellation) = &self.agent_cancellation
+                    {
+                        cancellation.cancel();
                     }
 
                     return Ok(false);

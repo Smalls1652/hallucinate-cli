@@ -17,7 +17,7 @@ pub use self::{
     rpc::{RpcArgs, rpc_command},
 };
 
-pub const CLI_NAME: &'static str = "hallucinate";
+pub const CLI_NAME: &str = "hallucinate";
 
 /// Hallucinate CLI - AI coding agent powered by LLMs.
 #[derive(Debug, Clone, Parser)]

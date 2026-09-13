@@ -132,10 +132,10 @@ struct HttpConnection {
 
     /// Target MCP server URL.
     url: String,
-    
+
     /// Authentication configuration for the server.
     auth: McpAuthSettings,
-    
+
     /// Active session ID, set by the server.
     session_id: Mutex<Option<HeaderValue>>,
 }
@@ -176,19 +176,19 @@ impl McpClient {
             },
 
             (None, None) => anyhow::bail!("MCP server must configure command or url"),
-            
+
             (Some(command), None) => {
                 McpTransport::Stdio(Mutex::new(start_stdio(command, settings).await?))
             },
-            
+
             (None, Some(url)) => {
                 let url = reqwest::Url::parse(url)
                     .map_err(|error| anyhow::anyhow!("invalid MCP server URL '{url}': {error}"))?;
-                
+
                 if !matches!(url.scheme(), "http" | "https") {
                     anyhow::bail!("MCP server URL must use http or https");
                 }
-                
+
                 McpTransport::Http(HttpConnection {
                     client: reqwest::Client::new(),
                     url: url.into(),
@@ -197,12 +197,12 @@ impl McpClient {
                 })
             },
         };
-        
+
         let client = Self {
             transport,
             next_request_id: AtomicU64::new(1),
         };
-        
+
         client
             .request(
                 "initialize",
@@ -213,7 +213,7 @@ impl McpClient {
                 }),
             )
             .await?;
-        
+
         client
             .notify("notifications/initialized", json!({}))
             .await?;
@@ -242,7 +242,7 @@ impl McpClient {
         params: Value,
     ) -> Result<Value, anyhow::Error> {
         let id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
-        
+
         let response = self
             .send(
                 json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }),
@@ -254,14 +254,15 @@ impl McpClient {
         if let Some(error) = response.get("error") {
             anyhow::bail!("MCP {method} failed: {error}");
         }
-        
+
         response
             .get("result")
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("MCP {method} response has no result"))
     }
 
-    /// Send a JSON-RPC message to the server and optionally wait for a response.
+    /// Send a JSON-RPC message to the server and optionally wait for a
+    /// response.
     async fn send(
         &self,
         request: Value,
@@ -270,16 +271,16 @@ impl McpClient {
         match &self.transport {
             McpTransport::Stdio(connection) => {
                 let mut connection = connection.lock().await;
-                
+
                 write_jsonrpc_message(&mut connection.stdin, &request).await?;
-                
+
                 let Some(expected_id) = expected_id else {
                     return Ok(None);
                 };
 
                 while let Some(line) = connection.stdout.next_line().await? {
                     let response = parse_jsonrpc_response(&line)?;
-                    
+
                     if response.get("id") == Some(&json!(expected_id)) {
                         return Ok(Some(response));
                     }
@@ -291,7 +292,7 @@ impl McpClient {
                     Some(status) => {
                         anyhow::bail!("MCP server exited while handling request: {status}")
                     },
-                    
+
                     None => anyhow::bail!(
                         "MCP server closed stdout while handling request but is still running"
                     ),
@@ -307,7 +308,7 @@ impl McpClient {
 /// Start a local MCP stdio server and return a connection handle.
 async fn start_stdio(
     command: &str,
-    
+
     settings: &McpServerSettings,
 ) -> Result<StdioConnection, anyhow::Error> {
     if command.trim().is_empty() {
@@ -322,16 +323,16 @@ async fn start_stdio(
     process.stdin(std::process::Stdio::piped());
     process.stdout(std::process::Stdio::piped());
     process.stderr(std::process::Stdio::null());
-    
+
     let mut child = process
         .spawn()
         .map_err(|error| anyhow::anyhow!("failed to start MCP server '{command}': {error}"))?;
-    
+
     let stdin = child
         .stdin
         .take()
         .ok_or_else(|| anyhow::anyhow!("MCP server stdin was not piped"))?;
-    
+
     let stdout = child
         .stdout
         .take()
@@ -359,11 +360,11 @@ async fn send_http_request(
         ACCEPT,
         HeaderValue::from_static("application/json, text/event-stream"),
     );
-    
+
     if let Some(session_id) = connection.session_id.lock().await.clone() {
         headers.insert("mcp-session-id", session_id);
     }
-    
+
     add_auth_header(&mut headers, &connection.auth)?;
 
     let response = connection
@@ -380,7 +381,7 @@ async fn send_http_request(
     if let Some(session_id) = response.headers().get("mcp-session-id") {
         *connection.session_id.lock().await = Some(session_id.clone());
     }
-    
+
     if expected_id.is_none() || response.status() == reqwest::StatusCode::ACCEPTED {
         return Ok(None);
     }
@@ -391,9 +392,9 @@ async fn send_http_request(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default()
         .to_owned();
-    
+
     let body = response.text().await?;
-    
+
     let response = if content_type.starts_with("text/event-stream") {
         parse_sse_response(&body, expected_id.expect("requests have an expected ID"))?
     } else {
@@ -421,7 +422,7 @@ fn add_auth_header(
     else {
         return Ok(());
     };
-    
+
     if api_key.trim().is_empty() {
         anyhow::bail!("MCP API key cannot be empty");
     }
@@ -430,7 +431,7 @@ fn add_auth_header(
         .map_err(|error| anyhow::anyhow!("invalid MCP API-key header '{header}': {error}"))?;
     let value = HeaderValue::from_str(&format!("{prefix}{api_key}"))
         .map_err(|error| anyhow::anyhow!("invalid MCP API-key value: {error}"))?;
-    
+
     headers.insert(name, value);
 
     Ok(())
@@ -442,7 +443,8 @@ fn parse_jsonrpc_response(body: &str) -> Result<Value, anyhow::Error> {
         .map_err(|error| anyhow::anyhow!("MCP server returned invalid JSON-RPC: {error}"))
 }
 
-/// Parse a Server-Sent Events body and return the JSON-RPC response with the expected ID.
+/// Parse a Server-Sent Events body and return the JSON-RPC response with the
+/// expected ID.
 fn parse_sse_response(
     body: &str,
     expected_id: u64,
@@ -451,14 +453,14 @@ fn parse_sse_response(
         let Some(data) = line.strip_prefix("data:") else {
             continue;
         };
-    
+
         let response = parse_jsonrpc_response(data.trim())?;
-    
+
         if response.get("id") == Some(&json!(expected_id)) {
             return Ok(response);
         }
     }
-    
+
     anyhow::bail!("MCP HTTP event stream ended without the request response")
 }
 
@@ -468,11 +470,11 @@ async fn write_jsonrpc_message(
     message: &Value,
 ) -> Result<(), anyhow::Error> {
     let message = serde_json::to_string(message)?;
-    
+
     stdin.write_all(message.as_bytes()).await?;
     stdin.write_all(b"\n").await?;
     stdin.flush().await?;
-    
+
     Ok(())
 }
 
@@ -480,19 +482,19 @@ async fn write_jsonrpc_message(
 pub struct McpTool {
     /// Qualified tool name presented to the agent.
     name: String,
-    
+
     /// Name of the MCP server providing this tool.
     server_name: String,
-    
+
     /// Remote tool name as reported by the MCP server.
     remote_name: String,
-    
+
     /// Human-readable tool description.
     description: String,
-    
+
     /// JSON Schema describing accepted input parameters.
     parameters: Value,
-    
+
     /// Shared client handle for communicating with the MCP server.
     client: Arc<McpClient>,
 }
@@ -541,14 +543,14 @@ impl Tool for McpTool {
                     }),
                 )
                 .await?;
-    
+
             let is_error = result
                 .get("isError")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-    
+
             let content = format_mcp_content(result.get("content"));
-    
+
             Ok(if is_error {
                 ToolResult::error("", &self.name, content)
             } else {
@@ -564,21 +566,21 @@ pub async fn load_mcp_tools(
 ) -> Result<Vec<Arc<dyn Tool + Send + Sync>>, anyhow::Error> {
     let mut servers = servers.iter().collect::<Vec<_>>();
     servers.sort_unstable_by(|left, right| left.0.cmp(right.0));
-    
+
     let mut tools: Vec<Arc<dyn Tool + Send + Sync>> = Vec::new();
 
     for (server_name, settings) in servers {
         let client = Arc::new(McpClient::start(settings).await.map_err(|error| {
             anyhow::anyhow!("failed to initialize MCP server '{server_name}': {error}")
         })?);
-    
+
         let result = client
             .request("tools/list", json!({}))
             .await
             .map_err(|error| {
                 anyhow::anyhow!("failed to list tools from MCP server '{server_name}': {error}")
             })?;
-    
+
         let definitions: Vec<McpToolDefinition> =
             serde_json::from_value(result.get("tools").cloned().unwrap_or_else(|| json!([])))
                 .map_err(|error| {
@@ -589,13 +591,13 @@ pub async fn load_mcp_tools(
             if definition.name.trim().is_empty() {
                 anyhow::bail!("MCP server '{server_name}' returned a tool with an empty name");
             }
-    
+
             let name = qualified_tool_name(settings.tool_prefix.as_deref(), &definition.name);
-    
+
             if tools.iter().any(|tool| tool.name() == name) {
                 anyhow::bail!("MCP server tool name collision: {name}");
             }
-    
+
             tools.push(Arc::new(McpTool {
                 name,
                 server_name: server_name.clone(),
@@ -606,17 +608,18 @@ pub async fn load_mcp_tools(
             }));
         }
     }
-    
+
     Ok(tools)
 }
 
-/// Build a qualified tool name by sanitizing and optionally prefixing the remote name.
+/// Build a qualified tool name by sanitizing and optionally prefixing the
+/// remote name.
 fn qualified_tool_name(
     prefix: Option<&str>,
     tool_name: &str,
 ) -> String {
     let tool_name = sanitize_name(tool_name);
-    
+
     let Some(prefix) = prefix.filter(|prefix| !prefix.is_empty()) else {
         return tool_name;
     };
@@ -646,7 +649,7 @@ fn format_mcp_content(content: Option<&Value>) -> String {
     let Some(Value::Array(items)) = content else {
         return String::new();
     };
-    
+
     items
         .iter()
         .map(|item| match item.get("type").and_then(Value::as_str) {

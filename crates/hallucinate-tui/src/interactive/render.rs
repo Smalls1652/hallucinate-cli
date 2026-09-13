@@ -643,7 +643,7 @@ fn render_model_picker(
                 picker.selected,
                 vec![
                     Span::styled(
-                        format!("{}", model.name),
+                        model.name.to_string(),
                         Style::default()
                             .fg(Color::Cyan)
                             .add_modifier(Modifier::BOLD),

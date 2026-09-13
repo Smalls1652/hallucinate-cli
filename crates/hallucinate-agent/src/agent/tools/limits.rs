@@ -69,14 +69,13 @@ where
     // Keep the permit inside the blocking closure. If the caller is cancelled,
     // the JoinHandle may be dropped while the filesystem work still runs.
     // Holding it here continues to cap actual concurrent blocking jobs.
-    let result = tokio::task::spawn_blocking(move || {
+
+    tokio::task::spawn_blocking(move || {
         let _permit = permit;
         work()
     })
     .await
-    .with_context(|| format!("{operation} blocking task failed"))?;
-
-    result
+    .with_context(|| format!("{operation} blocking task failed"))?
 }
 
 /// Parse a bounded non-negative integer tool argument.

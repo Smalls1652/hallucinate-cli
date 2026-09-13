@@ -63,7 +63,7 @@ pub fn auth_set_command(args: &AuthSetArgs) -> Result<()> {
 
     println!(
         "Saved credentials for provider '{}' in the platform keyring.",
-        &args.provider,
+        args.provider,
     );
 
     Ok(())
@@ -136,12 +136,12 @@ pub fn auth_remove_command(args: &AuthRemoveArgs) -> Result<()> {
     if settings.remove_api_key(&args.provider)? {
         println!(
             "Removed saved credentials for provider '{}'.",
-            &args.provider
+            args.provider
         );
     } else {
         println!(
             "No saved credentials found for provider '{}'.",
-            &args.provider
+            args.provider
         );
     }
 

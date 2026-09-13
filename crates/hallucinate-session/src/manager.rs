@@ -378,6 +378,12 @@ impl SessionManager {
     }
 }
 
+impl Default for SessionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn validate_session_id(session_id: &str) -> Result<(), anyhow::Error> {
     if session_id.is_empty()
         || !session_id

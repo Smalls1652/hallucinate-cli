@@ -303,10 +303,10 @@ impl Agent {
                     tool.name()
                 );
             }
-        
+
             self.tool_registry.add_tool(tool);
         }
-        
+
         self.invalidate_context_base();
 
         Ok(())
