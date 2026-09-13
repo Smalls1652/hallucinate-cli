@@ -23,13 +23,16 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
     }
 
     let runtime_overrides = hallucinate_agent::config::RuntimeOverrides::from(cli);
+    
     let model = hallucinate_agent::config::resolve_model(
         settings,
         runtime_overrides.model.as_ref(),
         runtime_overrides.base_url.as_ref(),
     )?;
+    
     let provider =
         hallucinate_agent::config::create_provider(settings, &runtime_overrides, &model)?;
+    
     let agent_config =
         hallucinate_agent::config::agent_config(settings, &model, &runtime_overrides);
 
