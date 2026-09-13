@@ -89,22 +89,30 @@ pub struct McpServerSettings {
     pub tool_prefix: Option<String>,
 }
 
+/// Parsed tool definition from an MCP server's `tools/list` response.
 #[derive(Debug, serde::Deserialize)]
 struct McpToolDefinition {
+    /// Unique tool name.
     name: String,
 
+    /// Human-readable tool description.
     #[serde(default)]
     description: String,
 
+    /// JSON Schema describing accepted input parameters.
     #[serde(default, rename = "inputSchema")]
     input_schema: Value,
 }
 
+/// A connected local MCP stdio server.
 struct StdioConnection {
+    /// The spawned MCP server process.
     child: Child,
 
+    /// Pipe handle for writing JSON-RPC requests.
     stdin: ChildStdin,
 
+    /// Line-buffered reader for JSON-RPC responses.
     stdout: Lines<BufReader<ChildStdout>>,
 }
 
@@ -117,25 +125,36 @@ impl Drop for StdioConnection {
     }
 }
 
+/// A connected remote MCP HTTP server.
 struct HttpConnection {
+    /// HTTP client for sending requests.
     client: reqwest::Client,
 
+    /// Target MCP server URL.
     url: String,
     
+    /// Authentication configuration for the server.
     auth: McpAuthSettings,
     
+    /// Active session ID, set by the server.
     session_id: Mutex<Option<HeaderValue>>,
 }
 
+/// Transport layer for an MCP server connection.
 enum McpTransport {
+    /// Local stdio-based server.
     Stdio(Mutex<StdioConnection>),
 
+    /// Remote HTTP-based server.
     Http(HttpConnection),
 }
 
+/// Client for a single MCP server.
 struct McpClient {
+    /// Transport used to communicate with the server.
     transport: McpTransport,
 
+    /// Monotonically increasing request ID counter.
     next_request_id: AtomicU64,
 }
 
@@ -149,6 +168,7 @@ impl fmt::Debug for McpClient {
 }
 
 impl McpClient {
+    /// Initialize the MCP server connection and exchange handshake messages.
     async fn start(settings: &McpServerSettings) -> Result<Self, anyhow::Error> {
         let transport = match (&settings.command, &settings.url) {
             (Some(_), Some(_)) => {
@@ -201,6 +221,7 @@ impl McpClient {
         Ok(client)
     }
 
+    /// Send a notification (fire-and-forget) to the MCP server.
     async fn notify(
         &self,
         method: &str,
@@ -214,6 +235,7 @@ impl McpClient {
         .map(|_| ())
     }
 
+    /// Send a request to the MCP server and return the result.
     async fn request(
         &self,
         method: &str,
@@ -239,6 +261,7 @@ impl McpClient {
             .ok_or_else(|| anyhow::anyhow!("MCP {method} response has no result"))
     }
 
+    /// Send a JSON-RPC message to the server and optionally wait for a response.
     async fn send(
         &self,
         request: Value,
@@ -281,6 +304,7 @@ impl McpClient {
     }
 }
 
+/// Start a local MCP stdio server and return a connection handle.
 async fn start_stdio(
     command: &str,
     
@@ -323,6 +347,7 @@ async fn start_stdio(
     })
 }
 
+/// Send an HTTP request to a remote MCP server and return the response.
 async fn send_http_request(
     connection: &HttpConnection,
     request: Value,
@@ -411,11 +436,13 @@ fn add_auth_header(
     Ok(())
 }
 
+/// Parse a JSON-RPC response from a string body.
 fn parse_jsonrpc_response(body: &str) -> Result<Value, anyhow::Error> {
     serde_json::from_str(body)
         .map_err(|error| anyhow::anyhow!("MCP server returned invalid JSON-RPC: {error}"))
 }
 
+/// Parse a Server-Sent Events body and return the JSON-RPC response with the expected ID.
 fn parse_sse_response(
     body: &str,
     expected_id: u64,
@@ -435,6 +462,7 @@ fn parse_sse_response(
     anyhow::bail!("MCP HTTP event stream ended without the request response")
 }
 
+/// Write a JSON-RPC message to the server's stdin.
 async fn write_jsonrpc_message(
     stdin: &mut ChildStdin,
     message: &Value,
@@ -450,16 +478,22 @@ async fn write_jsonrpc_message(
 
 /// A tool supplied by a configured MCP server.
 pub struct McpTool {
+    /// Qualified tool name presented to the agent.
     name: String,
     
+    /// Name of the MCP server providing this tool.
     server_name: String,
     
+    /// Remote tool name as reported by the MCP server.
     remote_name: String,
     
+    /// Human-readable tool description.
     description: String,
     
+    /// JSON Schema describing accepted input parameters.
     parameters: Value,
     
+    /// Shared client handle for communicating with the MCP server.
     client: Arc<McpClient>,
 }
 
@@ -576,6 +610,7 @@ pub async fn load_mcp_tools(
     Ok(tools)
 }
 
+/// Build a qualified tool name by sanitizing and optionally prefixing the remote name.
 fn qualified_tool_name(
     prefix: Option<&str>,
     tool_name: &str,
@@ -593,6 +628,7 @@ fn qualified_tool_name(
     )
 }
 
+/// Sanitize a name by replacing non-alphanumeric characters with underscores.
 fn sanitize_name(name: &str) -> String {
     name.chars()
         .map(|character| {
@@ -605,6 +641,7 @@ fn sanitize_name(name: &str) -> String {
         .collect()
 }
 
+/// Format MCP tool content into a single string.
 fn format_mcp_content(content: Option<&Value>) -> String {
     let Some(Value::Array(items)) = content else {
         return String::new();
