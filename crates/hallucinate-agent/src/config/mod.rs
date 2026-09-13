@@ -21,22 +21,22 @@ pub mod settings;
 pub struct RuntimeOverrides {
     /// Selected configured model or `provider/model` pair.
     pub model: Option<String>,
-    
+
     /// Explicit provider credential.
     pub api_key: Option<String>,
-    
+
     /// Explicit OpenAI-compatible provider endpoint.
     pub base_url: Option<String>,
-    
+
     /// Shell executable for the bash tool.
     pub shell: Option<String>,
-    
+
     /// Maximum response tokens.
     pub max_tokens: Option<u32>,
-    
+
     /// Sampling temperature.
     pub temperature: Option<f64>,
-    
+
     /// Explicit system prompt.
     pub system_prompt: Option<String>,
 }
@@ -44,13 +44,13 @@ pub struct RuntimeOverrides {
 /// Return the models declared by configured providers in deterministic order.
 pub fn available_models(settings: &self::settings::Settings) -> Vec<Model> {
     let mut models = settings.configured_models();
-    
+
     models.sort_by(|left, right| {
         left.provider
             .cmp(&right.provider)
             .then_with(|| left.id.cmp(&right.id))
     });
-    
+
     models
 }
 
@@ -64,7 +64,7 @@ pub fn resolve_model_selector(
     if let Some(model) = settings.find_configured_model(selector) {
         return Some(model);
     }
-   
+
     // An unknown selector is still useful for a configured provider whose
     // model catalog is intentionally minimal. An unqualified selector uses
     // the configured default provider rather than implicitly selecting OpenAI.
@@ -221,17 +221,17 @@ pub fn create_provider_for_model(
                 .then(String::new)
         })
         .ok_or_else(|| anyhow::anyhow!("No API key configured for provider '{}'. Set HALLUCINATE_API_KEY, HALLUCINATE_{}_API_KEY, configure a credential, or use --api-key", model.provider, model.provider.to_ascii_uppercase()))?;
-    
+
     let mut headers: HashMap<String, String> = if model.provider == settings.provider {
         settings.provider_headers.clone()
     } else {
         HashMap::new()
     };
-    
+
     if let Some(provider) = settings.providers.get(&model.provider) {
         headers.extend(provider.headers.clone());
     }
-    
+
     let config = OpenaiCompatConfig {
         base_url: settings.resolve_provider_base_url(
             &model.provider,
@@ -261,7 +261,7 @@ mod tests {
     fn agent_config_prefers_runtime_temperature_over_settings() {
         let mut settings = Settings::default();
         settings.temperature = Some(0.2);
-    
+
         let model = Model::new(
             "test",
             "Test",
@@ -272,7 +272,7 @@ mod tests {
             128_000,
             4_096,
         );
-    
+
         let overrides = RuntimeOverrides {
             temperature: Some(0.8),
             max_tokens: Some(8_000),

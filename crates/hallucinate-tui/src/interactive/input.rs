@@ -134,9 +134,9 @@ impl InteractiveTui {
         let Some(item) = self.autocomplete_items.get(self.autocomplete_index) else {
             return;
         };
-        
+
         self.editor.set_content(format!("/{}", item.value));
-        
+
         self.refresh_autocomplete();
     }
 
@@ -144,11 +144,11 @@ impl InteractiveTui {
     /// output or a compact one-line preview.
     fn toggle_full_tool_output(&mut self) {
         self.show_full_tool_output = !self.show_full_tool_output;
-        
+
         self.clear_chat_selection();
-        
+
         self.render_state.transcript = true;
-        
+
         self.show_notice(if self.show_full_tool_output {
             "Showing full tool output."
         } else {
@@ -167,7 +167,7 @@ impl InteractiveTui {
         if crossterm::event::poll(timeout)? {
             let event = crossterm::event::read()?;
             let input_event = parse_event(event);
-            
+
             let is_transcript_scroll = self.model_picker.is_none()
                 && self.session_picker.is_none()
                 && self.prompt_picker.is_none()
@@ -329,7 +329,7 @@ impl InteractiveTui {
                         MouseEventKind::ScrollUp => {
                             let selection_cleared = self.chat_selection.is_some();
                             self.clear_chat_selection();
-                            
+
                             let scroll_limit = self.transcript_scroll_limit();
                             let scroll_changed = self.transcript.scroll_up(3, scroll_limit);
 
@@ -495,7 +495,7 @@ impl InteractiveTui {
                     if self.history_index < self.message_history.len() {
                         self.editor
                             .set_content(self.message_history[self.history_index].clone());
-                        
+
                         self.refresh_autocomplete();
                     }
 
@@ -533,7 +533,7 @@ impl InteractiveTui {
                     if self.history_index < self.message_history.len() {
                         self.editor
                             .set_content(self.message_history[self.history_index].clone());
-                        
+
                         self.refresh_autocomplete();
                     }
 
@@ -567,9 +567,9 @@ impl InteractiveTui {
         if content.trim_start().starts_with('/') {
             match self.handle_command(content) {
                 Ok(true) => return Ok(()),
-                
+
                 Ok(false) => {},
-                
+
                 Err(error) => {
                     self.show_notice(format!("Command failed: {error}"));
 
@@ -587,7 +587,7 @@ impl InteractiveTui {
         let content =
             match hallucinate_agent::agent::skills::expand_skill_command(content, &self.skills) {
                 Ok(content) => content,
-                
+
                 Err(error) => {
                     self.show_notice(format!("Skill expansion failed: {error}"));
 
@@ -641,17 +641,17 @@ impl InteractiveTui {
         self.token_count_is_estimated = true;
 
         self.agent_cancellation = Some(agent.cancellation());
-        
+
         if should_generate_title {
             self.title_generation_pending = false;
             let title_completion_tx = self.title_completion_tx.clone();
-        
+
             let title_content = content.clone();
             let title_settings = self.session_title_settings.clone();
-        
+
             let settings = self.settings.clone();
             let runtime_overrides = self.runtime_overrides.clone();
-        
+
             let conversation_model = self.model.clone();
 
             let generate_title = async move {
@@ -661,7 +661,7 @@ impl InteractiveTui {
                     &runtime_overrides,
                     &conversation_model,
                 )?;
-        
+
                 let provider = hallucinate_agent::config::create_provider(
                     &settings,
                     &runtime_overrides,
@@ -680,10 +680,10 @@ impl InteractiveTui {
                 self.pending_title_agent = Some(agent);
                 self.title_generation_in_progress = true;
                 self.render_state.status = true;
-        
+
                 tokio::spawn(async move {
                     let result = generate_title.await.map_err(|error| error.to_string());
-        
+
                     let _ = title_completion_tx.send(super::SessionTitleCompletion { result });
                 });
 
@@ -692,7 +692,7 @@ impl InteractiveTui {
 
             tokio::spawn(async move {
                 let result = generate_title.await.map_err(|error| error.to_string());
-        
+
                 let _ = title_completion_tx.send(super::SessionTitleCompletion { result });
             });
         }
@@ -770,7 +770,7 @@ fn copy_to_clipboard(text: &str) -> io::Result<()> {
         // OSC 52 is supported by most modern terminal emulators and lets a
         // captured mouse selection behave like a normal terminal selection.
         let encoded = BASE64.encode(text.as_bytes());
-        
+
         let mut stdout = io::stdout();
         stdout.write_all(format!("\x1b]52;c;{encoded}\x07").as_bytes())?;
         stdout.flush()

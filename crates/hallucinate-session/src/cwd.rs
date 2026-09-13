@@ -12,7 +12,7 @@ use hallucinate_agent::config::paths;
 pub struct SessionCwd {
     /// The working directory path.
     pub cwd: String,
-    
+
     /// Timestamp when the cwd was last updated.
     pub timestamp: u64,
 }

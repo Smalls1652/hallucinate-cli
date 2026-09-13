@@ -118,7 +118,7 @@ fn absolute_normalized(path: &Path) -> PathBuf {
     };
 
     let mut normalized = PathBuf::new();
-    
+
     for component in absolute.components() {
         match component {
             Component::CurDir => {},

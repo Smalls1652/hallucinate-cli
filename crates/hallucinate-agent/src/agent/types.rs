@@ -72,16 +72,16 @@ pub enum AgentState {
 
     /// Agent is streaming a response from the LLM.
     Streaming,
-    
+
     /// Agent is executing tool calls.
     ToolExecuting,
-    
+
     /// Agent has completed a full turn.
     TurnComplete,
-    
+
     /// Agent has encountered an error.
     Error(String),
-    
+
     /// Agent has been aborted.
     Aborted,
 }
@@ -287,28 +287,28 @@ impl fmt::Display for AgentEvent {
 pub struct AgentConfig {
     /// Maximum number of turns before stopping.
     pub max_turns: u32,
-    
+
     /// Maximum context window size in tokens.
     pub max_context_tokens: u32,
-    
+
     /// Whether to enable automatic context compaction.
     pub enable_compaction: bool,
-    
+
     /// Whether to enable tool use.
     pub enable_tools: bool,
-    
+
     /// Default temperature for LLM calls.
     pub temperature: Option<f64>,
-    
+
     /// Default max tokens for LLM calls.
     pub max_tokens: Option<u32>,
-    
+
     /// Whether streaming requests include usage data.
     pub include_usage: Option<bool>,
-    
+
     /// Whether to include tool definitions in context.
     pub include_tool_definitions: bool,
-    
+
     /// Maximum number of independent tool calls to execute at once.
     pub max_concurrent_tool_calls: usize,
 }
@@ -336,7 +336,7 @@ impl Default for AgentConfig {
 pub struct TurnContext {
     /// Tool calls pending execution.
     pub pending_tool_calls: Vec<PendingToolCall>,
-    
+
     /// Tool results collected so far.
     pub tool_results: Vec<crate::agent::tools::ToolResult>,
 }
@@ -379,10 +379,10 @@ impl TurnContext {
 pub struct PendingToolCall {
     /// Unique identifier for the tool call.
     pub tool_call_id: String,
-    
+
     /// Name of the tool to execute.
     pub tool_name: String,
-    
+
     /// JSON arguments passed to the tool.
     pub arguments: serde_json::Value,
 }
@@ -442,7 +442,7 @@ impl TokenEstimator {
                         .map(estimate_image_tokens)
                         .sum::<u64>()
             },
-            
+
             Message::Assistant(message) => message
                 .content
                 .iter()
@@ -450,18 +450,18 @@ impl TokenEstimator {
                     crate::ai::types::AssistantContent::Text(text) => {
                         self.estimate_text_tokens(&text.text)
                     },
-                    
+
                     crate::ai::types::AssistantContent::Thinking(thinking) => {
                         self.estimate_text_tokens(&thinking.thinking)
                     },
-                    
+
                     crate::ai::types::AssistantContent::ToolCall(call) => {
                         10 + self.estimate_text_tokens(&call.name)
                             + self.estimate_json_tokens(&call.arguments)
                     },
                 })
                 .sum(),
-            
+
             Message::ToolResult(message) => {
                 message
                     .content
@@ -487,7 +487,7 @@ impl TokenEstimator {
         tools: Option<&[Tool]>,
     ) -> u64 {
         let system_tokens = system_prompt.map_or(0, |prompt| self.estimate_text_tokens(prompt) + 4);
-        
+
         let tool_tokens = tools
             .unwrap_or_default()
             .iter()
@@ -547,17 +547,17 @@ impl TokenEstimator {
 /// conservative fallback used for opaque or provider-specific image inputs.
 fn estimate_image_tokens(image: &ImageContent) -> u64 {
     let decoded = base64::engine::general_purpose::STANDARD.decode(&image.data);
-    
+
     let Ok(bytes) = decoded else {
         return 1_000;
     };
-    
+
     let Ok(image) = image::load_from_memory(&bytes) else {
         return 1_000;
     };
 
     let (width, height) = image.dimensions();
-    
+
     let tiles_wide = u64::from(width).div_ceil(512).max(1);
     let tiles_high = u64::from(height).div_ceil(512).max(1);
 

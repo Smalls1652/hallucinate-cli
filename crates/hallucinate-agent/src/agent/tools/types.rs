@@ -98,7 +98,7 @@ pub struct ToolOutput {
 
     /// Name of the emitting tool.
     pub tool_name: String,
-    
+
     /// Newly produced display output.
     pub output: String,
 }
@@ -108,17 +108,17 @@ pub struct ToolOutput {
 pub struct ToolResult {
     /// The tool call ID this result corresponds to.
     pub tool_call_id: String,
-    
+
     /// The name of the tool that was executed.
     pub tool_name: String,
-    
+
     /// The result content (success or error message).
     pub content: String,
-    
+
     /// Image attachments returned by the tool.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<ImageContent>,
-    
+
     /// Whether this result represents an error.
     pub is_error: bool,
 }

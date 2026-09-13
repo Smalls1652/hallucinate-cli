@@ -15,12 +15,12 @@ pub(crate) fn archive_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "state_changed",
             serde_json::json!({ "old_state": old_state.to_string(), "new_state": new_state.to_string() }),
         )),
-        
+
         AgentEvent::TurnStarted { turn_number } => Some((
             "turn_started",
             serde_json::json!({ "turn_number": turn_number }),
         )),
-        
+
         AgentEvent::ToolCallDetected {
             tool_call_id,
             tool_name,
@@ -29,7 +29,7 @@ pub(crate) fn archive_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "tool_call_detected",
             serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name, "arguments": arguments }),
         )),
-        
+
         AgentEvent::ToolExecutionStarted {
             tool_call_id,
             tool_name,
@@ -37,7 +37,7 @@ pub(crate) fn archive_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "tool_execution_started",
             serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name }),
         )),
-        
+
         AgentEvent::ToolExecutionCompleted {
             tool_call_id,
             tool_name,
@@ -47,7 +47,7 @@ pub(crate) fn archive_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "tool_execution_completed",
             serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name, "result": result, "is_error": is_error }),
         )),
-        
+
         AgentEvent::ToolExecutionFailed {
             tool_call_id,
             tool_name,
@@ -56,7 +56,7 @@ pub(crate) fn archive_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "tool_execution_failed",
             serde_json::json!({ "tool_call_id": tool_call_id, "tool_name": tool_name, "error": error }),
         )),
-        
+
         AgentEvent::TurnCompleted {
             turn_number,
             stop_reason,
@@ -64,9 +64,9 @@ pub(crate) fn archive_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "turn_completed",
             serde_json::json!({ "turn_number": turn_number, "stop_reason": stop_reason.to_string() }),
         )),
-        
+
         AgentEvent::Error { message } => Some(("error", serde_json::json!({ "message": message }))),
-        
+
         AgentEvent::CompactionPerformed {
             tokens_before,
             tokens_after,
@@ -75,9 +75,9 @@ pub(crate) fn archive_event(event: &AgentEvent) -> Option<(&'static str, serde_j
             "compaction",
             serde_json::json!({ "tokens_before": tokens_before, "tokens_after": tokens_after, "summaries_added": summaries_added }),
         )),
-        
+
         AgentEvent::Aborted => Some(("aborted", serde_json::json!({}))),
-        
+
         // Tool-call construction is high-frequency streamed presentation
         // state. The validated ToolCallDetected event records the durable
         // lifecycle entry once the provider has completed its JSON payload.

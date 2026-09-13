@@ -8,7 +8,7 @@
 pub struct SlashCommand {
     /// The command name without the leading slash.
     pub name: String,
-    
+
     /// The unparsed text following the command name.
     pub arguments: String,
 }
@@ -37,9 +37,9 @@ pub fn parse(input: &str) -> Option<SlashCommand> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommandInfo {
     pub name: &'static str,
-    
+
     pub usage: &'static str,
-    
+
     pub description: &'static str,
 }
 
@@ -153,7 +153,7 @@ mod tests {
                 arguments: "abc-def".to_string()
             })
         );
-        
+
         assert_eq!(
             parse("/name A useful session title"),
             Some(SlashCommand {

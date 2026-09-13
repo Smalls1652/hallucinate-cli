@@ -91,7 +91,7 @@ pub async fn rpc_command(args: &RpcArgs) -> Result<()> {
 
         let value = match serde_json::from_str::<Value>(&line) {
             Ok(value) => value,
-            
+
             Err(error) => {
                 let response =
                     RpcResponse::error(-32700, "Parse error", Value::Null, error.to_string());
@@ -104,7 +104,7 @@ pub async fn rpc_command(args: &RpcArgs) -> Result<()> {
 
         let request = match serde_json::from_value::<RpcRequest>(value) {
             Ok(request) => request,
-            
+
             Err(error) => {
                 let response =
                     RpcResponse::error(-32600, "Invalid Request", Value::Null, error.to_string());
@@ -121,7 +121,7 @@ pub async fn rpc_command(args: &RpcArgs) -> Result<()> {
         let is_notification = request.id.is_none()
             && request.jsonrpc.as_deref() == Some("2.0")
             && request.method.is_some();
-        
+
         let response = handle_request(request, args, settings).await;
 
         // JSON-RPC notifications are processed but do not receive a response.
@@ -164,13 +164,13 @@ async fn handle_request(
     let method = request.method.as_deref().unwrap_or_default();
     match method {
         "ping" => RpcResponse::result(id, json!({ "pong": true })),
-        
+
         "list_sessions" => list_sessions(id),
-        
+
         "create_session" => create_session(request.params.as_ref(), id),
-        
+
         "chat" => chat(request.params.as_ref(), id, args, settings).await,
-        
+
         _ => RpcResponse::error(-32601, "Method not found", id, method),
     }
 }
@@ -247,7 +247,7 @@ async fn chat(
                 "chat requires an object of parameters",
             );
         },
-        
+
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
 
@@ -267,19 +267,19 @@ async fn chat(
     let show_thinking = match optional_bool(Some(params), "thinking") {
         Ok(value) => value
             .unwrap_or_else(|| hallucinate_agent::config::resolve_show_thinking(settings, false)),
-        
+
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
 
     let runtime_overrides = hallucinate_agent::config::RuntimeOverrides::from(args);
-    
+
     let model = match hallucinate_agent::config::resolve_model(
         settings,
         runtime_overrides.model.as_ref(),
         runtime_overrides.base_url.as_ref(),
     ) {
         Ok(model) => model,
-    
+
         Err(error) => {
             return RpcResponse::error(-32603, "Model configuration failed", id, error.to_string());
         },
@@ -288,7 +288,7 @@ async fn chat(
     let provider =
         match hallucinate_agent::config::create_provider(settings, &runtime_overrides, &model) {
             Ok(provider) => provider,
-    
+
             Err(error) => {
                 return RpcResponse::error(
                     -32603,
@@ -301,13 +301,13 @@ async fn chat(
 
     let session_id = match optional_string(Some(params), "session_id") {
         Ok(session_id) => session_id,
-    
+
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
 
     let requested_cwd = match optional_string(Some(params), "cwd") {
         Ok(cwd) => cwd,
-    
+
         Err(error) => return RpcResponse::error(-32602, "Invalid params", id, error),
     };
 
@@ -316,7 +316,7 @@ async fn chat(
     let session = match session_id.as_deref() {
         Some(session_id) => match manager.resume(session_id) {
             Ok(session) => session,
-    
+
             Err(error) => {
                 return RpcResponse::error(-32602, "Invalid session", id, error.to_string());
             },
@@ -328,7 +328,7 @@ async fn chat(
             cwd: requested_cwd,
         }) {
             Ok(session) => session,
-    
+
             Err(error) => {
                 return RpcResponse::error(
                     -32603,
@@ -343,18 +343,18 @@ async fn chat(
     let storage = manager
         .current_storage()
         .expect("a created or resumed session has storage");
-    
+
     let history = match storage.load_messages() {
         Ok(history) => history,
-    
+
         Err(error) => {
             return RpcResponse::error(-32603, "Could not load session", id, error.to_string());
         },
     };
-    
+
     let checkpoint = match storage.load_compaction_checkpoint() {
         Ok(checkpoint) => checkpoint,
-    
+
         Err(error) => {
             return RpcResponse::error(
                 -32603,
@@ -364,7 +364,7 @@ async fn chat(
             );
         },
     };
-    
+
     let mut agent = Agent::with_all_tools_and_image_resize_and_shell_with_timeout(
         provider,
         model.clone(),
@@ -392,7 +392,7 @@ async fn chat(
     if let Err(error) = agent.load_history(history) {
         return RpcResponse::error(-32603, "Invalid session history", id, error.to_string());
     }
-    
+
     if let Some((summary, archived_message_count)) = checkpoint
         && let Err(error) = agent.restore_compaction_checkpoint(summary, archived_message_count)
     {
@@ -405,7 +405,7 @@ async fn chat(
     }
 
     let mut event_rx = agent.subscribe();
-    
+
     agent.add_user_message(prompt);
 
     if let Some(message) = agent.messages().last()
@@ -435,7 +435,7 @@ async fn chat(
     // provider-visible history.
     let persisted_messages = match storage.load_messages() {
         Ok(messages) => messages,
-    
+
         Err(error) => {
             return RpcResponse::error(-32603, "Could not inspect session", id, error.to_string());
         },
@@ -444,15 +444,15 @@ async fn chat(
         if matches!(&message, Message::User(_)) {
             continue;
         }
-    
+
         let already_persisted = persisted_messages.iter().any(|persisted| {
             serde_json::to_string(persisted).ok() == serde_json::to_string(&message).ok()
         });
-    
+
         if already_persisted {
             continue;
         }
-    
+
         if let Err(error) = manager.save_message(&message) {
             return RpcResponse::error(-32603, "Could not persist response", id, error.to_string());
         }
@@ -492,9 +492,9 @@ async fn chat(
 fn object_params(params: Option<&Value>) -> Result<Option<&Map<String, Value>>, String> {
     match params {
         None | Some(Value::Null) => Ok(None),
-    
+
         Some(Value::Object(params)) => Ok(Some(params)),
-    
+
         Some(_) => Err("params must be a JSON object".to_string()),
     }
 }
@@ -506,9 +506,9 @@ fn optional_string(
 ) -> Result<Option<String>, String> {
     match params.and_then(|params| params.get(name)) {
         None | Some(Value::Null) => Ok(None),
-    
+
         Some(Value::String(value)) => Ok(Some(value.clone())),
-    
+
         Some(_) => Err(format!("{name} must be a string or null")),
     }
 }
@@ -520,9 +520,9 @@ fn optional_bool(
 ) -> Result<Option<bool>, String> {
     match params.and_then(|params| params.get(name)) {
         None | Some(Value::Null) => Ok(None),
-    
+
         Some(Value::Bool(value)) => Ok(Some(*value)),
-    
+
         Some(_) => Err(format!("{name} must be a boolean or null")),
     }
 }
@@ -538,11 +538,11 @@ fn assistant_output(
         .iter()
         .filter_map(|block| match block {
             hallucinate_agent::ai::types::AssistantContent::Text(text) => Some(text.text.as_str()),
-    
+
             hallucinate_agent::ai::types::AssistantContent::Thinking(thinking) if show_thinking => {
                 Some(thinking.thinking.as_str())
             },
-    
+
             _ => None,
         })
         .collect::<Vec<_>>()
@@ -560,15 +560,15 @@ struct RpcRequest {
     /// JSON-RPC version string.
     #[serde(default)]
     jsonrpc: Option<String>,
-    
+
     /// RPC method name.
     #[serde(default)]
     method: Option<String>,
-    
+
     /// Method parameters.
     #[serde(default)]
     params: Option<Value>,
-    
+
     /// Request identifier.
     #[serde(default)]
     id: Option<Value>,
@@ -579,15 +579,15 @@ struct RpcRequest {
 struct RpcResponse {
     /// JSON-RPC version string.
     jsonrpc: &'static str,
-    
+
     /// The result value, if the request succeeded.
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<Value>,
-    
+
     /// The error details, if the request failed.
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<RpcError>,
-    
+
     /// Request identifier, echoed back from the request.
     id: Value,
 }
@@ -597,10 +597,10 @@ struct RpcResponse {
 struct RpcError {
     /// Error code.
     code: i32,
-    
+
     /// Human-readable error message.
     message: String,
-    
+
     /// Optional additional error data.
     data: Option<Value>,
 }
@@ -662,7 +662,7 @@ mod tests {
 
         let cli = match cli {
             Ok(value) => value,
-    
+
             Err(error) => panic!("Failed to parse CLI: {}", error),
         };
 
@@ -728,7 +728,7 @@ mod tests {
 
         let cli = match cli {
             Ok(value) => value,
-    
+
             Err(error) => panic!("Failed to parse CLI: {}", error),
         };
 

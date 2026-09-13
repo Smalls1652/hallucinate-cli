@@ -17,25 +17,25 @@ pub struct ToolLimits {
 
     /// Maximum source-image bytes accepted before decoding.
     pub max_image_source_bytes: usize,
-    
+
     /// Maximum directory entries inspected during one recursive walk.
     pub max_directory_entries: usize,
-    
+
     /// Maximum regular files considered during one search.
     pub max_candidate_files: usize,
-    
+
     /// Maximum bytes scanned from one grep candidate.
     pub max_file_scan_bytes: usize,
-    
+
     /// Maximum bytes scanned by one grep request.
     pub max_search_bytes: usize,
-    
+
     /// Maximum bytes captured separately from shell stdout and stderr.
     pub max_shell_stream_bytes: usize,
-    
+
     /// Maximum bytes included in a returned tool result.
     pub max_tool_result_bytes: usize,
-    
+
     /// Maximum accepted line length while scanning grep candidates.
     pub max_grep_line_bytes: usize,
 }
@@ -74,7 +74,7 @@ where
         .acquire()
         .await
         .expect("the global blocking-job semaphore is never closed");
-    
+
     // Keep the permit inside the blocking closure. If the caller is cancelled,
     // the JoinHandle may be dropped while the filesystem work still runs.
     // Holding it here continues to cap actual concurrent blocking jobs.

@@ -46,7 +46,7 @@ const LIGHTWEIGHT_DEFAULT_SYSTEM_PROMPT: &str =
 pub struct SystemPromptFiles {
     /// The global `SYSTEM.md` override, when it exists.
     pub system_prompt: Option<PathBuf>,
-    
+
     /// The project-local `AGENTS.md`, when it exists.
     pub agents: Option<PathBuf>,
 }

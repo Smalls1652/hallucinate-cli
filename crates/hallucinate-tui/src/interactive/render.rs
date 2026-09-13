@@ -28,19 +28,19 @@ const MINIMUM_HALF_WIDTH_TOOL_RESULT_TERMINAL_WIDTH: u16 = 95;
 #[derive(Default)]
 pub(super) struct TranscriptLayoutCache {
     width: u16,
-    
+
     show_thinking: bool,
-    
+
     show_timestamps: bool,
-    
+
     show_full_tool_output: bool,
-    
+
     streaming_message_index: Option<usize>,
-    
+
     transcript_revision: u64,
-    
+
     lines: Vec<ratatui::text::Line<'static>>,
-    
+
     selection_line_starts: Vec<Option<usize>>,
 }
 
@@ -51,7 +51,7 @@ pub(super) struct TranscriptLayoutCache {
 /// viewport, making scroll work proportional to the terminal height.
 struct TranscriptViewport<'a> {
     lines: &'a [ratatui::text::Line<'static>],
-    
+
     scroll: usize,
 }
 
@@ -75,7 +75,7 @@ impl ratatui::widgets::Widget for TranscriptViewport<'_> {
             .enumerate()
         {
             let row_area = Rect::new(area.x, area.y.saturating_add(row as u16), area.width, 1);
-            
+
             ratatui::widgets::Widget::render(line, row_area, buffer);
         }
     }
@@ -192,11 +192,11 @@ impl InteractiveTui {
             );
             rendered_transcript_area = chunks[1];
             rendered_selection_text = rendered_selection;
-            
+
             if autocomplete_height > 0 {
                 let start = self.autocomplete_index.saturating_sub(4);
                 let popup_inner_width = usize::from(chunks[2].width.saturating_sub(2));
-            
+
                 let suggestions = self
                     .autocomplete_items
                     .iter()
@@ -312,18 +312,18 @@ fn render_transcript(
             .flat_map(|(message_index, msg)| {
                 let (role_color, icon, role_label) = match msg.role {
                     MessageRole::User => (Color::LightGreen, "›", "You"),
-            
+
                     MessageRole::Assistant => (Color::LightCyan, "✦", "Assistant"),
-            
+
                     MessageRole::Tool => (Color::LightMagenta, "⚙", "Tool"),
-            
+
                     MessageRole::System => (Color::DarkGray, "·", "Notice"),
-            
+
                     MessageRole::Error => (Color::LightRed, "✗", "Error"),
                 };
 
                 let muted = Style::default().fg(Color::DarkGray);
-            
+
                 let starts_card = starts_transcript_card(
                     message_index
                         .checked_sub(1)
@@ -331,14 +331,14 @@ fn render_transcript(
                         .map(|message| message.role),
                     msg.role,
                 );
-            
+
                 let ends_card = ends_transcript_card(
                     msg.role,
                     messages.get(message_index + 1).map(|message| message.role),
                 );
 
                 let role_style = Style::default().fg(role_color).add_modifier(Modifier::BOLD);
-            
+
                 let mut lines = Vec::new();
                 let mut line_starts = Vec::new();
 
@@ -442,7 +442,7 @@ fn render_transcript(
                     if let Some(result) = &tool_call.result {
                         let previous_len = lines.len();
                         let is_error = result.starts_with("❌");
-            
+
                         let result = tool_result_for_display(result, show_full_tool_output);
                         let result = tool_result_content(&result);
 
@@ -509,7 +509,7 @@ fn render_transcript(
                 if ends_card {
                     lines.push(Line::from(Span::styled("╰─", role_color)));
                     line_starts.push(None);
-            
+
                     lines.push(Line::from(""));
                     line_starts.push(None);
                 } else {
@@ -554,7 +554,7 @@ fn render_transcript(
     // entries rather than cloning the full transcript into a
     // `Paragraph` for every scroll event.
     let active_selection = selection.filter(|selection| selection.has_range());
-    
+
     let scroll = transcript.scroll_position(lines.len(), usize::from(transcript_inner_area.height));
     frame.render_widget(
         TranscriptViewport {
@@ -590,13 +590,13 @@ fn render_transcript(
             .take(usize::from(transcript_inner_area.height))
             .map(|(line, start)| selection_mask_line(line, start))
             .collect::<Vec<_>>();
-        
+
         let mut mask_buffer = ratatui::buffer::Buffer::empty(area);
         let mask = Paragraph::new(selection_mask_lines);
         mask.render(transcript_inner_area, &mut mask_buffer);
 
         let buffer = frame.buffer_mut();
-        
+
         let mut selected_rows = Vec::new();
         for row in start_y..=end_y {
             let from = if row == start_y { start_x } else { area.x };
@@ -631,7 +631,7 @@ fn render_transcript(
         }
         return selected_rows.join("\n");
     }
-    
+
     String::new()
 }
 
@@ -798,7 +798,7 @@ fn render_picker<F>(
         popup_width,
         popup_height,
     );
-    
+
     let visible_rows = usize::from(popup_height.saturating_sub(2));
     let start = selected
         .saturating_sub(visible_rows / 2)
@@ -854,15 +854,15 @@ fn render_status_bar(
     } else {
         match agent_state {
             AgentState::Idle => "idle".to_string(),
-    
+
             AgentState::Streaming => "streaming...".to_string(),
-    
+
             AgentState::ToolExecuting => "executing tools...".to_string(),
-    
+
             AgentState::TurnComplete => "idle".to_string(),
-    
+
             AgentState::Error(_) => "error — see transcript".to_string(),
-    
+
             AgentState::Aborted => "aborted".to_string(),
         }
     };
@@ -958,7 +958,7 @@ fn streamed_tool_call_summary(
     let summary = match tool_name {
         "bash" => partial_json_string_value(arguments, "command")
             .map(|command| format!("bash {}", truncate_one_line(&command, 100))),
-    
+
         "read" | "write" | "edit" | "ls" => {
             partial_json_string_value(arguments, "path").map(|path| {
                 format!(
@@ -967,12 +967,12 @@ fn streamed_tool_call_summary(
                 )
             })
         },
-    
+
         "find" | "grep" => partial_json_string_value(arguments, "pattern")
             .map(|pattern| format!("{tool_name} {}", truncate_one_line(&pattern, 100))),
-    
+
         "compact" => Some("Context checkpoint".to_string()),
-    
+
         _ => None,
     };
 
@@ -991,7 +991,7 @@ fn partial_json_string_value(
 ) -> Option<String> {
     let field_key = format!(r#""{field}""#);
     let field_start = arguments.find(&field_key)? + field_key.len();
-    
+
     let value = arguments[field_start..].trim_start();
     let value = value.strip_prefix(':')?.trim_start();
     if !value.starts_with('"') {
@@ -1026,15 +1026,15 @@ fn streamed_json_string_prefix(
     field: &str,
 ) -> Option<String> {
     let field_key = format!(r#""{field}""#);
-    
+
     let value_start = arguments.find(&field_key)? + field_key.len();
     let value = arguments[value_start..].trim_start();
     let value = value.strip_prefix(':')?.trim_start();
     let encoded_value = value.strip_prefix('"')?;
-    
+
     let mut escaped = false;
     let mut end = encoded_value.len();
-    
+
     for (index, character) in encoded_value.char_indices() {
         if character == '"' && !escaped {
             end = index;
@@ -1042,12 +1042,12 @@ fn streamed_json_string_prefix(
         }
 
         escaped = character == '\\' && !escaped;
-    
+
         if character != '\\' {
             escaped = false;
         }
     }
-    
+
     let encoded_value = &encoded_value[..end];
 
     serde_json::from_str(&format!(r#""{encoded_value}""#))
@@ -1152,7 +1152,7 @@ fn wrap_line_to_width(
     let paragraph =
         ratatui::widgets::Paragraph::new(line).wrap(ratatui::widgets::Wrap { trim: false });
 
-        let line_count = paragraph.line_count(width).max(1);
+    let line_count = paragraph.line_count(width).max(1);
 
     let height = u16::try_from(line_count).unwrap_or(u16::MAX);
     let area = ratatui::layout::Rect::new(0, 0, width, height);

@@ -168,13 +168,13 @@ impl SessionEntry {
 pub struct SessionMetadata {
     /// The human-readable session title, if one has been assigned.
     pub title: Option<String>,
-    
+
     /// The parent session ID when this session was forked.
     pub parent_session_id: Option<String>,
-    
+
     /// The working directory used when the session was created or renamed.
     pub cwd: String,
-    
+
     /// Unix timestamp in milliseconds when this metadata record was written.
     pub timestamp: u64,
 }
@@ -235,7 +235,7 @@ impl SessionStorage {
                 .get("summary")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| anyhow::anyhow!("compaction checkpoint has no summary"))?;
-            
+
             let archived_message_count = data
                 .get("archived_message_count")
                 .and_then(serde_json::Value::as_u64)
@@ -429,10 +429,10 @@ pub fn list_sessions() -> Result<Vec<SessionInfo>, anyhow::Error> {
 pub struct SessionInfo {
     /// The session ID (filename without .jsonl extension).
     pub id: String,
-    
+
     /// The full path to the session file.
     pub path: PathBuf,
-    
+
     /// Last modification time.
     pub modified: Option<DateTime<Utc>>,
 }
@@ -521,7 +521,7 @@ mod tests {
             "hallucinate-checkpoint-{}.jsonl",
             uuid::Uuid::new_v4()
         ));
-        
+
         let storage = SessionStorage::with_path(path.clone());
         storage
             .save_event(
@@ -529,7 +529,7 @@ mod tests {
                 serde_json::json!({ "summary": "first", "archived_message_count": 2 }),
             )
             .unwrap();
-        
+
         storage
             .save_event(
                 "compaction_checkpoint",
@@ -551,7 +551,7 @@ mod tests {
             "hallucinate-corrupt-{}.jsonl",
             uuid::Uuid::new_v4()
         ));
-        
+
         fs::write(
             &path,
             "{\"role\":\"user\",\"content\":\"ok\",\"timestamp\":1}\nnot json\n",

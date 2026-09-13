@@ -16,7 +16,7 @@ use tokio::sync::watch;
 pub enum Api {
     /// OpenAI Chat Completions-compatible API.
     OpenaiCompletions,
-    
+
     /// OpenAI Responses-compatible API.
     OpenaiResponses,
 }
@@ -29,7 +29,7 @@ pub type ProviderId = String;
 #[serde(rename_all = "snake_case")]
 pub enum ToolChoice {
     Auto,
-    
+
     None,
 }
 
@@ -40,7 +40,7 @@ pub enum ToolChoice {
 pub struct TextContent {
     /// Content type discriminator (always "text").
     pub type_: String,
-    
+
     /// The text content.
     pub text: String,
 }
@@ -59,14 +59,14 @@ impl TextContent {
 pub struct ThinkingContent {
     /// Content type discriminator (always "thinking").
     pub type_: String,
-    
+
     /// The thinking/reasoning content text.
     pub thinking: String,
-    
+
     /// Signature of the thinking content (for providers that use it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_signature: Option<String>,
-    
+
     /// Whether the thinking content was redacted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redacted: Option<bool>,
@@ -88,10 +88,10 @@ impl ThinkingContent {
 pub struct ImageContent {
     /// Content type discriminator (always "image").
     pub type_: String,
-    
+
     /// Base64-encoded image data.
     pub data: String,
-    
+
     /// MIME type of the image (e.g., "image/png").
     pub mime_type: String,
 }
@@ -114,20 +114,20 @@ impl ImageContent {
 pub struct ToolCall {
     /// Content type discriminator (always "toolCall").
     pub type_: String,
-    
+
     /// Unique identifier for this tool call.
     pub id: String,
-    
+
     /// Name of the tool being called.
     pub name: String,
-    
+
     /// JSON arguments passed to the tool.
     pub arguments: serde_json::Value,
-    
+
     /// Signature of the thought that led to this tool call.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thought_signature: Option<String>,
-    
+
     /// Namespace for the tool call.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
@@ -191,13 +191,13 @@ pub fn format_tool_call_summary(
             .and_then(serde_json::Value::as_str)
             .map(|command| format!("bash {command}"))
             .unwrap_or(fallback),
-        
+
         "read" | "write" | "edit" => arguments
             .get("path")
             .and_then(serde_json::Value::as_str)
             .map(|path| format!("{name} {}", display_tool_path(path, cwd)))
             .unwrap_or(fallback),
-        
+
         "find" | "grep" => arguments
             .get("pattern")
             .and_then(serde_json::Value::as_str)
@@ -208,15 +208,15 @@ pub fn format_tool_call_summary(
                 },
             )
             .unwrap_or(fallback),
-        
+
         "ls" => arguments
             .get("path")
             .and_then(serde_json::Value::as_str)
             .map(|path| format!("ls {}", display_tool_path(path, cwd)))
             .unwrap_or_else(|| "ls .".to_string()),
-        
+
         _ if name.is_empty() => fallback,
-        
+
         _ => format!("{name} {fallback}"),
     }
 }
@@ -245,11 +245,11 @@ fn display_tool_path(
 pub struct UserMessage {
     /// The message content text.
     pub content: String,
-    
+
     /// Image attachments sent alongside the text content.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<ImageContent>,
-    
+
     /// Unix timestamp in milliseconds when the message was created.
     pub timestamp: u64,
 }
@@ -282,42 +282,42 @@ impl UserMessage {
 pub struct AssistantMessage {
     /// Content blocks in this message (text, thinking, or tool calls).
     pub content: Vec<AssistantContent>,
-    
+
     /// The API used to generate this message.
     pub api: Api,
-    
+
     /// Provider identifier that generated this message.
     pub provider: ProviderId,
-    
+
     /// Model identifier used.
     pub model: String,
-    
+
     /// Response model identifier from the API.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_model: Option<String>,
-    
+
     /// Response identifier from the API.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_id: Option<String>,
-    
+
     /// Token usage statistics.
     pub usage: Usage,
-    
+
     /// Reason the assistant stopped generating.
     pub stop_reason: StopReason,
-    
+
     /// Error message if the response failed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
-    
+
     /// Raw stop reason string from the API.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_stop_reason: Option<String>,
-    
+
     /// Whether this turn ended.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_turn: Option<bool>,
-    
+
     /// Unix timestamp in milliseconds when the message was created.
     pub timestamp: u64,
 }
@@ -355,32 +355,32 @@ impl AssistantMessage {
 pub struct ToolResultMessage {
     /// The tool call ID this result corresponds to.
     pub tool_call_id: String,
-    
+
     /// Name of the tool that produced this result.
     pub tool_name: String,
-    
+
     /// Text content of the result.
     pub content: Vec<TextContent>,
-    
+
     /// Image attachments returned by a tool.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<ImageContent>,
-    
+
     /// Additional details about the result.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
-    
+
     /// Token usage from tool execution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
-    
+
     /// Names of tools added during execution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_tool_names: Option<Vec<String>>,
-    
+
     /// Whether this result represents an error.
     pub is_error: bool,
-    
+
     /// Unix timestamp in milliseconds when the result was created.
     pub timestamp: u64,
 }
@@ -415,10 +415,10 @@ impl ToolResultMessage {
 pub enum Message {
     /// A user message.
     User(UserMessage),
-    
+
     /// An assistant message.
     Assistant(AssistantMessage),
-    
+
     /// A tool result message.
     ToolResult(ToolResultMessage),
 }
@@ -431,10 +431,10 @@ pub enum Message {
 pub enum AssistantContent {
     /// A text content block.
     Text(TextContent),
-    
+
     /// A thinking/reasoning content block.
     Thinking(ThinkingContent),
-    
+
     /// A tool call content block.
     ToolCall(ToolCall),
 }
@@ -447,22 +447,22 @@ pub enum AssistantContent {
 pub enum StopReason {
     /// Generation completed normally.
     Pending,
-    
+
     /// Generation stopped by the model.
     Stop,
-    
+
     /// Generation stopped due to token limit.
     Length,
-    
+
     /// Generation stopped because of tool use.
     ToolUse,
-    
+
     /// Generation stopped due to an error.
     Error,
-    
+
     /// Generation was aborted.
     Aborted,
-    
+
     /// Generation was deferred.
     Deferred,
 }
@@ -491,27 +491,27 @@ impl fmt::Display for StopReason {
 pub struct Usage {
     /// Number of input tokens consumed.
     pub input: u64,
-    
+
     /// Number of output tokens generated.
     pub output: u64,
-    
+
     /// Number of tokens read from cache.
     pub cache_read: u64,
-    
+
     /// Number of tokens written to cache.
     pub cache_write: u64,
-    
+
     /// Cache read tokens in the last hour.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_write_1h: Option<u64>,
-    
+
     /// Number of reasoning tokens consumed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<u64>,
-    
+
     /// Total tokens consumed (input + output).
     pub total_tokens: u64,
-    
+
     /// Cost breakdown for this usage.
     pub cost: Cost,
 }
@@ -521,16 +521,16 @@ pub struct Usage {
 pub struct Cost {
     /// Cost for input tokens.
     pub input: f64,
-    
+
     /// Cost for output tokens.
     pub output: f64,
-    
+
     /// Cost for cache read tokens.
     pub cache_read: f64,
-    
+
     /// Cost for cache write tokens.
     pub cache_write: f64,
-    
+
     /// Total cost.
     pub total: f64,
 }
@@ -542,10 +542,10 @@ pub struct Cost {
 pub struct Tool {
     /// Unique name of the tool.
     pub name: String,
-    
+
     /// Human-readable description of what the tool does.
     pub description: String,
-    
+
     /// JSON schema defining the tool's parameters.
     pub parameters: serde_json::Value,
 }
@@ -572,15 +572,15 @@ pub struct ModelCostRates {
     /// Cost per million input tokens.
     #[serde(default)]
     pub input: f64,
-    
+
     /// Cost per million output tokens.
     #[serde(default)]
     pub output: f64,
-    
+
     /// Cost per million cache read tokens.
     #[serde(default)]
     pub cache_read: f64,
-    
+
     /// Cost per million cache write tokens.
     #[serde(default)]
     pub cache_write: f64,
@@ -591,31 +591,31 @@ pub struct ModelCostRates {
 pub struct Model {
     /// Unique model identifier.
     pub id: String,
-    
+
     /// Human-readable model name.
     pub name: String,
-    
+
     /// API type used by this model.
     pub api: Api,
-    
+
     /// Provider identifier for this model.
     pub provider: ProviderId,
-    
+
     /// Base URL for the API endpoint.
     pub base_url: String,
-    
+
     /// Whether this model supports reasoning/thinking output.
     pub reasoning: bool,
-    
+
     /// Supported input types (e.g., "text", "image").
     pub input: Vec<String>,
-    
+
     /// Cost rates for this model.
     pub cost: ModelCostRates,
-    
+
     /// Maximum context window size in tokens.
     pub context_window: u32,
-    
+
     /// Maximum number of output tokens.
     pub max_tokens: u32,
 }
@@ -661,10 +661,10 @@ pub struct Context {
     /// prompt across request contexts in one conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<Arc<String>>,
-    
+
     /// Conversation messages.
     pub messages: Vec<Message>,
-    
+
     /// Available tools for the model.
     ///
     /// Tool schemas are immutable for a prepared request and are shared with
@@ -737,7 +737,7 @@ impl RequestCancellation {
     /// Wait until cancellation is requested.
     pub async fn cancelled(&self) {
         let mut receiver = self.cancelled.subscribe();
-        
+
         if !*receiver.borrow() {
             let _ = receiver.changed().await;
         }
@@ -750,27 +750,27 @@ pub struct StreamOptions {
     /// API key override for this request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
-    
+
     /// Sampling temperature.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
-    
+
     /// Maximum number of output tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
-    
+
     /// Tool choice behavior.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ToolChoice>,
-    
+
     /// Session identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    
+
     /// Include usage data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_usage: Option<bool>,
-    
+
     /// Signal used to stop the HTTP request when the owning agent is
     /// cancelled. This is local runtime state and is never serialized.
     #[serde(skip)]

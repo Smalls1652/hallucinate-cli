@@ -424,7 +424,7 @@ impl AssistantMessageBuilder {
                 AssistantContent::ToolCall(tool_call) => tool_call.clone(),
                 _ => unreachable!("tool index must reference a tool call"),
             };
-            
+
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::ToolcallStart {
@@ -468,7 +468,7 @@ impl AssistantMessageBuilder {
                 AssistantContent::ToolCall(tool_call) => tool_call.clone(),
                 _ => unreachable!("tool index must reference a tool call"),
             };
-            
+
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::ToolcallDelta {
@@ -482,7 +482,7 @@ impl AssistantMessageBuilder {
                 AssistantContent::ToolCall(tool_call) => tool_call.clone(),
                 _ => unreachable!("tool index must reference a tool call"),
             };
-            
+
             let _ = self
                 .stream
                 .push(AssistantMessageEvent::ToolcallDelta {
@@ -707,12 +707,12 @@ mod tests {
             AssistantMessageBuilder::new(stream.clone(), Api::OpenaiCompletions, "test-model");
 
         builder.emit_start().await;
-        
+
         for _ in 0..20 {
             builder.append_text(0, "long incremental response ").await;
             builder.append_thinking(0, "reasoning ").await;
         }
-        
+
         builder
             .append_tool_call(
                 0,
@@ -721,7 +721,7 @@ mod tests {
                 Some(r#"{"query":"test"}"#),
             )
             .await;
-        
+
         builder.finish(StopReason::ToolUse).await.unwrap();
 
         let events: Vec<_> = stream.collect().await;

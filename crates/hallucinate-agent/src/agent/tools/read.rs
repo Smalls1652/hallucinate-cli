@@ -92,25 +92,25 @@ impl Tool for ReadTool {
                 .get("path")
                 .and_then(|value| value.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: path"))?;
-            
+
             let max_size = parse_bounded_usize(
                 arguments,
                 "max_size",
                 self.limits.max_text_file_bytes,
                 self.limits.max_text_file_bytes,
             )?;
-            
+
             let path = resolve_path(path_str, cwd);
             let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
-            
+
             let limits = self.limits.clone();
-            
+
             let auto_resize_images = self.auto_resize_images;
 
             run_blocking("read", move || {
                 let mut file = match File::open(&path) {
                     Ok(file) => file,
-            
+
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                         return Ok(super::types::ToolResult::error(
                             "read",
@@ -118,13 +118,13 @@ impl Tool for ReadTool {
                             format!("File not found: {display_path}"),
                         ));
                     },
-            
+
                     Err(error) => {
                         return Err(anyhow::Error::new(error)
                             .context(format!("failed to open {display_path}")));
                     },
                 };
-            
+
                 let metadata = file.metadata().map_err(|error| {
                     anyhow::Error::new(error).context(format!("failed to inspect {display_path}"))
                 })?;
@@ -140,9 +140,9 @@ impl Tool for ReadTool {
                 let mut magic = [0_u8; 32];
                 let magic_len = file.read(&mut magic)?;
                 file.rewind()?;
-            
+
                 let is_image = crate::ai::images::is_supported_image(&magic[..magic_len]);
-            
+
                 let byte_limit = if is_image {
                     limits.max_image_source_bytes
                 } else {
@@ -151,7 +151,7 @@ impl Tool for ReadTool {
 
                 if metadata.len() > byte_limit as u64 {
                     let kind = if is_image { "Image file" } else { "File" };
-            
+
                     return Ok(super::types::ToolResult::error(
                         "read",
                         "read",
@@ -165,10 +165,10 @@ impl Tool for ReadTool {
 
                 let mut bytes =
                     Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(byte_limit));
-            
+
                 file.take(metadata.len().saturating_add(1))
                     .read_to_end(&mut bytes)?;
-            
+
                 if bytes.len() > byte_limit {
                     return Ok(super::types::ToolResult::error(
                         "read",
@@ -179,7 +179,7 @@ impl Tool for ReadTool {
 
                 if is_image {
                     let image = crate::ai::images::process_image_bytes(&bytes, auto_resize_images)?;
-            
+
                     return Ok(super::types::ToolResult::success(
                         "read",
                         "read",

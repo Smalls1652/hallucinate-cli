@@ -52,7 +52,7 @@ pub struct PromptTemplateLoadOptions {
 
     /// Explicit file or directory paths to load templates from.
     pub prompt_paths: Vec<PathBuf>,
-    
+
     /// Whether to include default templates from standard locations.
     pub include_defaults: bool,
 }
@@ -62,7 +62,7 @@ pub struct PromptTemplateLoadOptions {
 struct PromptFrontmatter {
     /// Short description of the template's purpose.
     description: Option<String>,
-    
+
     /// Optional usage hint shown to the user.
     #[serde(rename = "argument-hint")]
     argument_hint: Option<String>,

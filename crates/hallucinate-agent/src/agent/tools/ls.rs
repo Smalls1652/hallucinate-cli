@@ -80,23 +80,23 @@ impl Tool for LsTool {
                     .unwrap_or("."),
                 cwd,
             );
-            
+
             let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
-            
+
             let recursive = arguments
                 .get("recursive")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
-            
+
             let max_entries = parse_bounded_usize(
                 arguments,
                 "max_entries",
                 self.max_entries,
                 MAX_REQUESTED_RESULTS,
             )?;
-            
+
             let limits = self.limits.clone();
-            
+
             let display_cwd = cwd.unwrap_or(".").to_string();
 
             run_blocking("ls", move || {
@@ -107,7 +107,7 @@ impl Tool for LsTool {
                         format!("Path not found: {display_path}"),
                     ));
                 }
-            
+
                 if path.is_file() {
                     return Ok(super::types::ToolResult::success(
                         "ls",
@@ -117,16 +117,16 @@ impl Tool for LsTool {
                 }
 
                 let mut entries = Vec::new();
-            
+
                 let status = walk_entries(&path, recursive, &limits, |entry_path, _| {
                     if entries.len() >= max_entries {
                         return WalkControl::Stop;
                     }
-            
+
                     if let Ok(entry) = format_entry(&entry_path, &display_cwd) {
                         entries.push(entry);
                     }
-            
+
                     if entries.len() >= max_entries {
                         WalkControl::Stop
                     } else {
@@ -139,11 +139,11 @@ impl Tool for LsTool {
                 } else {
                     format!("Directory: {display_path}\n\n{}", entries.join("\n"))
                 };
-            
+
                 if status.truncated {
                     content.push_str("\n\n[Listing truncated by an entry or traversal limit]");
                 }
-            
+
                 Ok(super::types::ToolResult::success("ls", "ls", content))
             })
             .await
@@ -156,7 +156,7 @@ fn format_entry(
     cwd: &str,
 ) -> Result<String, anyhow::Error> {
     let metadata = std::fs::symlink_metadata(path)?;
-    
+
     let entry_type = if metadata.is_dir() {
         "dir"
     } else if metadata.is_file() {
@@ -166,7 +166,7 @@ fn format_entry(
     } else {
         "other"
     };
-    
+
     Ok(format!(
         "{entry_type:<6} {:>10} {}",
         format_size(metadata.len()),

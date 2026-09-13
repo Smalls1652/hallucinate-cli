@@ -8,15 +8,15 @@ use super::keys::Key;
 #[derive(Debug, Clone)]
 pub enum InputEvent {
     Key(Key),
-    
+
     Mouse(MouseEvent),
-    
+
     Resize(u16, u16),
-    
+
     FocusGained,
-    
+
     FocusLost,
-    
+
     Paste(String),
 }
 

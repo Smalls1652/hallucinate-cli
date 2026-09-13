@@ -19,10 +19,10 @@ use crate::{
 pub struct SessionCreateOptions {
     /// Optional title for the session.
     pub title: Option<String>,
-    
+
     /// Optional parent session ID (for forking).
     pub parent_session_id: Option<String>,
-    
+
     /// Working directory for the session.
     pub cwd: Option<String>,
 }
@@ -32,19 +32,19 @@ pub struct SessionCreateOptions {
 pub struct Session {
     /// The session ID.
     pub id: String,
-    
+
     /// Optional title.
     pub title: Option<String>,
-    
+
     /// Parent session ID (if forked).
     pub parent_session_id: Option<String>,
-    
+
     /// Working directory.
     pub cwd: String,
-    
+
     /// Number of messages.
     pub message_count: usize,
-    
+
     /// Last modified timestamp.
     pub modified: u64,
 }
@@ -180,11 +180,11 @@ impl SessionManager {
             cwd: SessionCwd::load(session_id).unwrap_or_else(|_| ".".to_string()),
             timestamp: 0,
         });
-        
+
         let title = metadata.title;
-        
+
         let parent_session_id = metadata.parent_session_id;
-        
+
         let saved_cwd = metadata.cwd;
 
         let cwd = if std::path::Path::new(&saved_cwd).is_dir() {
@@ -542,7 +542,7 @@ mod tests {
         let session_id = format!("metadata-wins-{}", Uuid::new_v4());
         let jsonl_cwd = std::env::temp_dir().to_string_lossy().into_owned();
         let sidecar_cwd = "/path/that/does/not/exist";
-        
+
         let storage = SessionStorage::new(&session_id);
         storage
             .save_metadata(Some("JSONL".to_string()), None, jsonl_cwd.clone())

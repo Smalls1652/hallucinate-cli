@@ -19,15 +19,15 @@ pub async fn generate_session_title(
     let context = Context::new([Message::User(UserMessage::new(format!(
         "{TITLE_PROMPT}{user_message}"
     )))]);
-    
+
     let options = StreamOptions {
         max_tokens: Some(4096),
         tool_choice: Some(ToolChoice::None),
         ..StreamOptions::default()
     };
-    
+
     let message = provider.complete(model, &context, &options).await?;
-    
+
     let title = message
         .content
         .iter()
@@ -47,7 +47,7 @@ fn normalize_title(title: &str) -> Option<String> {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    
+
     let title = title.chars().take(80).collect::<String>();
 
     (!title.is_empty()).then_some(title)

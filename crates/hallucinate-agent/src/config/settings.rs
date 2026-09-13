@@ -42,32 +42,32 @@ pub struct ModelSettings {
     /// Human-readable name for the model.
     #[serde(default)]
     pub name: Option<String>,
-    
+
     /// API variant used by the provider (e.g., OpenAI Chat Completions or
     /// Responses).
     #[serde(default = "default_api")]
     pub api: Api,
-    
+
     /// Override the base URL for this specific model.
     #[serde(default)]
     pub base_url: Option<String>,
-    
+
     /// Whether this model supports reasoning/thinking output.
     #[serde(default)]
     pub reasoning: bool,
-    
+
     /// Supported input modalities (e.g., "text", "image").
     #[serde(default = "default_input")]
     pub input: Vec<String>,
-    
+
     /// Maximum context window size in tokens.
     #[serde(default = "default_context_window")]
     pub context_window: u32,
-    
+
     /// Maximum number of tokens the model can output.
     #[serde(default = "default_model_max_tokens")]
     pub max_tokens: u32,
-    
+
     /// Cost rates per million tokens for input and output.
     #[serde(default)]
     pub cost: ModelCostRates,
@@ -95,22 +95,22 @@ pub struct ProviderSettings {
     /// Completions or Responses wire format.
     #[serde(default)]
     pub base_url: Option<String>,
-    
+
     /// Optional inline key. Prefer the platform keyring or environment
     /// variables for secrets; this is accepted for convenient local setups.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
-    
+
     /// Additional HTTP headers to send with every request.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub headers: HashMap<String, String>,
-    
+
     /// Whether streaming requests include usage data in `stream_options`.
     ///
     /// When unset, `stream_options` is omitted from requests for this provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include_usage: Option<bool>,
-    
+
     /// Models provided by this provider, keyed by model ID.
     #[serde(default)]
     pub models: HashMap<String, ModelSettings>,
@@ -123,7 +123,7 @@ pub enum SessionTitleGenerationMode {
     /// Generate the title at the same time as the first agent response.
     #[default]
     Parallel,
-    
+
     /// Generate and save the title before the first agent response begins.
     Before,
 }
@@ -134,12 +134,12 @@ pub struct SessionTitleSettings {
     /// Whether new sessions receive an LLM-generated title.
     #[serde(default = "default_enable_session_titles")]
     pub enabled: bool,
-    
+
     /// Model selector used for title generation. When omitted, the active
     /// conversation model is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    
+
     /// Whether title generation runs alongside or before the first response.
     #[serde(default)]
     pub generation_mode: SessionTitleGenerationMode,
@@ -360,7 +360,7 @@ fn merge_settings_file(
     }
 
     let content = fs::read_to_string(path)?;
-    
+
     let value: toml::Value = toml::from_str(&content).map_err(|error| {
         anyhow::anyhow!(
             "failed to parse settings file '{}': {error}",
@@ -374,7 +374,7 @@ fn merge_settings_file(
             path.display()
         );
     };
-    
+
     merge_toml_tables(merged, table);
 
     Ok(())
@@ -552,7 +552,7 @@ impl Settings {
 
         if let Err(error) = fs::rename(&temporary_path, path) {
             let _ = fs::remove_file(&temporary_path);
-            
+
             return Err(error.into());
         }
 
@@ -613,7 +613,7 @@ impl Settings {
         if !providers.iter().any(|provider| provider == &self.provider) {
             providers.push(self.provider.clone());
         }
-        
+
         providers.sort_unstable();
 
         providers
@@ -642,9 +642,9 @@ impl Settings {
                 });
 
                 let mut models: Vec<_> = provider.models.iter().collect();
-                
+
                 models.sort_by(|left, right| left.0.cmp(right.0));
-                
+
                 models.into_iter().map(move |(model_id, config)| {
                     let mut model = Model::new(
                         model_id,
@@ -702,7 +702,7 @@ impl Settings {
                 })
                 .collect::<String>()
         );
-        
+
         if let Ok(key) = std::env::var(variable)
             && !key.is_empty()
         {

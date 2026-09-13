@@ -15,7 +15,7 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct FindTool {
     limits: ToolLimits,
-    
+
     /// Default maximum number of results to return.
     max_results: usize,
 }
@@ -77,19 +77,19 @@ impl Tool for FindTool {
                 .get("pattern")
                 .and_then(|value| value.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing required field: pattern"))?;
-            
+
             let glob_pattern = glob::Pattern::new(pattern)
                 .map_err(|error| anyhow::anyhow!("Invalid glob pattern '{pattern}': {error}"))?;
-            
+
             let max_results = parse_bounded_usize(
                 arguments,
                 "max_results",
                 self.max_results,
                 MAX_REQUESTED_RESULTS,
             )?;
-            
+
             let project_dir = cwd.unwrap_or(".").to_string();
-            
+
             let search_path = resolve_path(
                 arguments
                     .get("path")
@@ -97,22 +97,22 @@ impl Tool for FindTool {
                     .unwrap_or("."),
                 Some(&project_dir),
             );
-            
+
             let limits = self.limits.clone();
-            
+
             let pattern = pattern.to_string();
 
             run_blocking("find", move || {
                 let mut matches = Vec::new();
-            
+
                 let status =
                     walk_matching_files(&search_path, Some(&glob_pattern), &limits, |path| {
                         if matches.len() >= max_results {
                             return WalkControl::Stop;
                         }
-            
+
                         matches.push(crate::config::paths::display_path(&path, &project_dir));
-            
+
                         if matches.len() >= max_results {
                             WalkControl::Stop
                         } else {
@@ -129,11 +129,11 @@ impl Tool for FindTool {
                         matches.join("\n")
                     )
                 };
-            
+
                 if status.truncated {
                     content.push_str("\n\n[Search truncated by a result or traversal limit]");
                 }
-            
+
                 Ok(super::types::ToolResult::success("find", "find", content))
             })
             .await
