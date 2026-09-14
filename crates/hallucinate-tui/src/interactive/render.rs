@@ -50,6 +50,10 @@ pub(super) struct TranscriptLayoutCache {
 
     /// Column offset where each line becomes selectable, or `None`.
     selection_line_starts: Vec<Option<usize>>,
+
+    /// Source message for each selectable visual row. This lets clipboard
+    /// selections use the original Markdown instead of terminal wrapping.
+    selection_message_indices: Vec<Option<usize>>,
 }
 
 /// Render only the visible rows from a cached, already-wrapped transcript.
@@ -122,6 +126,7 @@ impl TranscriptLayoutCache {
         streaming_message_index: Option<usize>,
         lines: Vec<ratatui::text::Line<'static>>,
         selection_line_starts: Vec<Option<usize>>,
+        selection_message_indices: Vec<Option<usize>>,
     ) {
         self.width = width;
         self.show_thinking = transcript.show_thinking();
@@ -131,6 +136,7 @@ impl TranscriptLayoutCache {
         self.transcript_revision = transcript.layout_revision();
         self.lines = lines;
         self.selection_line_starts = selection_line_starts;
+        self.selection_message_indices = selection_message_indices;
     }
 }
 
@@ -321,6 +327,7 @@ fn render_transcript(
 
     if !cache_matches {
         let mut selection_line_starts = Vec::new();
+        let mut selection_message_indices = Vec::new();
         let messages = transcript.messages();
 
         let lines: Vec<Line<'static>> = messages
@@ -358,6 +365,7 @@ fn render_transcript(
 
                 let mut lines = Vec::new();
                 let mut line_starts = Vec::new();
+                let mut message_indices = Vec::new();
 
                 if starts_card {
                     lines.push(Line::from(vec![
@@ -366,6 +374,7 @@ fn render_transcript(
                         Span::styled(format!(" {}", role_label), role_style),
                     ]));
                     line_starts.push(None);
+                    message_indices.push(None);
 
                     if transcript.show_timestamps() {
                         lines[0].spans.push(Span::styled("  · ", muted));
@@ -380,11 +389,13 @@ fn render_transcript(
                     let previous_len = lines.len();
                     append_thinking_box(&mut lines, &msg.thinking, transcript_width);
                     line_starts.extend(vec![None; lines.len() - previous_len]);
+                    message_indices.extend(vec![None; lines.len() - previous_len]);
 
                     // Keep the response visually separated from its reasoning
                     // surface.
                     lines.push(Line::from(Span::styled("│ ", role_color)));
                     line_starts.push(None);
+                    message_indices.push(None);
                 }
 
                 let mut body = markdown_to_lines(&msg.content);
@@ -404,6 +415,7 @@ fn render_transcript(
 
                     lines.push(Line::from(empty_line));
                     line_starts.push(None);
+                    message_indices.push(None);
                 } else {
                     let selectable_start =
                         matches!(msg.role, MessageRole::User | MessageRole::Assistant).then_some(2);
@@ -418,6 +430,7 @@ fn render_transcript(
                             // are
                             // selectable.
                             line_starts.push(selectable_start);
+                            message_indices.push(selectable_start.map(|_| message_index));
                         }
                     }
                 }
@@ -427,6 +440,7 @@ fn render_transcript(
                 if lines.last().is_some_and(line_is_empty_card_rail) {
                     lines.pop();
                     line_starts.pop();
+                    message_indices.pop();
                 }
 
                 for tool_call in &msg.tool_calls {
@@ -440,6 +454,7 @@ fn render_transcript(
                     if !lines.last().is_some_and(line_is_empty_card_rail) {
                         lines.push(Line::from(Span::styled("│ ", role_color)));
                         line_starts.push(None);
+                        message_indices.push(None);
                     }
 
                     let previous_len = lines.len();
@@ -456,6 +471,7 @@ fn render_transcript(
                     );
 
                     line_starts.extend(vec![None; lines.len() - previous_len]);
+                    message_indices.extend(vec![None; lines.len() - previous_len]);
                     if let Some(result) = &tool_call.result {
                         let previous_len = lines.len();
                         let is_error = result.starts_with("❌");
@@ -473,6 +489,7 @@ fn render_transcript(
                         );
 
                         line_starts.extend(vec![None; lines.len() - previous_len]);
+                        message_indices.extend(vec![None; lines.len() - previous_len]);
                     } else if streaming_message_index == Some(message_index)
                         && tool_call.arguments.is_string()
                     {
@@ -486,6 +503,7 @@ fn render_transcript(
                             ),
                         ]));
                         line_starts.push(None);
+                        message_indices.push(None);
 
                         if tool_call.name == "write"
                             && let Some(content) = streamed_json_string_prefix(
@@ -503,6 +521,7 @@ fn render_transcript(
                                 transcript_width,
                             );
                             line_starts.extend(vec![None; lines.len() - previous_len]);
+                            message_indices.extend(vec![None; lines.len() - previous_len]);
                         }
                     } else if transcript.is_tool_call_running(&tool_call.id) {
                         let previous_len = lines.len();
@@ -514,6 +533,7 @@ fn render_transcript(
                             transcript_width,
                         );
                         line_starts.extend(vec![None; lines.len() - previous_len]);
+                        message_indices.extend(vec![None; lines.len() - previous_len]);
                     }
 
                     lines.push(Line::from(Span::styled(
@@ -521,20 +541,24 @@ fn render_transcript(
                         Style::default().fg(Color::LightBlue),
                     )));
                     line_starts.push(None);
+                    message_indices.push(None);
                 }
 
                 if ends_card {
                     lines.push(Line::from(Span::styled("╰─", role_color)));
                     line_starts.push(None);
+                    message_indices.push(None);
 
                     lines.push(Line::from(""));
                     line_starts.push(None);
+                    message_indices.push(None);
                 } else {
                     // Consecutive assistant turns share this card;
                     // leave a quiet in-card
                     // divider between their content.
                     lines.push(Line::from(Span::styled("│ ", role_color)));
                     line_starts.push(None);
+                    message_indices.push(None);
                 }
 
                 // If the last line is an empty card rail,
@@ -542,9 +566,11 @@ fn render_transcript(
                 if lines.last().is_some_and(line_is_empty_card_rail) {
                     lines.pop();
                     line_starts.pop();
+                    message_indices.pop();
                 }
 
                 selection_line_starts.extend(line_starts);
+                selection_message_indices.extend(message_indices);
 
                 lines
             })
@@ -557,12 +583,15 @@ fn render_transcript(
             streaming_message_index,
             lines,
             selection_line_starts,
+            selection_message_indices,
         );
     }
 
     let lines = &transcript_layout_cache.lines;
     let selection_line_starts = &transcript_layout_cache.selection_line_starts;
+    let selection_message_indices = &transcript_layout_cache.selection_message_indices;
     debug_assert_eq!(lines.len(), selection_line_starts.len());
+    debug_assert_eq!(lines.len(), selection_message_indices.len());
 
     // A Line is deliberately a single visual line in ratatui: an
     // embedded newline in a message would otherwise not create a row.
@@ -614,7 +643,6 @@ fn render_transcript(
 
         let buffer = frame.buffer_mut();
 
-        let mut selected_rows = Vec::new();
         for row in start_y..=end_y {
             let from = if row == start_y { start_x } else { area.x };
 
@@ -624,32 +652,71 @@ fn render_transcript(
                 area.x.saturating_add(area.width).saturating_sub(1)
             };
 
-            let mut selected_row = String::new();
-            let mut row_has_selectable_text = false;
-
             for column in from..=to {
                 let selectable = mask_buffer
                     .cell((column, row))
                     .is_some_and(|cell| cell.fg == SELECTION_MARKER);
 
                 if selectable {
-                    row_has_selectable_text = true;
-
                     if let Some(cell) = buffer.cell_mut((column, row)) {
-                        selected_row.push_str(cell.symbol());
                         cell.set_style(selection_style);
                     }
                 }
             }
-
-            if row_has_selectable_text {
-                selected_rows.push(selected_row.trim_end().to_string());
-            }
         }
-        return selected_rows.join("\n");
+        return selected_markdown(
+            transcript,
+            selection_message_indices,
+            selection,
+            usize::from(scroll),
+            transcript_inner_area,
+        );
     }
 
     String::new()
+}
+
+/// Return the original Markdown for messages that intersect a visual selection.
+///
+/// The transcript cache contains terminal-wrapped rows, which are useful for
+/// painting the selection but must never become clipboard content. Associate
+/// those rows with their source messages, then copy the unmodified Markdown.
+fn selected_markdown(
+    transcript: &TranscriptRenderer,
+    selection_message_indices: &[Option<usize>],
+    selection: super::ChatSelection,
+    scroll: usize,
+    transcript_area: Rect,
+) -> String {
+    let ((_, start_y), (_, end_y)) = selection.bounds();
+    let first_visible_line = scroll;
+    let last_visible_line = scroll.saturating_add(usize::from(transcript_area.height));
+    let mut message_indices = Vec::new();
+
+    for (line_index, message_index) in selection_message_indices
+        .iter()
+        .enumerate()
+        .skip(first_visible_line)
+        .take(last_visible_line.saturating_sub(first_visible_line))
+    {
+        let screen_row = transcript_area
+            .y
+            .saturating_add(u16::try_from(line_index - scroll).unwrap_or(u16::MAX));
+
+        if (start_y..=end_y).contains(&screen_row)
+            && let Some(message_index) = message_index
+            && !message_indices.contains(message_index)
+        {
+            message_indices.push(*message_index);
+        }
+    }
+
+    message_indices
+        .into_iter()
+        .filter_map(|index| transcript.messages().get(index))
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Render the active model picker overlay.
@@ -1648,6 +1715,31 @@ mod tests {
     }
 
     #[test]
+    fn copies_original_markdown_for_selected_messages() {
+        let mut transcript = TranscriptRenderer::new();
+        transcript.add_message(Message {
+            role: MessageRole::Assistant,
+            content: "first line\n\n**formatted**".to_string(),
+            thinking: String::new(),
+            tool_calls: Vec::new(),
+            timestamp: chrono::Utc::now(),
+        });
+
+        let selected = selected_markdown(
+            &transcript,
+            &[None, Some(0), Some(0), None],
+            super::super::ChatSelection {
+                anchor: (0, 2),
+                focus: (5, 3),
+            },
+            0,
+            Rect::new(0, 1, 80, 4),
+        );
+
+        assert_eq!(selected, "first line\n\n**formatted**");
+    }
+
+    #[test]
     fn tool_output_display_can_switch_between_compact_and_full() {
         let result = format!("{} tail", "x".repeat(COMPACT_TOOL_RESULT_WIDTH));
 
@@ -1876,6 +1968,7 @@ mod tests {
             None,
             vec![Line::from("cached")],
             vec![Some(0)],
+            vec![Some(0)],
         );
 
         assert!(transcript.scroll_up(3, 3));
@@ -1896,7 +1989,15 @@ mod tests {
         });
 
         let mut cache = TranscriptLayoutCache::default();
-        cache.replace(&transcript, 80, false, None, Vec::new(), Vec::new());
+        cache.replace(
+            &transcript,
+            80,
+            false,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
 
         transcript.append_to_message(0, "delta");
 
