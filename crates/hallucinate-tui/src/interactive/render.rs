@@ -745,7 +745,7 @@ fn render_model_picker(
                 "context {} · max {} · {}{}",
                 model.context_window,
                 model.max_tokens,
-                model.input.join(","),
+                model.input.join(", "),
                 if model.reasoning { " · reasoning" } else { "" }
             );
 
@@ -755,15 +755,24 @@ fn render_model_picker(
                 vec![
                     Span::styled(
                         model.name.to_string(),
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
+                        Style::default().add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
-                        format!(" - {}/{} ", model.provider, model.id),
-                        Style::default().fg(Color::Cyan),
+                        " - ",
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::DIM),
                     ),
-                    Span::styled(metadata, Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{}/{}", model.provider, model.id),
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM),
+                    ),
+                    Span::styled(
+                        format!(" ({})", metadata),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::DIM),
+                    ),
                 ],
             )
         },
