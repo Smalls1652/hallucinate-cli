@@ -137,9 +137,10 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
 
     // Create TUI
     let mut models = hallucinate_agent::config::available_models(settings);
-    if !models
-        .iter()
-        .any(|candidate| candidate.provider == model.provider && candidate.id == model.id)
+    if !model.hidden
+        && !models
+            .iter()
+            .any(|candidate| candidate.provider == model.provider && candidate.id == model.id)
     {
         models.push(model.clone());
         models.sort_by(|left, right| {

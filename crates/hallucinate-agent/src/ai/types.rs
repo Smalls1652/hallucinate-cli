@@ -613,6 +613,9 @@ pub struct Model {
     /// Whether this model supports reasoning/thinking output.
     pub reasoning: bool,
 
+    /// Whether this model is hidden from the interactive model picker.
+    pub hidden: bool,
+
     /// Supported input types (e.g., "text", "image").
     pub input: Vec<String>,
 
@@ -648,6 +651,7 @@ impl Model {
             provider: provider.into(),
             base_url: base_url.into(),
             reasoning,
+            hidden: false,
             input: vec!["text".to_string()],
             cost: ModelCostRates::default(),
             context_window,

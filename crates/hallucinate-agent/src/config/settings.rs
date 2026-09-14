@@ -51,6 +51,10 @@ pub struct ModelSettings {
     #[serde(default)]
     pub reasoning: bool,
 
+    /// Whether this model is hidden from the interactive model picker.
+    #[serde(default)]
+    pub hidden: bool,
+
     /// Supported input modalities (e.g., "text", "image").
     #[serde(default = "default_input")]
     pub input: Vec<String>,
@@ -77,6 +81,7 @@ impl Default for ModelSettings {
             api: default_api(),
             base_url: None,
             reasoning: false,
+            hidden: false,
             input: default_input(),
             context_window: default_context_window(),
             max_tokens: default_model_max_tokens(),
@@ -662,6 +667,7 @@ impl Settings {
                         config.max_tokens,
                     );
                     model.input = config.input.clone();
+                    model.hidden = config.hidden;
                     if let Some(cost) = &config.cost {
                         model.cost = cost.clone();
                     }

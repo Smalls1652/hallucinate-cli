@@ -79,6 +79,7 @@ Cost configuration is optional. Omit the entire `cost` table for models whose pr
 | `api` | `string` | `"openai-completions"` | API variant: `openai-completions` or `openai-responses`. |
 | `base_url` | `string` | Provider URL | Per-model endpoint override. |
 | `reasoning` | `bool` | `false` | Whether the model supports reasoning/thinking output. |
+| `hidden` | `bool` | `false` | Hide the model from the interactive model picker. |
 | `input` | `array` | `["text"]` | Supported input modalities (e.g., `"text"`, `"image"`). |
 | `context_window` | `number` | `128000` | Maximum context window in tokens. |
 | `max_tokens` | `number` | `16384` | Maximum output tokens the model can produce. |

@@ -527,15 +527,24 @@ impl InteractiveTui {
             return;
         }
 
-        let selected = self
-            .models
+        let filtered_indices = filtered_model_indices(&self.models, "");
+        if filtered_indices.is_empty() {
+            self.show_notice("No visible models are configured.");
+
+            return;
+        }
+
+        let selected = filtered_indices
             .iter()
-            .position(|model| model.provider == self.model.provider && model.id == self.model.id)
+            .position(|index| {
+                let model = &self.models[*index];
+                model.provider == self.model.provider && model.id == self.model.id
+            })
             .unwrap_or(0);
 
         self.model_picker = Some(ModelPicker {
             filter: String::new(),
-            filtered_indices: (0..self.models.len()).collect(),
+            filtered_indices,
             selected,
         });
     }
@@ -1152,7 +1161,9 @@ fn filtered_model_indices(
     models
         .iter()
         .enumerate()
-        .filter_map(|(index, model)| matches_picker_filter(&model.name, filter).then_some(index))
+        .filter_map(|(index, model)| {
+            (!model.hidden && matches_picker_filter(&model.name, filter)).then_some(index)
+        })
         .collect()
 }
 
