@@ -913,10 +913,7 @@ impl InteractiveTui {
 
         self.model = model.clone();
 
-        self.show_notice(format!(
-            "Switched to {}/{} (context: {}, max output: {}).",
-            model.provider, model.id, model.context_window, model.max_tokens
-        ));
+        self.show_notice(format!("Switched model to {}/{}", model.provider, model.id));
 
         Ok(())
     }
