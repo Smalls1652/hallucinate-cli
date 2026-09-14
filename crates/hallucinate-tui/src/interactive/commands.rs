@@ -974,6 +974,7 @@ impl InteractiveTui {
             })?;
 
         self.project_cwd = cwd.clone();
+        self.token_count = 0;
 
         let agent = self
             .agent
