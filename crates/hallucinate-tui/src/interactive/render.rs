@@ -851,10 +851,21 @@ fn render_prompt_picker(
                 picker.selected,
                 vec![
                     Span::styled(
-                        format!("/{}{}", template.name, hint),
-                        Style::default().fg(Color::Cyan),
+                        format!("/{}", template.name),
+                        Style::default().add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(" - ", Style::default()),
+                    Span::styled(
+                        hint,
+                        Style::default()
+                            .add_modifier(Modifier::DIM)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                    Span::styled(
+                        " - ",
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::DIM),
+                    ),
                     Span::styled(
                         template.description.clone(),
                         Style::default().fg(Color::DarkGray),
