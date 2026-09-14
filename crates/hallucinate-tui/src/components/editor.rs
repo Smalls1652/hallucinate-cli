@@ -39,6 +39,10 @@ pub struct Editor {
 
     /// Byte offset of the selection anchor (None when no selection is active).
     selection_anchor: Option<usize>,
+
+    /// Inner editor width from the most recent render, used for visual-row
+    /// cursor movement through wrapped input.
+    visual_width: usize,
 }
 
 impl Editor {
@@ -52,6 +56,7 @@ impl Editor {
             style: Style::default().fg(Color::White),
             undo_stack: UndoStack::new(100),
             selection_anchor: None,
+            visual_width: 0,
         }
     }
 
@@ -82,9 +87,18 @@ impl Editor {
         self.undo_stack.clear();
     }
 
-    /// Whether the editor contains an explicit line break.
+    /// Whether the editor occupies more than one visual row.
+    ///
+    /// Explicit newlines always create rows. Once rendered, soft-wrapped input
+    /// also uses the current inner width so Up/Down move the editor cursor
+    /// rather than scrolling the transcript.
     pub fn is_multiline(&self) -> bool {
-        self.content.contains('\n')
+        if self.content.contains('\n') {
+            return true;
+        }
+
+        self.visual_width > 0
+            && editor_visual_lines(&self.content, self.visual_width, self.cursor_pos).len() > 1
     }
 
     /// Return the height needed to display the editor, including its border.
@@ -281,37 +295,17 @@ impl Editor {
         direction: i8,
         extend: bool,
     ) {
-        let (line_start, line_end) = line_bounds(&self.content, self.cursor_pos);
+        let lines = editor_visual_lines(&self.content, self.visual_width, self.cursor_pos);
+        let (current_row, current_column) = cursor_position(&lines, self.cursor_pos);
+        let column = *self.vertical_column.get_or_insert(current_column);
 
-        let column = self
-            .vertical_column
-            .get_or_insert_with(|| display_width(&self.content[line_start..self.cursor_pos]));
-
-        let target = if direction < 0 {
-            if line_start == 0 {
-                None
-            } else {
-                let previous_end = line_start - 1;
-                let previous_start = self.content[..previous_end]
-                    .rfind('\n')
-                    .map(|index| index + 1)
-                    .unwrap_or(0);
-
-                Some((previous_start, previous_end))
-            }
-        } else if line_end == self.content.len() {
-            None
+        let target_row = if direction < 0 {
+            current_row.checked_sub(1)
         } else {
-            let next_start = line_end + 1;
-            let next_end = self.content[next_start..]
-                .find('\n')
-                .map(|index| next_start + index)
-                .unwrap_or(self.content.len());
-
-            Some((next_start, next_end))
+            (current_row + 1 < lines.len()).then_some(current_row + 1)
         };
 
-        let Some((target_start, target_end)) = target else {
+        let Some(target_row) = target_row else {
             return;
         };
 
@@ -321,7 +315,8 @@ impl Editor {
             self.selection_anchor = None;
         }
 
-        self.cursor_pos = byte_at_display_column(&self.content, target_start, target_end, *column);
+        let target = &lines[target_row];
+        self.cursor_pos = byte_at_display_column(&self.content, target.start, target.end, column);
     }
 
     /// Move the cursor left and clear any selection.
@@ -699,11 +694,12 @@ impl Editor {
     /// position. Explicit newlines and long lines are represented as separate
     /// visual rows, with the editor scrolling vertically when necessary.
     pub fn render(
-        &self,
+        &mut self,
         f: &mut Frame,
         area: Rect,
     ) {
         let inner_width = usize::from(area.width.saturating_sub(2));
+        self.visual_width = inner_width;
 
         let (lines, cursor_row, cursor_column) = if self.content.is_empty() {
             (
@@ -790,7 +786,7 @@ fn visual_lines(
     lines
 }
 
-/// Push one or more wrapped lines for the given content segment.
+/// Push one or more word-wrapped lines for the given content segment.
 fn append_wrapped_line(
     lines: &mut Vec<VisualLine>,
     content: &str,
@@ -809,31 +805,46 @@ fn append_wrapped_line(
     }
 
     let mut segment_start = start;
-    let mut segment_width = 0;
 
-    for (offset, character) in content[start..end].char_indices() {
-        let position = start + offset;
-        let character_width = character.width().unwrap_or(0);
+    while segment_start < end {
+        let mut segment_width = 0;
+        let mut wrap_at = None;
+        let mut segment_end = end;
 
-        if segment_width > 0 && segment_width + character_width > width {
-            lines.push(VisualLine {
-                text: content[segment_start..position].to_string(),
-                start: segment_start,
-                end: position,
-            });
+        for (offset, character) in content[segment_start..end].char_indices() {
+            let position = segment_start + offset;
+            let character_width = character.width().unwrap_or(0);
 
-            segment_start = position;
-            segment_width = 0;
+            if segment_width > 0 && segment_width + character_width > width {
+                // A separating space belongs to the next row when the word
+                // preceding it exactly fills this row. Otherwise wrap at the
+                // last separator so an entire word stays together.
+                segment_end = if character.is_whitespace() {
+                    position
+                } else {
+                    wrap_at.unwrap_or(position)
+                };
+                break;
+            }
+
+            segment_width += character_width;
+
+            // Preserve whitespace in the preceding visual line. This keeps
+            // byte offsets continuous, which in turn makes cursor placement
+            // and selections correct while wrapping at word boundaries.
+            if character.is_whitespace() {
+                wrap_at = Some(position + character.len_utf8());
+            }
         }
 
-        segment_width += character_width;
-    }
+        lines.push(VisualLine {
+            text: content[segment_start..segment_end].to_string(),
+            start: segment_start,
+            end: segment_end,
+        });
 
-    lines.push(VisualLine {
-        text: content[segment_start..end].to_string(),
-        start: segment_start,
-        end,
-    });
+        segment_start = segment_end;
+    }
 }
 
 /// Split explicit and wrapped lines, appending a trailing empty line when the
@@ -1003,6 +1014,49 @@ mod tests {
         );
 
         assert!(lines.iter().any(|line| line.text.contains('😀')));
+    }
+
+    #[test]
+    fn wrapping_prefers_word_boundaries_and_breaks_long_words() {
+        let lines = visual_lines("one two three", 7);
+        let text = lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(text, vec!["one two", " three"]);
+
+        let long_word = visual_lines("abcdefgh", 3);
+        let text = long_word
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(text, vec!["abc", "def", "gh"]);
+    }
+
+    #[test]
+    fn soft_wrapping_makes_the_editor_multiline_after_rendering() {
+        let mut editor = Editor::new("one two three");
+        editor.visual_width = 7;
+
+        assert!(editor.is_multiline());
+
+        editor.visual_width = 20;
+        assert!(!editor.is_multiline());
+    }
+
+    #[test]
+    fn vertical_movement_follows_wrapped_rows() {
+        let mut editor = Editor::new("");
+        editor.set_content("one two three");
+        editor.visual_width = 7;
+        editor.cursor_beginning();
+
+        editor.handle_key(Key::new(KeyCode::Down));
+        assert_eq!(editor.cursor_pos, 7);
+
+        editor.handle_key(Key::new(KeyCode::Up));
+        assert_eq!(editor.cursor_pos, 0);
     }
 
     #[test]
