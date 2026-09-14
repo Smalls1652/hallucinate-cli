@@ -183,6 +183,8 @@ pub struct InteractiveTui {
 
     prompt_picker: Option<PromptPicker>,
 
+    transcript_message_picker: Option<TranscriptMessagePicker>,
+
     clear_sessions_confirmation: Option<ClearSessionsConfirmation>,
 
     autocomplete_items: Vec<AutocompleteItem>,
@@ -288,6 +290,29 @@ struct PromptPicker {
 
     /// Index of the currently selected matching template.
     selected: usize,
+}
+
+/// State for selecting a transcript message to copy.
+#[derive(Debug, Clone)]
+struct TranscriptMessagePicker {
+    /// Copyable transcript messages captured when the picker opened.
+    rows: Vec<TranscriptMessagePickerRow>,
+
+    /// Index of the selected message.
+    selected: usize,
+}
+
+/// Display-ready data for one copyable transcript message.
+#[derive(Debug, Clone)]
+struct TranscriptMessagePickerRow {
+    /// Index in the complete transcript.
+    message_index: usize,
+
+    /// Role shown to distinguish user and assistant messages.
+    role: MessageRole,
+
+    /// First line of the message, used as a picker preview.
+    preview: String,
 }
 
 /// A pending confirmation to delete every saved session for one directory.
@@ -462,6 +487,7 @@ impl InteractiveTui {
             model_picker: None,
             session_picker: None,
             prompt_picker: None,
+            transcript_message_picker: None,
             clear_sessions_confirmation: None,
             autocomplete_items: Vec::new(),
             autocomplete_index: 0,

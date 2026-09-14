@@ -119,6 +119,11 @@ pub const BUILTIN_COMMANDS: &[CommandInfo] = &[
         description: "Toggle model thinking/reasoning output",
     },
     CommandInfo {
+        name: "copy-message",
+        usage: "/copy-message",
+        description: "Select a transcript message to copy",
+    },
+    CommandInfo {
         name: "skill:<name>",
         usage: "/skill:<name> [arguments]",
         description: "Invoke a loaded skill",
@@ -177,6 +182,7 @@ mod tests {
     #[test]
     fn recognizes_built_in_command_names_case_insensitively() {
         assert!(is_builtin_command("quit"));
+        assert!(is_builtin_command("copy-message"));
         assert!(is_builtin_command("QUIT"));
         assert!(!is_builtin_command("q"));
         assert!(!is_builtin_command("unknown"));

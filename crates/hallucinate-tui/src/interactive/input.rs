@@ -49,6 +49,24 @@ impl InteractiveTui {
         }
     }
 
+    /// Copy transcript text to the host clipboard.
+    pub(super) fn copy_transcript_message(
+        &mut self,
+        text: &str,
+    ) {
+        if text.is_empty() {
+            self.show_notice("Nothing to copy");
+
+            return;
+        }
+
+        if copy_to_clipboard(text).is_ok() {
+            self.show_notice("Copied message to clipboard");
+        } else {
+            self.show_notice("Could not copy message");
+        }
+    }
+
     /// Copy the currently selected transcript text to the host clipboard.
     pub(super) fn copy_chat_selection(&mut self) {
         if self.selected_text.is_empty() {
@@ -57,8 +75,7 @@ impl InteractiveTui {
             return;
         }
 
-        let result = copy_to_clipboard(&self.selected_text);
-        if result.is_ok() {
+        if copy_to_clipboard(&self.selected_text).is_ok() {
             self.show_notice("Copied selection to clipboard");
         } else {
             self.show_notice("Could not copy selection");
@@ -171,6 +188,7 @@ impl InteractiveTui {
             let is_transcript_scroll = self.model_picker.is_none()
                 && self.session_picker.is_none()
                 && self.prompt_picker.is_none()
+                && self.transcript_message_picker.is_none()
                 && self.clear_sessions_confirmation.is_none()
                 && matches!(
                     &input_event,
@@ -278,6 +296,23 @@ impl InteractiveTui {
                         return Ok(false);
                     }
 
+                    if let Some(picker) = self.transcript_message_picker.as_mut() {
+                        match mouse.kind {
+                            crossterm::event::MouseEventKind::ScrollUp => {
+                                picker.selected = picker.selected.saturating_sub(3);
+                            },
+
+                            crossterm::event::MouseEventKind::ScrollDown => {
+                                picker.selected =
+                                    (picker.selected + 3).min(picker.rows.len().saturating_sub(1));
+                            },
+
+                            _ => {},
+                        }
+
+                        return Ok(false);
+                    }
+
                     use crossterm::event::{MouseButton, MouseEventKind};
 
                     match mouse.kind {
@@ -365,6 +400,7 @@ impl InteractiveTui {
             if self.model_picker.is_some()
                 || self.session_picker.is_some()
                 || self.prompt_picker.is_some()
+                || self.transcript_message_picker.is_some()
                 || self.clear_sessions_confirmation.is_some()
             {
                 if let crate::input::InputEvent::Key(key) = input_event {
@@ -388,6 +424,8 @@ impl InteractiveTui {
                         self.handle_model_picker_key(key)?;
                     } else if self.session_picker.is_some() {
                         self.handle_session_picker_key(key)?;
+                    } else if self.transcript_message_picker.is_some() {
+                        self.handle_transcript_message_picker_key(key);
                     } else {
                         self.handle_prompt_picker_key(key)?;
                     }

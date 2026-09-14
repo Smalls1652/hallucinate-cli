@@ -14,6 +14,8 @@ use super::{
     PromptPicker,
     SessionPicker,
     SessionPickerRow,
+    TranscriptMessagePicker,
+    TranscriptMessagePickerRow,
     session::transcript_from_messages,
     short_session_id,
 };
@@ -361,6 +363,8 @@ impl InteractiveTui {
 
             "thinking" => self.handle_thinking_command(&arguments),
 
+            "copy-message" => self.open_transcript_message_picker(&arguments),
+
             "compact" => {
                 if !self.ensure_idle("compacting context") {
                     return Ok(true);
@@ -589,6 +593,80 @@ impl InteractiveTui {
             rows,
             selected,
         });
+    }
+
+    /// Open a picker for copying the complete source text of a transcript
+    /// message.
+    fn open_transcript_message_picker(
+        &mut self,
+        arguments: &str,
+    ) {
+        if !arguments.trim().is_empty() {
+            self.show_notice("Usage: /copy-message");
+            return;
+        }
+
+        let rows = self
+            .transcript
+            .messages()
+            .iter()
+            .enumerate()
+            .filter(|(_, message)| {
+                matches!(
+                    message.role,
+                    crate::alt_screen::MessageRole::User
+                        | crate::alt_screen::MessageRole::Assistant
+                ) && !message.content.is_empty()
+            })
+            .map(|(message_index, message)| TranscriptMessagePickerRow {
+                message_index,
+                role: message.role,
+                preview: message
+                    .content
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
+            })
+            .collect::<Vec<_>>();
+
+        if rows.is_empty() {
+            self.show_notice("There are no messages to copy.");
+            return;
+        }
+
+        self.transcript_message_picker = Some(TranscriptMessagePicker { rows, selected: 0 });
+    }
+
+    /// Handle a key while the transcript message picker owns input focus.
+    pub(super) fn handle_transcript_message_picker_key(
+        &mut self,
+        key: Key,
+    ) {
+        let Some(picker) = self.transcript_message_picker.as_mut() else {
+            return;
+        };
+
+        match_picker_navigation(key, &mut picker.selected, picker.rows.len());
+
+        match key.code {
+            crossterm::event::KeyCode::Esc => self.transcript_message_picker = None,
+
+            crossterm::event::KeyCode::Enter => {
+                let content = picker
+                    .rows
+                    .get(picker.selected)
+                    .and_then(|row| self.transcript.messages().get(row.message_index))
+                    .map(|message| message.content.clone());
+                self.transcript_message_picker = None;
+
+                if let Some(content) = content {
+                    self.copy_transcript_message(&content);
+                }
+            },
+
+            _ => {},
+        }
     }
 
     /// Open the prompt template picker with all loaded templates.

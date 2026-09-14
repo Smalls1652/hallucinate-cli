@@ -262,6 +262,8 @@ impl InteractiveTui {
 
             render_prompt_picker(frame, self.prompt_picker.as_ref(), &self.prompt_templates);
 
+            render_transcript_message_picker(frame, self.transcript_message_picker.as_ref());
+
             render_clear_sessions_confirmation(frame, self.clear_sessions_confirmation.as_ref());
         })?;
 
@@ -848,6 +850,47 @@ fn render_prompt_picker(
                         template.description.clone(),
                         Style::default().fg(Color::DarkGray),
                     ),
+                ],
+            )
+        },
+    );
+}
+
+/// Render the active transcript-message picker overlay.
+fn render_transcript_message_picker(
+    frame: &mut ratatui::Frame,
+    picker: Option<&super::TranscriptMessagePicker>,
+) {
+    let Some(picker) = picker else {
+        return;
+    };
+
+    render_picker(
+        frame,
+        " Select message to copy · ↑↓ PgUp/PgDn Home/End Enter Esc ",
+        &(0..picker.rows.len()).collect::<Vec<_>>(),
+        picker.selected,
+        |row_index, selected_index, popup_width| {
+            let row = &picker.rows[row_index];
+            let role = match row.role {
+                MessageRole::User => "You",
+                MessageRole::Assistant => "Assistant",
+                _ => unreachable!("copy picker contains only user or assistant messages"),
+            };
+            let preview =
+                truncate_one_line(&row.preview, usize::from(popup_width.saturating_sub(16)));
+
+            picker_row(
+                selected_index,
+                picker.selected,
+                vec![
+                    Span::styled(
+                        format!("{role:<9}"),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(preview, Style::default().fg(Color::White)),
                 ],
             )
         },
