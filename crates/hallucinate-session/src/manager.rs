@@ -3,7 +3,7 @@
 //! Provides session CRUD operations, creation with unique IDs, and
 //! integration with the agent loop.
 
-use std::fs;
+use std::{fs, path::Path};
 
 use chrono::Utc;
 use hallucinate_agent::{agent::types::AgentEvent, ai::types::Message, config::paths};
@@ -227,6 +227,35 @@ impl SessionManager {
     /// List all sessions.
     pub fn list() -> Result<Vec<SessionInfo>, anyhow::Error> {
         SessionInfo::list_all()
+    }
+
+    /// List sessions whose saved working directory is `cwd`.
+    ///
+    /// A session's directory is read from its latest metadata record, falling
+    /// back to the legacy cwd sidecar for sessions created by older versions.
+    /// Sessions without a readable directory or with a missing directory are
+    /// excluded because they cannot be associated with the requested project.
+    pub fn list_for_directory(cwd: &Path) -> Result<Vec<SessionInfo>, anyhow::Error> {
+        let cwd = cwd.canonicalize()?;
+        let mut matching_sessions = Vec::new();
+
+        for session in Self::list()? {
+            let storage = SessionStorage::new(&session.id);
+            let saved_cwd = storage
+                .load_metadata()?
+                .map(|metadata| metadata.cwd)
+                .or_else(|| SessionCwd::load(&session.id).ok());
+
+            let is_for_directory = saved_cwd
+                .and_then(|saved_cwd| Path::new(&saved_cwd).canonicalize().ok())
+                .is_some_and(|saved_cwd| saved_cwd == cwd);
+
+            if is_for_directory {
+                matching_sessions.push(session);
+            }
+        }
+
+        Ok(matching_sessions)
     }
 
     /// Remove persisted sessions that contain no conversation messages.
@@ -495,6 +524,37 @@ mod tests {
         let sessions = SessionManager::list();
 
         assert!(sessions.is_ok(), "Session listing should succeed");
+    }
+
+    #[test]
+    fn listing_sessions_for_directory_excludes_other_directories() {
+        let current_directory = std::env::current_dir().unwrap();
+        let other_directory =
+            std::env::temp_dir().join(format!("other-session-{}", Uuid::new_v4()));
+        fs::create_dir(&other_directory).unwrap();
+
+        let current_session_id = format!("current-directory-{}", Uuid::new_v4());
+        let other_session_id = format!("other-directory-{}", Uuid::new_v4());
+
+        SessionStorage::new(&current_session_id)
+            .save_metadata(None, None, current_directory.to_string_lossy().into_owned())
+            .unwrap();
+        SessionStorage::new(&other_session_id)
+            .save_metadata(None, None, other_directory.to_string_lossy().into_owned())
+            .unwrap();
+
+        let session_ids = SessionManager::list_for_directory(&current_directory)
+            .unwrap()
+            .into_iter()
+            .map(|session| session.id)
+            .collect::<Vec<_>>();
+
+        assert!(session_ids.contains(&current_session_id));
+        assert!(!session_ids.contains(&other_session_id));
+
+        SessionManager::delete_session(&current_session_id).unwrap();
+        SessionManager::delete_session(&other_session_id).unwrap();
+        fs::remove_dir(other_directory).unwrap();
     }
 
     #[test]

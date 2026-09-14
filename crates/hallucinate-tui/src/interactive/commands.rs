@@ -465,7 +465,10 @@ impl InteractiveTui {
 
     /// Open the session picker with the current session selected.
     pub fn open_session_picker(&mut self) {
-        let sessions = match SessionManager::list() {
+        let sessions = match std::env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| SessionManager::list_for_directory(&cwd))
+        {
             Ok(sessions) => sessions,
 
             Err(error) => {
