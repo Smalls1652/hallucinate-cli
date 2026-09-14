@@ -61,7 +61,7 @@ input = 2.50
 output = 10.00
 ```
 
-### Provider-Level Fields
+Cost configuration is optional. Omit the entire `cost` table for models whose pricing is unavailable; their usage cost is reported as zero.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -82,10 +82,10 @@ output = 10.00
 | `input` | `array` | `["text"]` | Supported input modalities (e.g., `"text"`, `"image"`). |
 | `context_window` | `number` | `128000` | Maximum context window in tokens. |
 | `max_tokens` | `number` | `16384` | Maximum output tokens the model can produce. |
-| `cost.input` | `number` | `0` | Cost per million input tokens. |
-| `cost.output` | `number` | `0` | Cost per million output tokens. |
-| `cost.cache_read` | `number` | `0` | Cost per million cache read tokens. |
-| `cost.cache_write` | `number` | `0` | Cost per million cache write tokens. |
+| `cost.input` | `number` | `0` | Optional cost per million input tokens. |
+| `cost.output` | `number` | `0` | Optional cost per million output tokens. |
+| `cost.cache_read` | `number` | `0` | Optional cost per million cache read tokens. |
+| `cost.cache_write` | `number` | `0` | Optional cost per million cache write tokens. |
 
 ### API Variants
 

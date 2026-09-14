@@ -63,9 +63,11 @@ pub struct ModelSettings {
     #[serde(default = "default_model_max_tokens")]
     pub max_tokens: u32,
 
-    /// Cost rates per million tokens for input and output.
-    #[serde(default)]
-    pub cost: ModelCostRates,
+    /// Optional cost rates per million tokens.
+    ///
+    /// When omitted, usage cost is tracked as zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<ModelCostRates>,
 }
 
 impl Default for ModelSettings {
@@ -78,7 +80,7 @@ impl Default for ModelSettings {
             input: default_input(),
             context_window: default_context_window(),
             max_tokens: default_model_max_tokens(),
-            cost: ModelCostRates::default(),
+            cost: None,
         }
     }
 }
@@ -660,7 +662,9 @@ impl Settings {
                         config.max_tokens,
                     );
                     model.input = config.input.clone();
-                    model.cost = config.cost.clone();
+                    if let Some(cost) = &config.cost {
+                        model.cost = cost.clone();
+                    }
 
                     model
                 })
@@ -985,5 +989,22 @@ mod tests {
         assert_eq!(model.max_tokens, 4096);
         assert_eq!(model.cost.input, 0.1);
         assert_eq!(model.cost.output, 0.2);
+    }
+
+    #[test]
+    fn model_cost_is_optional_and_omitted_when_saving() {
+        let settings: Settings = toml::from_str(
+            r#"
+            [providers.local.models.llama-3]
+            "#,
+        )
+        .unwrap();
+
+        let model = settings.find_configured_model("local/llama-3").unwrap();
+        assert_eq!(model.cost.input, 0.0);
+        assert_eq!(model.cost.output, 0.0);
+
+        let serialized = toml::to_string(&settings).unwrap();
+        assert!(!serialized.contains("cost"));
     }
 }
