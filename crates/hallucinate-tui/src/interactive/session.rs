@@ -86,13 +86,10 @@ impl InteractiveTui {
                 },
 
                 AgentEvent::AssistantMessageCompleted { message, .. } => {
-                    if message.usage.total_tokens > 0 {
-                        // Providers report the actual prompt token count when
-                        // the completed message includes usage data.
+                    // Report a zero-token total when the provider explicitly
+                    // supplies it.
+                    if message.has_usage {
                         self.token_count = message.usage.total_tokens;
-                        self.token_count_is_estimated = false;
-                    } else {
-                        self.token_count_is_estimated = true;
                     }
 
                     let (content, thinking, tool_calls) = display_assistant_message(message);
@@ -111,11 +108,6 @@ impl InteractiveTui {
                             timestamp: chrono::Utc::now(),
                         });
                     }
-                },
-
-                AgentEvent::TokenCountUpdated { token_count } => {
-                    self.token_count = *token_count;
-                    self.token_count_is_estimated = true;
                 },
 
                 AgentEvent::ToolCallStarted {
@@ -161,6 +153,13 @@ impl InteractiveTui {
                 } => {
                     self.transcript
                         .complete_tool_call(tool_call_id, error.clone(), true);
+                },
+
+                AgentEvent::CompactionPerformed {
+                    context_token_count,
+                    ..
+                } => {
+                    self.token_count = *context_token_count;
                 },
 
                 AgentEvent::TurnCompleted { .. } => {
@@ -288,10 +287,6 @@ impl InteractiveTui {
 
         while let Ok(completion) = self.agent_completion_rx.try_recv() {
             completed_run = true;
-
-            if self.token_count_is_estimated {
-                self.token_count = completion.agent.estimate_tokens();
-            }
 
             self.agent_cancellation = None;
 

@@ -111,7 +111,8 @@ impl Tool for BashTool {
 }
 
 impl BashTool {
-    /// Execute a shell command, returning the result with captured stdout and stderr.
+    /// Execute a shell command, returning the result with captured stdout and
+    /// stderr.
     async fn execute_inner(
         &self,
         arguments: &serde_json::Value,
@@ -238,7 +239,8 @@ struct CapturedStream {
     truncated: bool,
 }
 
-/// Captures output from an async pipe up to a byte limit, emitting to an optional sink.
+/// Captures output from an async pipe up to a byte limit, emitting to an
+/// optional sink.
 async fn capture_pipe<R: AsyncRead + Unpin>(
     mut reader: R,
     limit: usize,

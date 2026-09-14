@@ -44,6 +44,9 @@ impl InteractiveTui {
         let messages = storage.load_messages()?;
 
         let checkpoint = storage.load_compaction_checkpoint()?;
+        let token_count = storage
+            .load_latest_context_token_count()?
+            .unwrap_or_default();
 
         let agent = self.agent.as_mut().expect("agent checked above");
         agent.load_history(messages.clone())?;
@@ -53,6 +56,7 @@ impl InteractiveTui {
         }
 
         self.project_cwd = PathBuf::from(&session.cwd);
+        self.token_count = token_count;
         agent.set_cwd(session.cwd);
         agent.reload_system_prompt();
 
@@ -73,8 +77,6 @@ impl InteractiveTui {
             .collect();
 
         self.history_index = self.message_history.len();
-        self.token_count = agent.estimate_tokens();
-        self.token_count_is_estimated = true;
 
         self.show_notice(format!("Resumed session {}.", short_session_id(session_id)));
 
@@ -407,9 +409,6 @@ impl InteractiveTui {
 
                 if let Some(agent) = self.agent.as_mut() {
                     agent.reload_system_prompt();
-
-                    self.token_count = agent.estimate_tokens();
-                    self.token_count_is_estimated = true;
                 }
 
                 self.show_notice(format!(
@@ -750,8 +749,6 @@ impl InteractiveTui {
         agent.reload_system_prompt();
 
         self.model = model.clone();
-        self.token_count = agent.estimate_tokens();
-        self.token_count_is_estimated = true;
 
         self.show_notice(format!(
             "Switched to {}/{} (context: {}, max output: {}).",
@@ -844,9 +841,6 @@ impl InteractiveTui {
         self.message_history.clear();
 
         self.history_index = 0;
-
-        self.token_count = agent.estimate_tokens();
-        self.token_count_is_estimated = true;
 
         self.add_new_session_message();
 

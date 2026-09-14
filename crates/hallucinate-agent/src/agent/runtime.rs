@@ -26,7 +26,6 @@ use crate::{
             AgentEvent,
             AgentState,
             PendingToolCall,
-            TokenEstimator,
             TurnContext,
         },
     },
@@ -52,9 +51,6 @@ struct ContextBase {
 
     /// The provider-visible tool definitions, when enabled.
     tools: Option<Arc<Vec<Tool>>>,
-
-    /// Cached token cost for system prompt and tool definitions.
-    static_token_cost: u64,
 }
 
 /// The main agent struct that manages multi-turn conversations.
@@ -91,17 +87,13 @@ pub struct Agent {
     /// Number of raw history messages represented by the internal checkpoint.
     compaction_archived_message_count: usize,
 
-    /// Cached token cost for each item in `messages`.
-    message_token_costs: Vec<u64>,
+    /// Most recent API-reported total for the provider-visible context.
+    ///
+    /// This is used for automatic compaction instead of an estimated count.
+    context_token_count: u64,
 
-    /// Cached token cost for the internal compaction checkpoint.
-    compaction_summary_token_cost: u64,
-
-    /// Sum of provider-visible message token costs, including any checkpoint.
-    message_token_total: u64,
-
-    /// Token estimator used for the active model.
-    token_estimator: TokenEstimator,
+    /// Whether `context_token_count` came from provider usage data.
+    has_context_token_count: bool,
 
     /// Immutable request data, built lazily after configuration is complete.
     context_base: RefCell<Option<ContextBase>>,
@@ -132,8 +124,6 @@ impl Agent {
         model: Model,
         config: AgentConfig,
     ) -> Self {
-        let token_estimator = TokenEstimator::for_model(&model);
-
         Self {
             config,
             state: AgentState::Idle,
@@ -143,10 +133,8 @@ impl Agent {
             messages: Vec::new(),
             compaction_summary: None,
             compaction_archived_message_count: 0,
-            message_token_costs: Vec::new(),
-            compaction_summary_token_cost: 0,
-            message_token_total: 0,
-            token_estimator,
+            context_token_count: 0,
+            has_context_token_count: false,
             context_base: RefCell::new(None),
             system_prompt: None,
             skills: Vec::new(),
@@ -400,8 +388,6 @@ impl Agent {
         self.model = model.clone();
         self.config.max_context_tokens = model.context_window;
         self.config.max_tokens = max_tokens;
-        self.token_estimator = TokenEstimator::for_model(&model);
-        self.recalculate_message_token_costs();
         self.invalidate_context_base();
     }
 
@@ -456,12 +442,9 @@ impl Agent {
         self.messages.drain(..archived_message_count);
 
         self.compaction_archived_message_count = archived_message_count;
-        self.compaction_summary_token_cost =
-            self.token_estimator.estimate_message_tokens(&Message::User(
-                crate::ai::types::UserMessage::new(format!("[Context Summary]\n{summary}")),
-            ));
+        self.context_token_count = 0;
+        self.has_context_token_count = false;
         self.compaction_summary = Some(summary);
-        self.recalculate_message_token_costs();
 
         Ok(())
     }
@@ -507,8 +490,8 @@ impl Agent {
         self.messages = messages;
         self.compaction_summary = None;
         self.compaction_archived_message_count = 0;
-        self.compaction_summary_token_cost = 0;
-        self.recalculate_message_token_costs();
+        self.context_token_count = 0;
+        self.has_context_token_count = false;
         self.turn_context = None;
         self.cancellation = AgentCancellation::fresh();
 
@@ -579,28 +562,17 @@ impl Agent {
             && !self.tool_registry.is_empty())
         .then(|| self.tool_registry.to_ai_tools());
 
-        let token_estimation_started_at = Instant::now();
-
-        let static_token_cost = self
-            .token_estimator
-            .estimate_static_context_tokens(Some(&system_prompt), tools.as_deref());
-
-        let token_estimation_ms = token_estimation_started_at.elapsed().as_millis();
-
         tracing::debug!(
             elapsed_ms = started_at.elapsed().as_millis(),
             prompt_refresh_ms,
-            token_estimation_ms,
             system_prompt_chars = system_prompt.len(),
             tool_count = tools.as_ref().map_or(0, Vec::len),
-            static_token_cost,
             "refreshed cached agent context base"
         );
 
         *self.context_base.borrow_mut() = Some(ContextBase {
             system_prompt: Arc::new(system_prompt),
             tools: tools.map(Arc::new),
-            static_token_cost,
         });
     }
 
@@ -650,40 +622,12 @@ impl Agent {
         .collect()
     }
 
-    /// Recalculate cached message costs after bulk history replacement.
-    fn recalculate_message_token_costs(&mut self) {
-        let started_at = Instant::now();
-
-        self.message_token_costs = self
-            .messages
-            .iter()
-            .map(|message| self.token_estimator.estimate_message_tokens(message))
-            .collect();
-
-        self.message_token_total = self
-            .message_token_costs
-            .iter()
-            .sum::<u64>()
-            .saturating_add(self.compaction_summary_token_cost);
-
-        tracing::debug!(
-            elapsed_ms = started_at.elapsed().as_millis(),
-            message_count = self.messages.len(),
-            message_token_total = self.message_token_total,
-            "recalculated cached message token costs"
-        );
-    }
-
-    /// Add a message and maintain its cached token cost.
+    /// Add a message to the history.
     fn push_message(
         &mut self,
         message: Message,
     ) {
-        let token_cost = self.token_estimator.estimate_message_tokens(&message);
-
         self.messages.push(message);
-        self.message_token_costs.push(token_cost);
-        self.message_token_total = self.message_token_total.saturating_add(token_cost);
     }
 
     /// Add a user message to the history.
@@ -859,16 +803,14 @@ impl Agent {
         // available. The UI uses the text-delta events above for incremental
         // rendering, then this event to finalize its content and tool calls.
         self.add_assistant_message(message.clone());
+        if message.has_usage {
+            self.context_token_count = message.usage.total_tokens;
+            self.has_context_token_count = true;
+        }
         self.emit(AgentEvent::AssistantMessageCompleted {
             turn_number,
             message: Box::new(message.clone()),
         });
-        if message.usage.total_tokens == 0 {
-            self.emit(AgentEvent::TokenCountUpdated {
-                token_count: self.estimate_tokens(),
-            });
-        }
-
         // Check if there are tool calls to execute
         let tool_calls = self.extract_tool_calls(&message);
         if let Some(turn_context) = self.turn_context.as_mut() {
@@ -1036,10 +978,6 @@ impl Agent {
             self.add_tool_result_message(result);
         }
 
-        self.emit(AgentEvent::TokenCountUpdated {
-            token_count: self.estimate_tokens(),
-        });
-
         // Continue to next turn (tools were used, so we loop back)
         self.set_state(AgentState::Idle);
 
@@ -1095,22 +1033,15 @@ impl Agent {
                 return Err(anyhow::anyhow!(message));
             }
 
-            // Context pressure is an O(1) cached static cost plus cached
-            // history total. Only build the owned provider context once after
-            // any required compaction has completed.
-            if self.config.enable_compaction {
-                let token_count = self
-                    .context_base()
-                    .static_token_cost
-                    .saturating_add(self.message_token_total);
-
+            // Use the latest actual API usage as the context-pressure signal.
+            // No compaction occurs until a provider has reported usage.
+            if self.config.enable_compaction && self.has_context_token_count {
                 let reserved_output_tokens =
                     u64::from(self.config.max_tokens.unwrap_or(self.model.max_tokens));
-
                 let compaction_threshold = u64::from(self.config.max_context_tokens)
                     .saturating_sub(reserved_output_tokens);
 
-                if token_count > compaction_threshold
+                if self.context_token_count > compaction_threshold
                     && let Err(error) = self.compact_context(false).await
                 {
                     let message = error.to_string();
@@ -1159,7 +1090,6 @@ impl Agent {
             self.cancellation = AgentCancellation::fresh();
         }
 
-        self.set_state(AgentState::Streaming);
         let result = self.compact_context(true).await;
 
         match &result {
@@ -1174,100 +1104,50 @@ impl Agent {
         result
     }
 
-    /// Compact the message context when it exceeds its available budget.
+    /// Compact the message context while retaining the two most recent user
+    /// turns for automatic compaction. An explicit `/compact` archives all
+    /// available history, including the most recent turns.
     async fn compact_context(
         &mut self,
         force: bool,
     ) -> Result<(), anyhow::Error> {
-        const MANUAL_KEEP_RECENT_TOKENS: u64 = 20_000;
+        const RETAINED_USER_TURNS: usize = 2;
 
-        let started_at = Instant::now();
-
-        let non_message_tokens = self.context_base().static_token_cost;
-
-        let before_tokens = non_message_tokens.saturating_add(self.message_token_total);
-
-        let maximum_message_budget = u64::from(self.config.max_context_tokens)
-            .saturating_sub(non_message_tokens)
-            .min(u64::from(self.config.max_context_tokens));
-
-        let keep_recent_tokens = if force {
-            // Pi keeps a stable recent tail rather than retaining arbitrary
-            // individual messages. For smaller conversations, retain roughly
-            // two thirds so an explicit `/compact` still has useful effect.
-            MANUAL_KEEP_RECENT_TOKENS.min(self.message_token_total.saturating_mul(2) / 3)
+        let (omitted, remaining) = if force {
+            (self.messages.clone(), Vec::new())
         } else {
-            maximum_message_budget.saturating_mul(2) / 3
+            crate::agent::compaction::split_messages_at_turn_boundary(
+                &self.messages,
+                RETAINED_USER_TURNS,
+            )?
         };
-
-        let (omitted, remaining) = crate::agent::compaction::split_messages_at_turn_boundary(
-            &self.messages,
-            &self.message_token_costs,
-            keep_recent_tokens,
-        )?;
 
         if omitted.is_empty() {
             return Ok(());
         }
 
-        let retained_tokens = remaining
-            .iter()
-            .map(|message| self.token_estimator.estimate_message_tokens(message))
-            .sum::<u64>();
-        let summary_token_budget = maximum_message_budget.saturating_sub(retained_tokens);
-
-        if summary_token_budget < 32 {
-            return Err(anyhow::anyhow!(
-                "context budget leaves too little room for a compaction summary"
-            ));
-        }
+        // A streaming state corresponds directly to the summary request below.
+        self.set_state(AgentState::Streaming);
 
         let previous_summary = self.compaction_summary.clone();
-
         let archived_message_count = self
             .compaction_archived_message_count
             .saturating_add(omitted.len());
-
         let summary = self
-            .summarize_messages(
-                &omitted,
-                previous_summary.as_deref(),
-                summary_token_budget.min(u64::from(self.model.max_tokens)) as u32,
-            )
+            .summarize_messages(&omitted, previous_summary.as_deref(), self.model.max_tokens)
             .await?;
 
-        // Do not mutate the message history or checkpoint until the provider
-        // has returned a complete, tool-free replacement summary.
+        let context_token_count = self.context_token_count;
+
         self.messages = remaining;
-
         self.compaction_archived_message_count = archived_message_count;
-
-        self.compaction_summary_token_cost =
-            self.token_estimator.estimate_message_tokens(&Message::User(
-                crate::ai::types::UserMessage::new(format!("[Context Summary]\n{summary}")),
-            ));
-
+        self.context_token_count = 0;
+        self.has_context_token_count = false;
         self.compaction_summary = Some(summary);
 
-        self.recalculate_message_token_costs();
-
-        let after_tokens = non_message_tokens.saturating_add(self.message_token_total);
-
-        tracing::debug!(
-            elapsed_ms = started_at.elapsed().as_millis(),
-            tokens_before = before_tokens,
-            tokens_after = after_tokens,
-            "compacted cached agent context"
-        );
-
         self.emit(AgentEvent::CompactionPerformed {
-            tokens_before: before_tokens,
-            tokens_after: after_tokens,
             summaries_added: 1,
-        });
-
-        self.emit(AgentEvent::TokenCountUpdated {
-            token_count: self.estimate_tokens(),
+            context_token_count,
         });
 
         Ok(())
@@ -1370,13 +1250,6 @@ impl Agent {
         Err(anyhow::anyhow!(
             "context summarization stream ended without a result"
         ))
-    }
-
-    /// Get the estimated token count of the current context.
-    pub fn estimate_tokens(&self) -> u64 {
-        self.context_base()
-            .static_token_cost
-            .saturating_add(self.message_token_total)
     }
 }
 
@@ -1976,7 +1849,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn manual_compaction_reduces_history_before_context_limit() {
+    async fn manual_compaction_archives_history_even_when_two_turns_remain() {
+        let provider = FauxProvider::new();
+        let recorded_provider = provider.clone();
+        provider.set_responses(vec![FauxResponse::Text(
+            "## Goal\nContinue the task.".to_string(),
+            StopReason::Stop,
+        )]);
+
+        let mut agent = Agent::new(Box::new(provider), test_model(), AgentConfig::default());
+        agent.add_user_message("first");
+        agent.add_user_message("latest");
+        agent.compact().await.unwrap();
+
+        assert_eq!(recorded_provider.contexts().len(), 1);
+        assert_eq!(agent.retained_message_count(), 0);
+        assert_eq!(agent.compaction_archived_message_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn manual_compaction_replaces_history_with_a_checkpoint() {
         let provider = FauxProvider::new();
         provider.set_responses(vec![FauxResponse::Text(
             "## Goal\nContinue the task.".to_string(),
@@ -1984,17 +1876,20 @@ mod tests {
         )]);
 
         let mut agent = Agent::new(Box::new(provider), test_model(), AgentConfig::default());
-        agent.add_user_message("first ".repeat(200));
-        agent.add_user_message("second ".repeat(200));
-        agent.add_user_message("latest ".repeat(200));
-
-        let tokens_before = agent.estimate_tokens();
+        agent.add_user_message("first");
+        agent.add_user_message("second");
+        agent.add_user_message("latest");
         agent.compact().await.unwrap();
 
-        assert!(agent.estimate_tokens() < tokens_before);
-        assert!(agent.messages().iter().any(|message| {
-            matches!(message, Message::User(message) if message.content.starts_with("[Context Summary]"))
-        }));
+        let messages = agent.messages();
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(agent.retained_message_count(), 0);
+        assert_eq!(agent.compaction_archived_message_count(), 3);
+        assert!(matches!(
+            messages.as_slice(),
+            [Message::User(message)] if message.content.starts_with("[Context Summary]")
+        ));
     }
 
     #[tokio::test]
@@ -2003,12 +1898,11 @@ mod tests {
         provider.set_responses(vec![FauxResponse::Error("summary failed".to_string())]);
 
         let mut agent = Agent::new(Box::new(provider), test_model(), AgentConfig::default());
-        agent.add_user_message("first ".repeat(200));
-        agent.add_user_message("second ".repeat(200));
-        agent.add_user_message("latest ".repeat(200));
+        agent.add_user_message("first");
+        agent.add_user_message("second");
+        agent.add_user_message("latest");
 
         let serialized_messages_before = serde_json::to_string(&agent.messages()).unwrap();
-        let tokens_before = agent.estimate_tokens();
         let error = agent.compact().await.unwrap_err();
 
         assert!(error.to_string().contains("summary failed"));
@@ -2016,7 +1910,6 @@ mod tests {
             serde_json::to_string(&agent.messages()).unwrap(),
             serialized_messages_before
         );
-        assert_eq!(agent.estimate_tokens(), tokens_before);
     }
 
     #[tokio::test]
@@ -2053,48 +1946,6 @@ mod tests {
         assert_eq!(
             summaries,
             vec!["[Context Summary]\n## Goal\nUpdated checkpoint."]
-        );
-    }
-
-    #[tokio::test]
-    async fn cached_token_total_matches_a_full_context_recomputation() {
-        let config = AgentConfig {
-            max_context_tokens: 10_000,
-            ..AgentConfig::default()
-        };
-
-        let provider = FauxProvider::new();
-        provider.set_responses(vec![FauxResponse::Text(
-            "## Goal\nContinue the task.".to_string(),
-            StopReason::Stop,
-        )]);
-
-        let mut agent = Agent::new(Box::new(provider), test_model(), config)
-            .with_system_prompt("Base prompt.".to_string());
-        agent.add_user_message("first message");
-        agent.add_assistant_message(AssistantMessage::new(
-            vec![AssistantContent::Text(crate::ai::types::TextContent::new(
-                "second message",
-            ))],
-            Api::OpenaiCompletions,
-            "test",
-            "test-model",
-            StopReason::Stop,
-        ));
-        agent.add_user_message("x".repeat(8_000));
-
-        let context = agent.build_context();
-        assert_eq!(
-            agent.message_token_total + agent.context_base().static_token_cost,
-            crate::agent::types::estimate_context_tokens(&context)
-        );
-
-        agent.compact().await.unwrap();
-
-        let compacted_context = agent.build_context();
-        assert_eq!(
-            agent.message_token_total + agent.context_base().static_token_cost,
-            crate::agent::types::estimate_context_tokens(&compacted_context)
         );
     }
 

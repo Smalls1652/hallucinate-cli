@@ -253,7 +253,44 @@ impl SessionStorage {
         Ok(checkpoint)
     }
 
-    /// Save structured session metadata.
+    /// Load the most recently reported context token count, if present.
+    ///
+    /// Completed assistant responses report their provider usage through
+    /// `token_usage` events. Compaction records the count immediately before
+    /// its summary replaces part of the context, preserving the displayed
+    /// count even when no later response has usage data.
+    pub fn load_latest_context_token_count(&self) -> Result<Option<u64>, anyhow::Error> {
+        let mut token_count = None;
+
+        for entry in self.load_all()? {
+            let SessionEntry::Event {
+                event_type, data, ..
+            } = entry
+            else {
+                continue;
+            };
+
+            let event_token_count = match event_type.as_str() {
+                "token_usage" => data
+                    .get("usage")
+                    .and_then(|usage| usage.get("total_tokens"))
+                    .and_then(serde_json::Value::as_u64),
+
+                "compaction" => data
+                    .get("context_token_count")
+                    .and_then(serde_json::Value::as_u64),
+
+                _ => None,
+            };
+
+            if let Some(event_token_count) = event_token_count {
+                token_count = Some(event_token_count);
+            }
+        }
+
+        Ok(token_count)
+    }
+
     pub fn save_metadata(
         &self,
         title: Option<String>,
@@ -545,6 +582,37 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
+    #[test]
+    fn loads_the_latest_context_token_count_from_usage_and_compaction_events() {
+        let path = std::env::temp_dir().join(format!(
+            "hallucinate-token-usage-{}.jsonl",
+            uuid::Uuid::new_v4()
+        ));
+
+        let storage = SessionStorage::with_path(path.clone());
+        storage
+            .save_event(
+                "token_usage",
+                serde_json::json!({ "usage": { "total_tokens": 10 } }),
+            )
+            .unwrap();
+        storage
+            .save_event(
+                "compaction",
+                serde_json::json!({ "context_token_count": 10 }),
+            )
+            .unwrap();
+        storage
+            .save_event(
+                "token_usage",
+                serde_json::json!({ "usage": { "total_tokens": 6 } }),
+            )
+            .unwrap();
+
+        assert_eq!(storage.load_latest_context_token_count().unwrap(), Some(6));
+
+        let _ = fs::remove_file(path);
+    }
     #[test]
     fn malformed_entries_are_reported_with_their_line_number() {
         let path = std::env::temp_dir().join(format!(

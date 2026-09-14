@@ -1,22 +1,8 @@
 //! Agent-specific types: states, events, and configuration.
 
-use std::{fmt, sync::LazyLock};
+use std::fmt;
 
-use base64::Engine;
-use image::GenericImageView;
-use tokenizers::{Tokenizer, models::wordlevel::WordLevel, pre_tokenizers::whitespace::Whitespace};
-
-use crate::ai::types::{
-    AssistantMessage,
-    Context,
-    ImageContent,
-    Message,
-    Model,
-    RequestCancellation,
-    StopReason,
-    Tool,
-    ToolCall,
-};
+use crate::ai::types::{AssistantMessage, RequestCancellation, StopReason, ToolCall};
 
 // ── Agent State ──────────────────────────────────────────────────────────────
 
@@ -134,9 +120,6 @@ pub enum AgentEvent {
         message: Box<AssistantMessage>,
     },
 
-    /// The estimated number of tokens currently retained in the context.
-    TokenCountUpdated { token_count: u64 },
-
     /// A streamed tool call began. Its arguments may still be incomplete.
     ToolCallStarted {
         /// Content index of the tool call.
@@ -232,14 +215,15 @@ pub enum AgentEvent {
 
     /// Context compaction performed.
     CompactionPerformed {
-        /// Token count before compaction.
-        tokens_before: u64,
-
-        /// Token count after compaction.
-        tokens_after: u64,
-        
         /// Number of summaries added during compaction.
         summaries_added: u32,
+
+        /// Provider-reported context tokens immediately before compaction.
+        ///
+        /// This is retained for session displays after resuming. The agent does
+        /// not reuse it for compaction decisions because the summary replaces
+        /// part of the context.
+        context_token_count: u64,
     },
 
     /// Agent aborted.
@@ -270,10 +254,6 @@ impl fmt::Display for AgentEvent {
 
             AgentEvent::AssistantMessageCompleted { turn_number, .. } => {
                 write!(f, "[assistant] completed turn #{turn_number}")
-            },
-
-            AgentEvent::TokenCountUpdated { token_count } => {
-                write!(f, "[token_count] {token_count}")
             },
 
             AgentEvent::ToolCallStarted { tool_call, .. } => {
@@ -313,11 +293,13 @@ impl fmt::Display for AgentEvent {
             },
 
             AgentEvent::CompactionPerformed {
-                tokens_before,
-                tokens_after,
-                ..
+                summaries_added,
+                context_token_count,
             } => {
-                write!(f, "[compaction] {tokens_before} -> {tokens_after} tokens")
+                write!(
+                    f,
+                    "[compaction] added {summaries_added} summary ({context_token_count} tokens)"
+                )
             },
 
             AgentEvent::Aborted => write!(f, "[abort]"),
@@ -430,279 +412,4 @@ pub struct PendingToolCall {
 
     /// JSON arguments passed to the tool.
     pub arguments: serde_json::Value,
-}
-
-// ── Message History ──────────────────────────────────────────────────────────
-
-/// Provider-neutral token estimator used for context pressure decisions.
-///
-/// There is no dependable universal tokenizer for the OpenAI-compatible and
-/// custom models supported by this crate. This estimator uses `tokenizers` to
-/// split text into words and punctuation, then estimates each piece's subword
-/// cost conservatively. This is more representative than counting raw bytes
-/// while remaining independent of a particular provider's tokenizer.
-#[derive(Debug, Default)]
-pub struct TokenEstimator;
-
-/// Tokenize lexical pieces consistently before estimating their subword cost.
-///
-/// The word-level model intentionally maps every piece to its unknown token:
-/// its vocabulary is not used for counting, while its pre-tokenizer supplies
-/// the stable word-and-punctuation boundaries used by the estimate.
-static ESTIMATION_TOKENIZER: LazyLock<Tokenizer> = LazyLock::new(|| {
-    let mut tokenizer = Tokenizer::new(WordLevel::default());
-    tokenizer.with_pre_tokenizer(Some(Whitespace));
-    tokenizer
-});
-
-impl TokenEstimator {
-    /// Create an estimator for `model`.
-    ///
-    /// The model is accepted to keep cache invalidation explicit at model
-    /// switches, even though the provider-neutral fallback is currently used
-    /// for all model families.
-    pub fn for_model(_model: &Model) -> Self {
-        Self
-    }
-
-    /// Return the conservative estimator for callers without model metadata,
-    /// including compatibility helpers and generic compaction.
-    pub fn fallback() -> Self {
-        Self
-    }
-
-    /// Estimate the number of tokens in one message, including wire framing.
-    pub fn estimate_message_tokens(
-        &self,
-        message: &Message,
-    ) -> u64 {
-        const MESSAGE_FRAMING_TOKENS: u64 = 4;
-
-        let content_tokens = match message {
-            Message::User(message) => {
-                self.estimate_text_tokens(&message.content)
-                    + message
-                        .images
-                        .iter()
-                        .map(estimate_image_tokens)
-                        .sum::<u64>()
-            },
-
-            Message::Assistant(message) => message
-                .content
-                .iter()
-                .map(|content| match content {
-                    crate::ai::types::AssistantContent::Text(text) => {
-                        self.estimate_text_tokens(&text.text)
-                    },
-
-                    crate::ai::types::AssistantContent::Thinking(thinking) => {
-                        self.estimate_text_tokens(&thinking.thinking)
-                    },
-
-                    crate::ai::types::AssistantContent::ToolCall(call) => {
-                        10 + self.estimate_text_tokens(&call.name)
-                            + self.estimate_json_tokens(&call.arguments)
-                    },
-                })
-                .sum(),
-
-            Message::ToolResult(message) => {
-                message
-                    .content
-                    .iter()
-                    .map(|content| self.estimate_text_tokens(&content.text))
-                    .sum::<u64>()
-                    + message
-                        .images
-                        .iter()
-                        .map(estimate_image_tokens)
-                        .sum::<u64>()
-            },
-        };
-
-        MESSAGE_FRAMING_TOKENS + content_tokens
-    }
-
-    /// Estimate system-prompt and tool-definition tokens which do not vary
-    /// with conversation history.
-    pub fn estimate_static_context_tokens(
-        &self,
-        system_prompt: Option<&str>,
-        tools: Option<&[Tool]>,
-    ) -> u64 {
-        let system_tokens = system_prompt.map_or(0, |prompt| self.estimate_text_tokens(prompt) + 4);
-
-        let tool_tokens = tools
-            .unwrap_or_default()
-            .iter()
-            .map(|tool| {
-                20 + self.estimate_text_tokens(&tool.name)
-                    + self.estimate_text_tokens(&tool.description)
-                    + self.estimate_json_tokens(&tool.parameters)
-            })
-            .sum::<u64>();
-
-        system_tokens + tool_tokens
-    }
-
-    /// Estimate tokens using tokenizer-defined lexical boundaries.
-    fn estimate_text_tokens(
-        &self,
-        text: &str,
-    ) -> u64 {
-        if text.is_empty() {
-            return 0;
-        }
-
-        let Ok(encoding) = ESTIMATION_TOKENIZER.encode(text, false) else {
-            // Encoding with the built-in tokenizer is expected to succeed.
-            // Retain a conservative fallback in case that invariant changes.
-            return (text.len() as u64).div_ceil(3);
-        };
-
-        encoding
-            .get_offsets()
-            .iter()
-            .map(|(start, end)| {
-                // Four bytes per subword is a conservative approximation for
-                // the provider tokenizer after lexical splitting. Each
-                // tokenizer-produced word or punctuation piece costs at least
-                // one token.
-                u64::try_from(end.saturating_sub(*start))
-                    .unwrap_or(u64::MAX)
-                    .div_ceil(4)
-                    .max(1)
-            })
-            .sum()
-    }
-
-    /// Estimate the number of tokens in a serialized JSON value.
-    fn estimate_json_tokens(
-        &self,
-        value: &serde_json::Value,
-    ) -> u64 {
-        self.estimate_text_tokens(&value.to_string())
-    }
-}
-
-/// Estimate visual input from dimensions using OpenAI's documented tiled-image
-/// approximation. If bytes cannot be decoded, reserve 1,000 tokens, the
-/// conservative fallback used for opaque or provider-specific image inputs.
-fn estimate_image_tokens(image: &ImageContent) -> u64 {
-    let decoded = base64::engine::general_purpose::STANDARD.decode(&image.data);
-
-    let Ok(bytes) = decoded else {
-        return 1_000;
-    };
-
-    let Ok(image) = image::load_from_memory(&bytes) else {
-        return 1_000;
-    };
-
-    let (width, height) = image.dimensions();
-
-    let tiles_wide = u64::from(width).div_ceil(512).max(1);
-    let tiles_high = u64::from(height).div_ceil(512).max(1);
-
-    85 + tiles_wide.saturating_mul(tiles_high).saturating_mul(170)
-}
-
-/// Estimate the number of tokens in a message with the conservative fallback.
-pub fn estimate_message_tokens(message: &Message) -> u64 {
-    TokenEstimator::fallback().estimate_message_tokens(message)
-}
-
-/// Estimate total tokens in a context with the conservative fallback.
-pub fn estimate_context_tokens(context: &Context) -> u64 {
-    let estimator = TokenEstimator::fallback();
-    estimator.estimate_static_context_tokens(
-        context.system_prompt.as_deref().map(String::as_str),
-        context.tools.as_deref().map(Vec::as_slice),
-    ) + context
-        .messages
-        .iter()
-        .map(|message| estimator.estimate_message_tokens(message))
-        .sum::<u64>()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ai::types::{Api, AssistantContent, StopReason, TextContent, UserMessage};
-
-    #[test]
-    fn fallback_estimator_handles_ascii_cjk_emoji_and_json() {
-        let estimator = TokenEstimator::fallback();
-
-        assert_eq!(estimator.estimate_text_tokens("Hello, world!"), 5);
-        assert_eq!(estimator.estimate_text_tokens(""), 0);
-        assert!(estimator.estimate_text_tokens("こんにちは") >= 4);
-        assert!(estimator.estimate_text_tokens("😀😀😀") >= 3);
-        assert!(estimator.estimate_json_tokens(&serde_json::json!({"command": "echo hello"})) > 0);
-    }
-
-    #[test]
-    fn image_estimation_uses_decoded_dimensions_when_available() {
-        // A one-pixel PNG exercises the dimension-aware tiled estimate rather
-        // than the opaque-image fallback.
-        let mut bytes = Vec::new();
-        image::DynamicImage::new_rgb8(1, 1)
-            .write_to(
-                &mut std::io::Cursor::new(&mut bytes),
-                image::ImageFormat::Png,
-            )
-            .unwrap();
-        let image = ImageContent::new(
-            base64::engine::general_purpose::STANDARD.encode(bytes),
-            "image/png",
-        );
-
-        assert_eq!(estimate_image_tokens(&image), 255);
-    }
-
-    #[test]
-    fn test_estimate_message_tokens_user() {
-        let msg = crate::ai::types::Message::User(crate::ai::types::UserMessage::new(
-            "Hello, this is a test message.",
-        ));
-        let tokens = estimate_message_tokens(&msg);
-
-        assert!(tokens > 0);
-        assert!(tokens < 100); // Should be a small number
-    }
-
-    #[test]
-    fn test_estimate_message_tokens_assistant() {
-        let msg = crate::ai::types::Message::Assistant(crate::ai::types::AssistantMessage::new(
-            vec![AssistantContent::Text(TextContent::new(
-                "I can help you with that.",
-            ))],
-            Api::OpenaiCompletions,
-            "test",
-            "test-model",
-            StopReason::Stop,
-        ));
-
-        let tokens = estimate_message_tokens(&msg);
-
-        assert!(tokens > 0);
-    }
-
-    #[test]
-    fn test_estimate_context_tokens() {
-        let context = Context::new(vec![Message::User(UserMessage::new("Hello"))])
-            .with_system_prompt("You are a helpful assistant.");
-
-        let tokens = estimate_context_tokens(&context);
-
-        assert!(tokens > 0);
-    }
-
-    #[test]
-    fn test_agent_state_display() {
-        assert_eq!(format!("{}", AgentState::Idle), "idle");
-        assert_eq!(format!("{}", AgentState::Streaming), "streaming");
-        assert_eq!(format!("{}", AgentState::TurnComplete), "turn_complete");
-    }
 }

@@ -12,29 +12,24 @@ use crate::ai::types::{AssistantContent, Message};
 /// being separated from its required following tool results.
 pub fn split_messages_at_turn_boundary(
     messages: &[Message],
-    costs: &[u64],
-    keep_recent_tokens: u64,
+    retained_user_turns: usize,
 ) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error> {
-    if messages.len() != costs.len() {
-        return Err(anyhow::anyhow!(
-            "message and token-cost counts differ during context compaction"
-        ));
-    }
-
-    let mut suffix_tokens = 0_u64;
+    let mut retained_user_turns_found = 0;
     let mut cut_index = messages.len();
 
     for index in (0..messages.len()).rev() {
-        suffix_tokens = suffix_tokens.saturating_add(costs[index]);
+        if matches!(messages[index], Message::User(_)) {
+            retained_user_turns_found += 1;
 
-        if suffix_tokens >= keep_recent_tokens && matches!(messages[index], Message::User(_)) {
-            cut_index = index;
-            break;
+            if retained_user_turns_found == retained_user_turns {
+                cut_index = index;
+                break;
+            }
         }
     }
 
-    // A conversation shorter than the requested retained tail cannot be
-    // compacted without splitting its only turn.
+    // A conversation with no older turn cannot be compacted without
+    // splitting its only retained turn.
     if cut_index == 0 || cut_index == messages.len() {
         return Ok((messages.to_vec(), Vec::new()));
     }
@@ -120,8 +115,7 @@ mod tests {
             Message::User(UserMessage::new("second")),
             Message::User(UserMessage::new("latest")),
         ];
-        let (omitted, retained) =
-            split_messages_at_turn_boundary(&messages, &[10, 10, 10], 15).unwrap();
+        let (omitted, retained) = split_messages_at_turn_boundary(&messages, 2).unwrap();
 
         assert_eq!(omitted.len(), 1);
         assert_eq!(retained.len(), 2);
@@ -146,8 +140,7 @@ mod tests {
             Message::ToolResult(ToolResultMessage::new("call-1", "read", "contents", false)),
             Message::User(UserMessage::new("second")),
         ];
-        let (omitted, retained) =
-            split_messages_at_turn_boundary(&messages, &[10, 10, 10, 10], 10).unwrap();
+        let (omitted, retained) = split_messages_at_turn_boundary(&messages, 1).unwrap();
 
         assert_eq!(omitted.len(), 3);
         assert!(

@@ -500,6 +500,7 @@ impl AssistantMessageBuilder {
         usage: crate::ai::types::Usage,
     ) {
         self.message.usage = usage;
+        self.message.has_usage = true;
     }
 
     /// Close all open content blocks and emit their terminal events.

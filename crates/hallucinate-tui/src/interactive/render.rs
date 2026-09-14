@@ -184,7 +184,6 @@ impl InteractiveTui {
                 &self.agent_state,
                 &self.session_manager,
                 self.token_count,
-                self.token_count_is_estimated,
                 &self.model,
                 self.show_thinking,
                 self.title_generation_in_progress,
@@ -861,7 +860,6 @@ fn render_status_bar(
     agent_state: &AgentState,
     session_manager: &hallucinate_session::SessionManager,
     token_count: u64,
-    token_count_is_estimated: bool,
     model: &hallucinate_agent::ai::types::Model,
     show_thinking: bool,
     title_generation_in_progress: bool,
@@ -894,11 +892,7 @@ fn render_status_bar(
         .and_then(|session| session.title.as_deref())
         .filter(|title| !title.trim().is_empty());
 
-    let token_count = if token_count_is_estimated {
-        format!("~{token_count} tokens")
-    } else {
-        format!("{token_count} tokens")
-    };
+    let token_count = format!("{token_count} tokens");
 
     let status_text = Line::from(vec![
         Span::styled(

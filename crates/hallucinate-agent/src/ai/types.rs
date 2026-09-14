@@ -304,6 +304,10 @@ pub struct AssistantMessage {
     /// Token usage statistics.
     pub usage: Usage,
 
+    /// Whether the provider included usage data in its response.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub has_usage: bool,
+
     /// Reason the assistant stopped generating.
     pub stop_reason: StopReason,
 
@@ -339,6 +343,7 @@ impl AssistantMessage {
             response_model: None,
             response_id: None,
             usage: Usage::default(),
+            has_usage: false,
             stop_reason,
             error_message: None,
             raw_stop_reason: None,

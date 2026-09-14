@@ -637,9 +637,6 @@ impl InteractiveTui {
             .expect("an agent must be available before sending a message");
         agent.add_user_message(&content);
 
-        self.token_count = agent.estimate_tokens();
-        self.token_count_is_estimated = true;
-
         self.agent_cancellation = Some(agent.cancellation());
 
         if should_generate_title {

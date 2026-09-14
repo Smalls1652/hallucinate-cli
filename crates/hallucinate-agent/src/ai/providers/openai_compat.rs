@@ -1751,6 +1751,7 @@ fn parse_completion_response(
 
     if let Some(usage) = parse_usage(response) {
         message.usage = usage;
+        message.has_usage = true;
     }
 
     Ok(message)

@@ -106,8 +106,6 @@ pub struct InteractiveTui {
 
     token_count: u64,
 
-    token_count_is_estimated: bool,
-
     event_rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
 
     agent_completion_tx: tokio::sync::mpsc::UnboundedSender<AgentRunCompletion>,
@@ -360,6 +358,7 @@ impl InteractiveTui {
         models: Vec<hallucinate_agent::ai::types::Model>,
         session_title_settings: SessionTitleSettings,
         title_generation_pending: bool,
+        token_count: u64,
     ) -> Result<Self, anyhow::Error> {
         // Use a raw stdout writer that we own
         let stdout = std::io::stdout();
@@ -396,13 +395,9 @@ impl InteractiveTui {
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
 
-        // Initialize the immutable context once so the status-bar estimate
-        // and the first provider turn share the same prompt-file snapshot.
         agent.reload_system_prompt();
 
         let agent_state = agent.state().clone();
-
-        let token_count = agent.estimate_tokens();
 
         let show_thinking =
             hallucinate_agent::config::resolve_show_thinking(&settings, show_thinking_override);
@@ -428,7 +423,6 @@ impl InteractiveTui {
             agent: Some(agent),
             agent_state,
             token_count,
-            token_count_is_estimated: true,
             event_rx,
             agent_completion_tx,
             agent_completion_rx,

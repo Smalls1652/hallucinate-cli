@@ -126,6 +126,12 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
         })?;
     }
 
+    let token_count = session_manager
+        .current_storage()
+        .expect("created or resumed session has storage")
+        .load_latest_context_token_count()?
+        .unwrap_or_default();
+
     // Subscribe to agent events
     let event_rx = agent.subscribe();
 
@@ -157,6 +163,7 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
         models,
         settings.session_title.clone(),
         is_new_session,
+        token_count,
     )?;
 
     // Run the TUI
