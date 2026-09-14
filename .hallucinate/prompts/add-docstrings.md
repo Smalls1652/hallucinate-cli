@@ -1,5 +1,6 @@
 ---
 description: Add docstrings to items without one
+argument-hint: "<file_path>"
 ---
 Add simple Rust docstrings to structs, properties on structs, enums, and functions, if they don't already have one, in this file: `$1`
 
