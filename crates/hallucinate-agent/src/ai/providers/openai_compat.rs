@@ -524,6 +524,35 @@ async fn process_response_output_item(
         return;
     }
 
+    if item_type == "reasoning" && !state.has_thinking_output {
+        let Some(summary) = item.get("summary").and_then(|value| value.as_array()) else {
+            return;
+        };
+
+        for (summary_index, part) in summary.iter().enumerate() {
+            let text = part
+                .get("text")
+                .and_then(|value| value.as_str())
+                .filter(|text| !text.is_empty());
+
+            if matches!(
+                part.get("type").and_then(|value| value.as_str()),
+                Some("summary_text")
+            ) && let Some(text) = text
+            {
+                state.has_thinking_output = true;
+                builder
+                    .append_thinking(
+                        response_content_index(output_index, Some(summary_index)),
+                        text,
+                    )
+                    .await;
+            }
+        }
+
+        return;
+    }
+
     if item_type == "message" && !state.has_text_output {
         let Some(content) = item.get("content").and_then(|value| value.as_array()) else {
             return;
@@ -1609,6 +1638,12 @@ impl OpenaiCompatProvider {
 
         body.insert("input".into(), input.into());
 
+        // OpenAI only emits displayable reasoning summaries when explicitly
+        // requested. The raw chain of thought is not exposed by the API.
+        if model.reasoning {
+            body.insert("reasoning".into(), serde_json::json!({ "summary": "auto" }));
+        }
+
         if let Some(tools) = &context.tools
             && !tools.is_empty()
         {
@@ -2501,6 +2536,7 @@ mod tests {
         assert_eq!(body["input"][1]["role"], "user");
         assert_eq!(body["input"][1]["content"][0]["type"], "input_text");
         assert_eq!(body["input"][1]["content"][0]["text"], "Hello");
+        assert_eq!(body["reasoning"]["summary"], "auto");
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["name"], "lookup");
         assert_eq!(body["tool_choice"], "auto");
@@ -2619,6 +2655,50 @@ mod tests {
         assert_eq!(message.usage.output, 2);
         assert_eq!(message.usage.cache_read, 1);
         assert_eq!(message.usage.total_tokens, 5);
+    }
+
+    #[tokio::test]
+    async fn completed_responses_keep_reasoning_summaries_in_thinking_blocks() {
+        let stream = crate::ai::streaming::create_assistant_message_event_stream();
+        let mut builder =
+            AssistantMessageBuilder::new(stream.clone(), Api::OpenaiResponses, "gpt-5");
+        let mut state = ResponsesStreamState::default();
+        let mut terminal_reason = None;
+
+        let result = process_responses_event(
+            &serde_json::json!({
+                "type": "response.completed",
+                "response": {
+                    "status": "completed",
+                    "output": [{
+                        "type": "reasoning",
+                        "summary": [{ "type": "summary_text", "text": "Reviewed the constraints." }]
+                    }]
+                }
+            }),
+            &mut builder,
+            &mut state,
+            &mut terminal_reason,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(result, ResponsesSseResult::Done));
+        builder.finish(terminal_reason.unwrap()).await.unwrap();
+
+        let events: Vec<_> = stream.collect().await;
+        let message = events
+            .into_iter()
+            .find_map(|event| match event {
+                AssistantMessageEventStreamEvent::Done { message, .. } => Some(message),
+                _ => None,
+            })
+            .unwrap();
+
+        assert!(message.content.iter().any(|content| matches!(
+            content,
+            AssistantContent::Thinking(thinking) if thinking.thinking == "Reviewed the constraints."
+        )));
     }
 
     #[tokio::test]
