@@ -276,7 +276,7 @@ impl Renderer {
             };
 
             let mut nested = Renderer { lines: Vec::new() };
-            nested.blocks(item);
+            nested.list_item_blocks(item);
             nested.remove_trailing_separators();
 
             if nested.lines.is_empty() {
@@ -304,6 +304,24 @@ impl Renderer {
 
                 self.lines.push(line);
             }
+        }
+    }
+
+    /// Render a list item's children, keeping nested lists adjacent to their
+    /// parent item text.
+    fn list_item_blocks<'a>(
+        &mut self,
+        item: &'a comrak::nodes::AstNode<'a>,
+    ) {
+        for child in item.children() {
+            if matches!(child.data().value, NodeValue::List(_)) {
+                // Paragraph rendering terminates with a separator. A nested
+                // list is part of the preceding item, not a new block beside
+                // it, so remove that separator before emitting the child.
+                self.remove_trailing_separators();
+            }
+
+            self.block(child, 0);
         }
     }
 
@@ -730,6 +748,15 @@ mod tests {
         assert!(output.contains("• one"));
         assert!(output.contains("two"));
         assert!(!output.contains("**"));
+    }
+
+    #[test]
+    fn renders_nested_lists_without_internal_padding() {
+        let output = plain(markdown_to_lines(
+            "- Parent\n  - Child one\n  - Child two\n- Sibling",
+        ));
+
+        assert_eq!(output, "• Parent\n  • Child one\n  • Child two\n• Sibling");
     }
 
     #[test]
