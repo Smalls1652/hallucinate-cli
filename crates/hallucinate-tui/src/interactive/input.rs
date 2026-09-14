@@ -171,6 +171,7 @@ impl InteractiveTui {
             let is_transcript_scroll = self.model_picker.is_none()
                 && self.session_picker.is_none()
                 && self.prompt_picker.is_none()
+                && self.clear_sessions_confirmation.is_none()
                 && matches!(
                     &input_event,
                     crate::input::InputEvent::Mouse(mouse)
@@ -364,9 +365,26 @@ impl InteractiveTui {
             if self.model_picker.is_some()
                 || self.session_picker.is_some()
                 || self.prompt_picker.is_some()
+                || self.clear_sessions_confirmation.is_some()
             {
                 if let crate::input::InputEvent::Key(key) = input_event {
-                    if self.model_picker.is_some() {
+                    if self.clear_sessions_confirmation.is_some() {
+                        match key.code {
+                            crossterm::event::KeyCode::Enter
+                            | crossterm::event::KeyCode::Char('y')
+                            | crossterm::event::KeyCode::Char('Y') => {
+                                self.handle_clear_sessions_confirmation(true)?;
+                            },
+
+                            crossterm::event::KeyCode::Esc
+                            | crossterm::event::KeyCode::Char('n')
+                            | crossterm::event::KeyCode::Char('N') => {
+                                self.handle_clear_sessions_confirmation(false)?;
+                            },
+
+                            _ => {},
+                        }
+                    } else if self.model_picker.is_some() {
                         self.handle_model_picker_key(key)?;
                     } else if self.session_picker.is_some() {
                         self.handle_session_picker_key(key)?;

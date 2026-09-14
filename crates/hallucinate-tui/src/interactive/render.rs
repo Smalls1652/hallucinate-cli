@@ -255,6 +255,8 @@ impl InteractiveTui {
             render_session_picker(frame, self.session_picker.as_ref());
 
             render_prompt_picker(frame, self.prompt_picker.as_ref(), &self.prompt_templates);
+
+            render_clear_sessions_confirmation(frame, self.clear_sessions_confirmation.as_ref());
         })?;
 
         self.transcript_area = rendered_transcript_area;
@@ -782,6 +784,48 @@ fn render_prompt_picker(
                 ],
             )
         },
+    );
+}
+
+/// Render a modal warning before deleting all saved sessions in a directory.
+fn render_clear_sessions_confirmation(
+    frame: &mut ratatui::Frame,
+    confirmation: Option<&super::ClearSessionsConfirmation>,
+) {
+    let Some(confirmation) = confirmation else {
+        return;
+    };
+
+    let area = frame.area();
+    let popup_width = area.width.saturating_sub(4).min(72);
+    let popup_height = 7;
+
+    if popup_width <= 4 || area.height < popup_height + 2 {
+        return;
+    }
+
+    let popup_area = Rect::new(
+        area.x + (area.width - popup_width) / 2,
+        area.y + (area.height - popup_height) / 2,
+        popup_width,
+        popup_height,
+    );
+    let session_count = confirmation.session_ids.len();
+    let message = format!(
+        "Delete {session_count} saved session{} for this directory?\n\nEnter or Y: delete · Esc or N: cancel",
+        if session_count == 1 { "" } else { "s" }
+    );
+
+    frame.render_widget(Clear, popup_area);
+    frame.render_widget(
+        Paragraph::new(message)
+            .style(Style::default().fg(Color::LightRed))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Clear saved sessions "),
+            ),
+        popup_area,
     );
 }
 

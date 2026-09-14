@@ -291,6 +291,8 @@ impl InteractiveTui {
                 ));
             },
 
+            "clear-sessions" => self.open_clear_sessions_confirmation(&arguments)?,
+
             "name" => {
                 if !self.ensure_idle("renaming a session") {
                     return Ok(true);
@@ -440,6 +442,77 @@ impl InteractiveTui {
         }
 
         Ok(true)
+    }
+
+    /// Request confirmation before deleting every saved session for the
+    /// process's current directory.
+    fn open_clear_sessions_confirmation(
+        &mut self,
+        arguments: &str,
+    ) -> Result<(), anyhow::Error> {
+        if !arguments.trim().is_empty() {
+            self.show_notice("Usage: /clear-sessions");
+            return Ok(());
+        }
+
+        if !self.ensure_idle("clearing sessions") {
+            return Ok(());
+        }
+
+        let cwd = std::env::current_dir()?;
+        let session_ids = SessionManager::list_for_directory(&cwd)?
+            .into_iter()
+            .map(|session| session.id)
+            .collect::<Vec<_>>();
+
+        if session_ids.is_empty() {
+            self.show_notice("No saved sessions found for the current directory.");
+            return Ok(());
+        }
+
+        self.clear_sessions_confirmation = Some(super::ClearSessionsConfirmation { session_ids });
+        self.render_state.overlays = true;
+
+        Ok(())
+    }
+
+    /// Confirm or cancel the pending deletion of sessions for the current
+    /// directory.
+    pub(super) fn handle_clear_sessions_confirmation(
+        &mut self,
+        confirmed: bool,
+    ) -> Result<(), anyhow::Error> {
+        let Some(confirmation) = self.clear_sessions_confirmation.take() else {
+            return Ok(());
+        };
+
+        if !confirmed {
+            self.show_notice("Clearing sessions cancelled.");
+            return Ok(());
+        }
+
+        let deleting_current = self.session_manager.current_id().is_some_and(|current_id| {
+            confirmation
+                .session_ids
+                .iter()
+                .any(|session_id| session_id == current_id)
+        });
+
+        for session_id in &confirmation.session_ids {
+            SessionManager::delete_session(session_id)?;
+        }
+
+        if deleting_current {
+            self.create_empty_session(Some("Interactive session".to_string()), true)?;
+        }
+
+        let session_count = confirmation.session_ids.len();
+        self.show_notice(format!(
+            "Deleted {session_count} saved session{} for the current directory.",
+            if session_count == 1 { "" } else { "s" }
+        ));
+
+        Ok(())
     }
 
     /// Open the model picker with the current model selected.

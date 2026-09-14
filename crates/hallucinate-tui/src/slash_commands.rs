@@ -84,6 +84,11 @@ pub const BUILTIN_COMMANDS: &[CommandInfo] = &[
         description: "Delete a saved session",
     },
     CommandInfo {
+        name: "clear-sessions",
+        usage: "/clear-sessions",
+        description: "Delete all saved sessions for the current directory",
+    },
+    CommandInfo {
         name: "name",
         usage: "/name [name]",
         description: "Set or clear the current session name",

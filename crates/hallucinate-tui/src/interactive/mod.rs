@@ -183,6 +183,8 @@ pub struct InteractiveTui {
 
     prompt_picker: Option<PromptPicker>,
 
+    clear_sessions_confirmation: Option<ClearSessionsConfirmation>,
+
     autocomplete_items: Vec<AutocompleteItem>,
 
     autocomplete_index: usize,
@@ -286,6 +288,13 @@ struct PromptPicker {
 
     /// Index of the currently selected matching template.
     selected: usize,
+}
+
+/// A pending confirmation to delete every saved session for one directory.
+#[derive(Debug, Clone)]
+struct ClearSessionsConfirmation {
+    /// IDs of the sessions that will be deleted when confirmed.
+    session_ids: Vec<String>,
 }
 
 /// UI regions which need another terminal draw.
@@ -453,6 +462,7 @@ impl InteractiveTui {
             model_picker: None,
             session_picker: None,
             prompt_picker: None,
+            clear_sessions_confirmation: None,
             autocomplete_items: Vec::new(),
             autocomplete_index: 0,
             transcript_layout_cache: render::TranscriptLayoutCache::default(),
