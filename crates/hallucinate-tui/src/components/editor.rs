@@ -116,7 +116,7 @@ impl Editor {
             editor_visual_lines(&self.content, width, self.cursor_pos).len()
         };
 
-        (rows as u16 + 2).clamp(3, 8)
+        (rows as u16 + 2).clamp(3, 20)
     }
 
     /// Insert text at the cursor position.
