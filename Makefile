@@ -5,6 +5,7 @@ PACKAGE_BINARY := hallucinate
 # Define project directory variables
 ARTIFACTS_DIR := artifacts
 RUST_TARGET_DIR := target
+SCHEMAS_DIR := schemas
 
 # Define platform variables
 ifeq ($(OS),Windows_NT)
@@ -172,3 +173,15 @@ check:
 # Check for errors (Nightly).
 check-nightly:
 	@cargo +nightly check
+
+# Generate schema files
+generate-schemas:
+	@if [[ ! -d $(SCHEMAS_DIR) ]]; then \
+		mkdir -p $(SCHEMAS_DIR); \
+	fi
+
+	@cargo run --package=hallucinate-agent-schemagen --quiet -- settings > "$(SCHEMAS_DIR)/settings.schema.json"
+	@echo "Generated settings schema -> $(SCHEMAS_DIR)/settings.schema.json"
+
+	@cargo run --package=hallucinate-agent-schemagen --quiet -- script-tool > "$(SCHEMAS_DIR)/script_tool.schema.json"
+	@echo "Generated script tool schema -> $(SCHEMAS_DIR)/script_tool.schema.json"
