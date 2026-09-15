@@ -1,0 +1,4 @@
+#:schema https://git.smalls.online/smalls/hallucinate-cli/raw/branch/main/schemas/script_tool.schema.json
+
+command = ["make", "format"]
+description = "Formats all code in the codebase."

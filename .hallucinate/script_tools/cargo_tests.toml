@@ -1,0 +1,8 @@
+#:schema https://git.smalls.online/smalls/hallucinate-cli/raw/branch/main/schemas/script_tool.schema.json
+
+command = ["cargo", "test", "--package={{package_name}}", "--all-targets"]
+description = "Runs all tests, with cargo test, for the provided package name."
+
+[parameters.package_name]
+description = "The name of the package/crate in the workspace."
+required = true
