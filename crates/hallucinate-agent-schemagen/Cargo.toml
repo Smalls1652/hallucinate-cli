@@ -1,0 +1,24 @@
+[package]
+name = "hallucinate-agent-schemagen"
+default-run = "hallucinate-agent-schemagen"
+publish = ["crates-io"]
+description.workspace = true
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hallucinate-agent-schemagen"
+path = "src/main.rs"
+
+[dependencies]
+hallucinate-agent.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true

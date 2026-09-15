@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio::process::Command;
@@ -40,49 +41,66 @@ pub struct ScriptToolLoadResult {
     pub diagnostics: Vec<ScriptToolDiagnostic>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ScriptToolDefinition {
+#[derive(Debug, Deserialize, JsonSchema)]
+/// A parsed TOML definition for a script tool.
+pub struct ScriptToolDefinition {
+    /// Shell command to execute.
     command: Vec<String>,
 
+    /// Human-readable description of what the tool does.
     description: String,
 
     #[serde(default)]
+    /// Optional shell override (e.g. `["bash", "-c"]`).
     shell: Option<Vec<String>>,
 
     #[serde(default)]
+    /// Named parameters accepted by the tool.
     parameters: BTreeMap<String, ScriptToolParameter>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ScriptToolParameter {
+#[derive(Debug, Deserialize, JsonSchema)]
+/// A single parameter definition for a script tool.
+pub struct ScriptToolParameter {
+    /// Description of the parameter.
     description: String,
 
     #[serde(default = "default_input_type")]
+    /// JSON schema type for the parameter (e.g. "string", "int", "bool").
     input_type: String,
 
     #[serde(default)]
+    /// Whether this parameter is required.
     required: bool,
 }
 
 /// A model-invocable tool backed by a user-defined shell command.
 #[derive(Debug)]
 pub struct ScriptTool {
+    /// Unique identifier for the tool.
     name: String,
 
+    /// Human-readable description of what the tool does.
     description: String,
 
+    /// Shell command to execute.
     command: Vec<String>,
 
+    /// Optional shell override (e.g. `["bash", "-c"]`).
     shell: Option<Vec<String>>,
 
+    /// Named parameters accepted by the tool.
     parameters: BTreeMap<String, ScriptToolParameter>,
 
+    /// Maximum execution time in seconds.
     timeout: u64,
 
+    /// Output size and resource limits.
     limits: ToolLimits,
 }
 
 impl ScriptTool {
+    /// Parse a `ScriptTool` from its TOML definition, validating all fields.
     fn from_definition(
         name: String,
         definition: ScriptToolDefinition,
@@ -143,6 +161,7 @@ impl ScriptTool {
         })
     }
 
+    /// Render the command with template parameters substituted from arguments.
     fn render_command(
         &self,
         arguments: &Map<String, Value>,
@@ -164,6 +183,7 @@ impl ScriptTool {
             .collect()
     }
 
+    /// Execute the script tool with the given arguments.
     async fn execute_inner(
         &self,
         arguments: &Value,
@@ -365,10 +385,12 @@ pub fn load_script_tools(
     result
 }
 
+/// Return the default input type for script tool parameters.
 fn default_input_type() -> String {
     "string".to_string()
 }
 
+/// Validate that a name contains only allowed characters.
 fn valid_name(
     name: &str,
     allow_hyphen: bool,
@@ -381,6 +403,7 @@ fn valid_name(
         })
 }
 
+/// Map an input type string to its JSON schema type, if supported.
 fn json_schema_type(input_type: &str) -> Option<&'static str> {
     match input_type {
         "string" => Some("string"),
@@ -393,6 +416,7 @@ fn json_schema_type(input_type: &str) -> Option<&'static str> {
     }
 }
 
+/// Check whether a JSON value matches the given input type.
 fn value_matches_type(
     value: &Value,
     input_type: &str,
@@ -408,6 +432,7 @@ fn value_matches_type(
     }
 }
 
+/// Render a template by substituting `{{parameter}}` placeholders with values.
 fn render_template(
     template: &str,
     arguments: &Map<String, Value>,
@@ -429,11 +454,13 @@ fn render_template(
     Ok(rendered)
 }
 
+/// Shell-quote a single argument value using single quotes.
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 #[cfg(unix)]
+/// Build a `Command` that runs the given shell command string.
 fn shell_command(
     command: &str,
     shell: Option<&[String]>,
@@ -448,6 +475,7 @@ fn shell_command(
 }
 
 #[cfg(windows)]
+/// Build a `Command` that runs the given shell command string.
 fn shell_command(
     command: &str,
     shell: Option<&[String]>,
@@ -470,6 +498,7 @@ fn shell_command(
 }
 
 #[cfg(not(any(unix, windows)))]
+/// Build a `Command` that runs the given shell command string.
 fn shell_command(
     command: &str,
     _shell: Option<&[String]>,

@@ -11,6 +11,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -32,7 +33,7 @@ use crate::{
 /// Model IDs are map keys rather than fields, which keeps the configuration
 /// grouped by provider and makes it possible to use IDs containing characters
 /// such as `/` when they are quoted in TOML.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ModelSettings {
     /// Human-readable name for the model.
     #[serde(default)]
@@ -91,7 +92,7 @@ impl Default for ModelSettings {
 }
 
 /// A user-defined provider and the models belonging to it.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct ProviderSettings {
     /// OpenAI-compatible endpoint. The model's `api` selects Chat
     /// Completions or Responses wire format.
@@ -119,7 +120,7 @@ pub struct ProviderSettings {
 }
 
 /// Select when a generated session title is requested.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum SessionTitleGenerationMode {
     /// Generate the title at the same time as the first agent response.
@@ -131,7 +132,7 @@ pub enum SessionTitleGenerationMode {
 }
 
 /// Configuration for generating titles from the first user message.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SessionTitleSettings {
     /// Whether new sessions receive an LLM-generated title.
     #[serde(default = "default_enable_session_titles")]
@@ -158,7 +159,7 @@ impl Default for SessionTitleSettings {
 }
 
 /// Application-wide settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Settings {
     /// Default model to use.
     #[serde(skip_serializing_if = "Option::is_none")]

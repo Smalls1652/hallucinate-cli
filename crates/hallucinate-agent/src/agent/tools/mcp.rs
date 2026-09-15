@@ -15,6 +15,7 @@ use std::{
 
 use futures::Future;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
+use schemars::JsonSchema;
 use serde_json::{Value, json};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
@@ -25,7 +26,7 @@ use tokio::{
 use crate::agent::tools::types::{Tool, ToolResult};
 
 /// Authentication for a remote MCP server.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum McpAuthSettings {
     /// Send no authentication header.
@@ -59,7 +60,7 @@ fn default_api_key_prefix() -> String {
 ///
 /// Set `command` for a local stdio server or `url` for a remote streamable
 /// HTTP server.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema)]
 pub struct McpServerSettings {
     /// Executable used to start a local stdio server.
     #[serde(default, skip_serializing_if = "Option::is_none")]

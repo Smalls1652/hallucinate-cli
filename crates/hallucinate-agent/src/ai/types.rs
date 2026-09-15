@@ -5,13 +5,14 @@
 
 use std::{fmt, path::Path, sync::Arc};
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 // ── API & Provider Types ─────────────────────────────────────────────────────
 
 /// Known APIs supported by providers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum Api {
     /// OpenAI Chat Completions-compatible API.
@@ -573,7 +574,7 @@ impl Tool {
 // ── Model ────────────────────────────────────────────────────────────────────
 
 /// Model cost rates per million tokens.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct ModelCostRates {
     /// Cost per million input tokens.
     #[serde(default)]

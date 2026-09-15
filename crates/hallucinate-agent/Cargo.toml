@@ -19,6 +19,7 @@ image = { workspace = true, default-features = false, features = ["bmp", "gif", 
 keyring-core.workspace = true
 regex.workspace = true
 reqwest.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true

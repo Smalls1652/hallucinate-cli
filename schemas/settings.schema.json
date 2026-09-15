@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Settings",
+  "description": "Application-wide settings.",
+  "type": "object",
+  "properties": {
+    "auto_resize_images": {
+      "description": "Automatically resize image attachments to provider-friendly limits.",
+      "type": "boolean",
+      "default": true
+    },
+    "base_url": {
+      "description": "Default base URL for the provider.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "default_model": {
+      "description": "Default model to use.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "enable_compaction": {
+      "description": "Enable context compaction.",
+      "type": "boolean",
+      "default": true
+    },
+    "enable_tools": {
+      "description": "Enable tool use by default.",
+      "type": "boolean",
+      "default": true
+    },
+    "max_concurrent_tool_calls": {
+      "description": "Maximum number of independent tool calls to execute at once.",
+      "type": "integer",
+      "format": "uint",
+      "default": 4,
+      "minimum": 0
+    },
+    "max_retries": {
+      "description": "Number of retries for transient LLM API failures.",
+      "type": "integer",
+      "format": "uint32",
+      "default": 3,
+      "minimum": 0
+    },
+    "max_tokens": {
+      "description": "Default max tokens.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
+    "max_turns": {
+      "description": "Maximum number of turns.",
+      "type": "integer",
+      "format": "uint32",
+      "default": 120,
+      "minimum": 0
+    },
+    "mcp_servers": {
+      "description": "MCP servers whose stdio tools are exposed to the agent. Each map key\nidentifies a server and becomes part of its qualified tool names.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/McpServerSettings"
+      }
+    },
+    "provider": {
+      "description": "Credential namespace for the OpenAI-compatible provider (usually\n\"openai\"). Defaults to `\"openai\"`.",
+      "type": "string",
+      "default": "openai"
+    },
+    "provider_headers": {
+      "description": "Provider-specific headers for the legacy/default provider.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "providers": {
+      "description": "Providers and their models. Models are deliberately nested under a\nprovider instead of using pi's flat provider/model catalog shape.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ProviderSettings"
+      }
+    },
+    "session_title": {
+      "description": "Settings for generating a session title from its first user message.",
+      "$ref": "#/$defs/SessionTitleSettings"
+    },
+    "shell": {
+      "description": "Shell executable used by the bash tool. When unset, the user's SHELL\nenvironment variable (or the platform fallback) is used.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "shell_timeout": {
+      "description": "Default timeout in seconds for the bash tool. Commands that exceed\nthis duration are killed. Defaults to 60 seconds.",
+      "type": "integer",
+      "format": "uint64",
+      "default": 60,
+      "minimum": 0
+    },
+    "show_thinking": {
+      "description": "Show model thinking/reasoning in user-facing output.",
+      "type": "boolean",
+      "default": false
+    },
+    "temperature": {
+      "description": "Default temperature.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "timeout_ms": {
+      "description": "Request timeout in milliseconds.",
+      "type": "integer",
+      "format": "uint64",
+      "default": 600000,
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "Api": {
+      "description": "Known APIs supported by providers.",
+      "oneOf": [
+        {
+          "description": "OpenAI Chat Completions-compatible API.",
+          "type": "string",
+          "const": "openai-completions"
+        },
+        {
+          "description": "OpenAI Responses-compatible API.",
+          "type": "string",
+          "const": "openai-responses"
+        }
+      ]
+    },
+    "McpAuthSettings": {
+      "description": "Authentication for a remote MCP server.",
+      "oneOf": [
+        {
+          "description": "Send no authentication header.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "no-auth"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Add an API key to every remote MCP request.",
+          "type": "object",
+          "properties": {
+            "api_key": {
+              "description": "API key value sent to the remote server.",
+              "type": "string"
+            },
+            "header": {
+              "description": "HTTP header receiving the API key. Defaults to `Authorization`.",
+              "type": "string",
+              "default": "Authorization"
+            },
+            "prefix": {
+              "description": "Optional text prepended to the API key. Defaults to `Bearer `.",
+              "type": "string",
+              "default": "Bearer "
+            },
+            "type": {
+              "type": "string",
+              "const": "api-key"
+            }
+          },
+          "required": [
+            "type",
+            "api_key"
+          ]
+        }
+      ]
+    },
+    "McpServerSettings": {
+      "description": "Configuration for one MCP server.\n\nSet `command` for a local stdio server or `url` for a remote streamable\nHTTP server.",
+      "type": "object",
+      "properties": {
+        "args": {
+          "description": "Arguments passed to `command` for a local server.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "auth": {
+          "description": "Authentication sent to a remote MCP server. Defaults to no auth.",
+          "$ref": "#/$defs/McpAuthSettings"
+        },
+        "command": {
+          "description": "Executable used to start a local stdio server.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "description": "Environment variables added to a local server process.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tool_prefix": {
+          "description": "Optional prefix for discovered tools.\n\nWhen omitted or empty, the remote tool name is used directly after\nsanitization. Configure a prefix to disambiguate tools deliberately.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "Streamable HTTP endpoint for a remote MCP server.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ModelCostRates": {
+      "description": "Model cost rates per million tokens.",
+      "type": "object",
+      "properties": {
+        "cache_read": {
+          "description": "Cost per million cache read tokens.",
+          "type": "number",
+          "format": "double",
+          "default": 0.0
+        },
+        "cache_write": {
+          "description": "Cost per million cache write tokens.",
+          "type": "number",
+          "format": "double",
+          "default": 0.0
+        },
+        "input": {
+          "description": "Cost per million input tokens.",
+          "type": "number",
+          "format": "double",
+          "default": 0.0
+        },
+        "output": {
+          "description": "Cost per million output tokens.",
+          "type": "number",
+          "format": "double",
+          "default": 0.0
+        }
+      }
+    },
+    "ModelSettings": {
+      "description": "A model defined under a user provider in `settings.toml`.\n\nModel IDs are map keys rather than fields, which keeps the configuration\ngrouped by provider and makes it possible to use IDs containing characters\nsuch as `/` when they are quoted in TOML.",
+      "type": "object",
+      "properties": {
+        "api": {
+          "description": "API variant used by the provider (e.g., OpenAI Chat Completions or\nResponses).",
+          "$ref": "#/$defs/Api",
+          "default": "openai-completions"
+        },
+        "base_url": {
+          "description": "Override the base URL for this specific model.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "context_window": {
+          "description": "Maximum context window size in tokens.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 128000,
+          "minimum": 0
+        },
+        "cost": {
+          "description": "Optional cost rates per million tokens.\n\nWhen omitted, usage cost is tracked as zero.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelCostRates"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hidden": {
+          "description": "Whether this model is hidden from the interactive model picker.",
+          "type": "boolean",
+          "default": false
+        },
+        "input": {
+          "description": "Supported input modalities (e.g., \"text\", \"image\").",
+          "type": "array",
+          "default": [
+            "text"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_tokens": {
+          "description": "Maximum number of tokens the model can output.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 16384,
+          "minimum": 0
+        },
+        "name": {
+          "description": "Human-readable name for the model.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "reasoning": {
+          "description": "Whether this model supports reasoning/thinking output.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "ProviderSettings": {
+      "description": "A user-defined provider and the models belonging to it.",
+      "type": "object",
+      "properties": {
+        "api_key": {
+          "description": "Optional inline key. Prefer the platform keyring or environment\nvariables for secrets; this is accepted for convenient local setups.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_url": {
+          "description": "OpenAI-compatible endpoint. The model's `api` selects Chat\nCompletions or Responses wire format.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "headers": {
+          "description": "Additional HTTP headers to send with every request.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "include_usage": {
+          "description": "Whether streaming requests include usage data in `stream_options`.\n\nWhen unset, `stream_options` is omitted from requests for this provider.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "models": {
+          "description": "Models provided by this provider, keyed by model ID.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelSettings"
+          },
+          "default": {}
+        }
+      }
+    },
+    "SessionTitleGenerationMode": {
+      "description": "Select when a generated session title is requested.",
+      "oneOf": [
+        {
+          "description": "Generate the title at the same time as the first agent response.",
+          "type": "string",
+          "const": "parallel"
+        },
+        {
+          "description": "Generate and save the title before the first agent response begins.",
+          "type": "string",
+          "const": "before"
+        }
+      ]
+    },
+    "SessionTitleSettings": {
+      "description": "Configuration for generating titles from the first user message.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether new sessions receive an LLM-generated title.",
+          "type": "boolean",
+          "default": true
+        },
+        "generation_mode": {
+          "description": "Whether title generation runs alongside or before the first response.",
+          "$ref": "#/$defs/SessionTitleGenerationMode",
+          "default": "parallel"
+        },
+        "model": {
+          "description": "Model selector used for title generation. When omitted, the active\nconversation model is used.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

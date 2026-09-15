@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScriptToolDefinition",
+  "description": "A parsed TOML definition for a script tool.",
+  "type": "object",
+  "properties": {
+    "command": {
+      "description": "Shell command to execute.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "description": {
+      "description": "Human-readable description of what the tool does.",
+      "type": "string"
+    },
+    "parameters": {
+      "description": "Named parameters accepted by the tool.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ScriptToolParameter"
+      }
+    },
+    "shell": {
+      "description": "Optional shell override (e.g. `[\"bash\", \"-c\"]`).",
+      "type": [
+        "array",
+        "null"
+      ],
+      "default": null,
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "command",
+    "description"
+  ],
+  "$defs": {
+    "ScriptToolParameter": {
+      "description": "A single parameter definition for a script tool.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "description": "Description of the parameter.",
+          "type": "string"
+        },
+        "input_type": {
+          "description": "JSON schema type for the parameter (e.g. \"string\", \"int\", \"bool\").",
+          "type": "string",
+          "default": "string"
+        },
+        "required": {
+          "description": "Whether this parameter is required.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "description"
+      ]
+    }
+  }
+}
