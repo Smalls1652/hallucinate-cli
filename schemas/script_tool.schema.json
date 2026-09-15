@@ -34,7 +34,7 @@
       }
     },
     "timeout": {
-      "description": "Maximum execution time in seconds. Defaults to the configured shell timeout.",
+      "description": "Maximum execution time in seconds. Defaults to the configured shell\ntimeout.",
       "type": [
         "integer",
         "null"
@@ -53,6 +53,18 @@
       "description": "A single parameter definition for a script tool.",
       "type": "object",
       "properties": {
+        "constraints": {
+          "description": "Optional constraints enforced for values supplied to this parameter.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScriptToolParameterConstraints"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "description": {
           "description": "Description of the parameter.",
           "type": "string"
@@ -71,6 +83,39 @@
       "required": [
         "description"
       ]
+    },
+    "ScriptToolParameterConstraints": {
+      "description": "Value constraints for a script tool parameter.",
+      "type": "object",
+      "properties": {
+        "enum": {
+          "description": "Values accepted by the parameter.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "default": null,
+          "items": true
+        },
+        "maximum": {
+          "description": "Inclusive upper bound for numeric parameters.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "default": null
+        },
+        "minimum": {
+          "description": "Inclusive lower bound for numeric parameters.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "default": null
+        }
+      }
     }
   }
 }

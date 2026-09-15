@@ -11,7 +11,7 @@ use std::{
 };
 
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio::process::Command;
 
@@ -55,7 +55,8 @@ pub struct ScriptToolDefinition {
     shell: Option<Vec<String>>,
 
     #[serde(default)]
-    /// Maximum execution time in seconds. Defaults to the configured shell timeout.
+    /// Maximum execution time in seconds. Defaults to the configured shell
+    /// timeout.
     timeout: Option<u64>,
 
     #[serde(default)]
@@ -76,6 +77,26 @@ pub struct ScriptToolParameter {
     #[serde(default)]
     /// Whether this parameter is required.
     required: bool,
+
+    #[serde(default)]
+    /// Optional constraints enforced for values supplied to this parameter.
+    constraints: Option<ScriptToolParameterConstraints>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+/// Value constraints for a script tool parameter.
+pub struct ScriptToolParameterConstraints {
+    /// Values accepted by the parameter.
+    #[serde(default, rename = "enum")]
+    enum_values: Option<Vec<Value>>,
+
+    /// Inclusive lower bound for numeric parameters.
+    #[serde(default)]
+    minimum: Option<f64>,
+
+    /// Inclusive upper bound for numeric parameters.
+    #[serde(default)]
+    maximum: Option<f64>,
 }
 
 /// A model-invocable tool backed by a user-defined shell command.
@@ -156,6 +177,8 @@ impl ScriptTool {
                     parameter.input_type
                 );
             }
+
+            validate_parameter_constraints(name, parameter)?;
         }
 
         Ok(Self {
@@ -176,7 +199,11 @@ impl ScriptTool {
     ) -> Result<Vec<String>, anyhow::Error> {
         for (name, parameter) in &self.parameters {
             match arguments.get(name) {
-                Some(value) if value_matches_type(value, &parameter.input_type) => {},
+                Some(value) if value_matches_type(value, &parameter.input_type) => {
+                    if !value_matches_constraints(value, parameter.constraints.as_ref()) {
+                        anyhow::bail!("parameter '{name}' does not satisfy its constraints");
+                    }
+                },
 
                 Some(_) => anyhow::bail!("parameter '{name}' must be a {}", parameter.input_type),
 
@@ -284,13 +311,32 @@ impl Tool for ScriptTool {
             .collect::<Vec<_>>();
 
         for (name, parameter) in &self.parameters {
-            properties.insert(
-                name.clone(),
-                json!({
-                    "type": json_schema_type(&parameter.input_type).expect("validated type"),
-                    "description": parameter.description
-                }),
-            );
+            let mut property = Map::from_iter([
+                (
+                    "type".to_string(),
+                    json!(json_schema_type(&parameter.input_type).expect("validated type")),
+                ),
+                (
+                    "description".to_string(),
+                    Value::String(parameter.description.clone()),
+                ),
+            ]);
+
+            if let Some(constraints) = &parameter.constraints {
+                if let Some(enum_values) = &constraints.enum_values {
+                    property.insert("enum".to_string(), json!(enum_values));
+                }
+
+                if let Some(minimum) = constraints.minimum {
+                    property.insert("minimum".to_string(), json!(minimum));
+                }
+
+                if let Some(maximum) = constraints.maximum {
+                    property.insert("maximum".to_string(), json!(maximum));
+                }
+            }
+
+            properties.insert(name.clone(), Value::Object(property));
         }
 
         let mut schema = Map::from_iter([
@@ -440,6 +486,83 @@ fn value_matches_type(
     }
 }
 
+/// Validate constraints declared for a parameter definition.
+fn validate_parameter_constraints(
+    name: &str,
+    parameter: &ScriptToolParameter,
+) -> Result<(), anyhow::Error> {
+    let Some(constraints) = &parameter.constraints else {
+        return Ok(());
+    };
+
+    if constraints.enum_values.as_ref().is_some_and(Vec::is_empty) {
+        anyhow::bail!("parameter '{name}' constraint enum cannot be empty");
+    }
+
+    if let Some(enum_values) = &constraints.enum_values {
+        if enum_values
+            .iter()
+            .any(|value| !value_matches_type(value, &parameter.input_type))
+        {
+            anyhow::bail!(
+                "parameter '{name}' constraint enum values must match input_type '{}'",
+                parameter.input_type
+            );
+        }
+    }
+
+    let has_range = constraints.minimum.is_some() || constraints.maximum.is_some();
+    if has_range
+        && !matches!(
+            json_schema_type(&parameter.input_type),
+            Some("integer" | "number")
+        )
+    {
+        anyhow::bail!("parameter '{name}' minimum and maximum require a numeric input_type");
+    }
+
+    if constraints.minimum.is_some_and(|value| !value.is_finite())
+        || constraints.maximum.is_some_and(|value| !value.is_finite())
+    {
+        anyhow::bail!("parameter '{name}' minimum and maximum must be finite numbers");
+    }
+
+    if constraints
+        .minimum
+        .zip(constraints.maximum)
+        .is_some_and(|(minimum, maximum)| minimum > maximum)
+    {
+        anyhow::bail!("parameter '{name}' minimum cannot exceed maximum");
+    }
+
+    Ok(())
+}
+
+/// Check whether a JSON value satisfies its declared constraints.
+fn value_matches_constraints(
+    value: &Value,
+    constraints: Option<&ScriptToolParameterConstraints>,
+) -> bool {
+    let Some(constraints) = constraints else {
+        return true;
+    };
+
+    if constraints
+        .enum_values
+        .as_ref()
+        .is_some_and(|values| !values.contains(value))
+    {
+        return false;
+    }
+
+    let Some(number) = value.as_f64() else {
+        return true;
+    };
+
+    constraints.minimum.is_none_or(|minimum| number >= minimum)
+        && constraints.maximum.is_none_or(|maximum| number <= maximum)
+}
+
 /// Render a template by substituting `{{parameter}}` placeholders with values.
 fn render_template(
     template: &str,
@@ -539,6 +662,85 @@ mod tests {
                 .unwrap(),
             vec!["echo", "Ada"]
         );
+    }
+
+    #[test]
+    fn includes_and_enforces_parameter_constraints() {
+        let definition: ScriptToolDefinition = toml::from_str(
+            "command = [\"echo\", \"{{format}}\", \"{{quality}}\"]\n\
+             description = \"test\"\n\
+             [parameters.format]\n\
+             description = \"Format\"\n\
+             [parameters.format.constraints]\n\
+             enum = [\"json\", \"text\"]\n\
+             [parameters.quality]\n\
+             description = \"Quality\"\n\
+             input_type = \"integer\"\n\
+             [parameters.quality.constraints]\n\
+             minimum = 1\n\
+             maximum = 100",
+        )
+        .unwrap();
+
+        let tool = ScriptTool::from_definition(
+            "example".to_string(),
+            definition,
+            Path::new("/tmp/example.toml"),
+            60,
+        )
+        .unwrap();
+
+        assert_eq!(
+            tool.parameters()["properties"]["format"]["enum"],
+            json!(["json", "text"])
+        );
+        assert_eq!(tool.parameters()["properties"]["quality"]["minimum"], 1.0);
+        assert_eq!(tool.parameters()["properties"]["quality"]["maximum"], 100.0);
+        assert!(
+            tool.render_command(&Map::from_iter([
+                (String::from("format"), json!("json")),
+                (String::from("quality"), json!(80)),
+            ]))
+            .is_ok()
+        );
+        assert!(
+            tool.render_command(&Map::from_iter([
+                (String::from("format"), json!("xml")),
+                (String::from("quality"), json!(80)),
+            ]))
+            .unwrap_err()
+            .to_string()
+            .contains("format")
+        );
+        assert!(
+            tool.render_command(&Map::from_iter([
+                (String::from("format"), json!("json")),
+                (String::from("quality"), json!(101)),
+            ]))
+            .unwrap_err()
+            .to_string()
+            .contains("quality")
+        );
+    }
+
+    #[test]
+    fn rejects_constraints_incompatible_with_parameter_type() {
+        let definition: ScriptToolDefinition = toml::from_str(
+            "command = [\"echo\"]\ndescription = \"test\"\n\
+             [parameters.enabled]\ndescription = \"Enabled\"\ninput_type = \"boolean\"\n\
+             [parameters.enabled.constraints]\nminimum = 0",
+        )
+        .unwrap();
+
+        let error = ScriptTool::from_definition(
+            "example".to_string(),
+            definition,
+            Path::new("/tmp/example.toml"),
+            60,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("require a numeric input_type"));
     }
 
     #[test]

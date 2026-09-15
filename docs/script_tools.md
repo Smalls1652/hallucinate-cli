@@ -58,8 +58,39 @@ Parameters are defined under `[parameters.<name>]` tables. Each parameter become
 | `description` | `string` | — | Brief explanation of the parameter (required). |
 | `input_type` | `string` | `"string"` | JSON Schema type for the parameter. |
 | `required` | `bool` | `false` | Whether the parameter must be provided. |
+| `constraints` | `table` | — | Optional value constraints. Supports `enum`, `minimum`, and `maximum`. |
 
-### Supported Input Types
+### Parameter Constraints
+
+Add a `constraints` table to limit values accepted by the tool. Constraints are included in the JSON Schema sent to the LLM and are enforced again before the command executes.
+
+| Field | Type | Applies to | Description |
+| --- | --- | --- | --- |
+| `enum` | `array` | All input types | Allowed values. Every value must match the parameter's `input_type`. |
+| `minimum` | `number` | `"int"`, `"integer"`, `"float"`, `"number"` | Inclusive numeric lower bound. |
+| `maximum` | `number` | `"int"`, `"integer"`, `"float"`, `"number"` | Inclusive numeric upper bound. |
+
+`enum` cannot be empty, and `minimum` cannot be greater than `maximum`.
+
+```toml
+[parameters.format]
+description = "Output format"
+input_type = "string"
+required = true
+
+[parameters.format.constraints]
+enum = ["json", "csv", "text"]
+
+[parameters.quality]
+description = "JPEG quality"
+input_type = "integer"
+required = true
+
+[parameters.quality.constraints]
+minimum = 1
+maximum = 100
+```
+
 
 | Value | JSON Schema | Example |
 | --- | --- | --- |
@@ -168,6 +199,10 @@ input_type = "integer"
 description = "JPEG quality (1-100)"
 required = true
 input_type = "integer"
+
+[parameters.quality.constraints]
+minimum = 1
+maximum = 100
 ```
 
 ### Array Parameter
@@ -198,3 +233,4 @@ Invalid definitions are silently skipped and logged as diagnostics. Common reaso
 - Parameter name contains invalid characters (only letters, numbers, and underscores allowed)
 - Parameter `description` is empty
 - Parameter `input_type` is not a supported type
+- Parameter constraints are incompatible with the input type, empty, or have an invalid range
