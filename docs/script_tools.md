@@ -91,7 +91,6 @@ minimum = 1
 maximum = 100
 ```
 
-
 | Value | JSON Schema | Example |
 | --- | --- | --- |
 | `"string"` | `string` | `"hello"` |
