@@ -19,7 +19,7 @@ delete-tracking-branch = true
 strategy = "api"
 
 [sync]
-feature-strategy = "merge"
+feature-strategy = "rebase"
 perennial-strategy = "rebase"
 prototype-strategy = "merge"
 push-hook = true
