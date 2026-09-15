@@ -1,7 +1,7 @@
 [package]
 name = "hallucinate-agent-schemagen"
 default-run = "hallucinate-agent-schemagen"
-publish = ["crates-io"]
+publish = false
 description.workspace = true
 version.workspace = true
 edition.workspace = true
