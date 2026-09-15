@@ -16,6 +16,7 @@ use crate::{
     alt_screen::{MessageRole, ToolCall, TranscriptRenderer},
     components::{
         markdown_to_lines,
+        markdown_to_text,
         picker_overlays::{
             render_model_picker,
             render_prompt_picker,
@@ -55,8 +56,8 @@ pub(super) struct TranscriptLayoutCache {
     /// Column offset where each line becomes selectable, or `None`.
     selection_line_starts: Vec<Option<usize>>,
 
-    /// Source message for each selectable visual row. This lets clipboard
-    /// selections use the original Markdown instead of terminal wrapping.
+    /// Source message for each selectable visual row. This identifies message
+    /// content rows while rendering a drag selection.
     selection_message_indices: Vec<Option<usize>>,
 }
 
@@ -664,8 +665,10 @@ fn render_transcript(
                 }
             }
         }
-        return selected_markdown(
+        return selected_transcript_text(
             transcript,
+            lines,
+            selection_line_starts,
             selection_message_indices,
             selection,
             usize::from(scroll),
@@ -676,47 +679,131 @@ fn render_transcript(
     String::new()
 }
 
-/// Return the original Markdown for messages that intersect a visual selection.
+/// Return precisely the visible text covered by a visual selection.
 ///
-/// The transcript cache contains terminal-wrapped rows, which are useful for
-/// painting the selection but must never become clipboard content. Associate
-/// those rows with their source messages, then copy the unmodified Markdown.
-fn selected_markdown(
+/// Markdown source does not have a one-to-one column mapping to its rendered
+/// form: syntax such as `**` is omitted from the displayed cells. Extracting
+/// text from the cached display rows therefore preserves the user's exact
+/// partial selection, including selections from wrapped lines.
+fn selected_transcript_text(
     transcript: &TranscriptRenderer,
+    lines: &[Line<'static>],
+    selection_line_starts: &[Option<usize>],
     selection_message_indices: &[Option<usize>],
     selection: super::ChatSelection,
     scroll: usize,
     transcript_area: Rect,
 ) -> String {
-    let ((_, start_y), (_, end_y)) = selection.bounds();
-    let first_visible_line = scroll;
-    let last_visible_line = scroll.saturating_add(usize::from(transcript_area.height));
-    let mut message_indices = Vec::new();
+    let ((start_x, start_y), (end_x, end_y)) = selection.bounds();
+    let mut selected_lines = Vec::new();
 
-    for (line_index, message_index) in selection_message_indices
+    for (visible_index, ((line, selectable_start), message_index)) in lines
         .iter()
+        .skip(scroll)
+        .zip(selection_line_starts.iter().skip(scroll))
+        .zip(selection_message_indices.iter().skip(scroll))
+        .take(usize::from(transcript_area.height))
         .enumerate()
-        .skip(first_visible_line)
-        .take(last_visible_line.saturating_sub(first_visible_line))
     {
         let screen_row = transcript_area
             .y
-            .saturating_add(u16::try_from(line_index - scroll).unwrap_or(u16::MAX));
+            .saturating_add(u16::try_from(visible_index).unwrap_or(u16::MAX));
 
-        if (start_y..=end_y).contains(&screen_row)
-            && let Some(message_index) = message_index
-            && !message_indices.contains(message_index)
-        {
-            message_indices.push(*message_index);
+        if !(start_y..=end_y).contains(&screen_row) {
+            continue;
+        }
+
+        let Some(selectable_start) = selectable_start else {
+            continue;
+        };
+
+        let from = if screen_row == start_y {
+            start_x
+        } else {
+            transcript_area.x
+        };
+
+        let through = if screen_row == end_y {
+            end_x
+        } else {
+            transcript_area
+                .x
+                .saturating_add(transcript_area.width)
+                .saturating_sub(1)
+        };
+
+        let from = usize::from(from.saturating_sub(transcript_area.x));
+        let through = usize::from(through.saturating_sub(transcript_area.x));
+        if through < *selectable_start || from > through {
+            continue;
+        }
+
+        let selected_text = selected_line_text(line, from.max(*selectable_start), through);
+        let rendered_line = selected_line_text(line, *selectable_start, usize::MAX);
+        let source_markdown = message_index
+            .and_then(|index| transcript.messages().get(index))
+            .and_then(|message| {
+                source_markdown_fragment(&message.content, &rendered_line, &selected_text)
+            })
+            .unwrap_or(selected_text);
+
+        selected_lines.push(source_markdown);
+    }
+
+    selected_lines.join("\n")
+}
+
+/// Map a selection from one rendered Markdown row back to its source text.
+///
+/// A whole rendered source row copies its unmodified Markdown, retaining block
+/// markers such as headings and list prefixes. A partial row is sliced from
+/// that raw source row, so only the selected text is copied.
+fn source_markdown_fragment(
+    markdown: &str,
+    rendered_line: &str,
+    selected_text: &str,
+) -> Option<String> {
+    let source_line = markdown.lines().find(|source_line| {
+        markdown_to_text(source_line).trim_end_matches('\n') == rendered_line
+    })?;
+
+    if selected_text == rendered_line {
+        return Some(source_line.to_string());
+    }
+
+    let start = source_line.find(selected_text)?;
+    let end = start + selected_text.len();
+
+    Some(source_line[start..end].to_string())
+}
+
+/// Return characters in `line` whose terminal cells intersect the range.
+fn selected_line_text(
+    line: &Line<'_>,
+    from: usize,
+    through: usize,
+) -> String {
+    let mut text = String::new();
+    let mut column = 0usize;
+
+    for span in &line.spans {
+        for character in span.content.chars() {
+            let width = character.width().unwrap_or(0);
+            let character_end = column.saturating_add(width.saturating_sub(1));
+
+            if width == 0 {
+                if column > from && column <= through {
+                    text.push(character);
+                }
+            } else if column <= through && character_end >= from {
+                text.push(character);
+            }
+
+            column = column.saturating_add(width);
         }
     }
 
-    message_indices
-        .into_iter()
-        .filter_map(|index| transcript.messages().get(index))
-        .map(|message| message.content.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    text
 }
 
 /// Render a modal warning before deleting all saved sessions in a directory.
@@ -929,7 +1016,7 @@ fn selection_mask_line(
     line: &Line<'static>,
     selectable_start: Option<usize>,
 ) -> Line<'static> {
-    let mut column = 0;
+    let mut column = 0usize;
 
     let spans = line
         .spans
@@ -997,28 +1084,53 @@ mod tests {
     }
 
     #[test]
-    fn copies_original_markdown_for_selected_messages() {
+    fn copies_only_the_selected_rendered_text() {
+        let lines = vec![
+            prefix_message_line(Line::from("first line"), Color::LightCyan),
+            prefix_message_line(Line::from("second line"), Color::LightCyan),
+        ];
+
         let mut transcript = TranscriptRenderer::new();
         transcript.add_message(Message {
             role: MessageRole::Assistant,
-            content: "first line\n\n**formatted**".to_string(),
+            content: "first line\nsecond line".to_string(),
             thinking: String::new(),
             tool_calls: Vec::new(),
             timestamp: chrono::Utc::now(),
         });
 
-        let selected = selected_markdown(
+        let selected = selected_transcript_text(
             &transcript,
-            &[None, Some(0), Some(0), None],
+            &lines,
+            &[Some(2), Some(2)],
+            &[Some(0), Some(0)],
             super::super::ChatSelection {
-                anchor: (0, 2),
-                focus: (5, 3),
+                anchor: (4, 1),
+                focus: (6, 2),
             },
             0,
             Rect::new(0, 1, 80, 4),
         );
 
-        assert_eq!(selected, "first line\n\n**formatted**");
+        assert_eq!(selected, "rst line\nsecon");
+    }
+
+    #[test]
+    fn selected_text_uses_the_corresponding_source_markdown_line() {
+        assert_eq!(
+            source_markdown_fragment("- **bold**", "• bold", "• bold"),
+            Some("- **bold**".to_string())
+        );
+        assert_eq!(
+            source_markdown_fragment("- **bold**", "• bold", "bold"),
+            Some("bold".to_string())
+        );
+    }
+    #[test]
+    fn selected_text_preserves_wide_characters() {
+        let line = prefix_message_line(Line::from("a界b"), Color::LightCyan);
+
+        assert_eq!(selected_line_text(&line, 3, 4), "界");
     }
 
     #[test]
