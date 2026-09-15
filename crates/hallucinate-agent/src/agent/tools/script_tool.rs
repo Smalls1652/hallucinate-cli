@@ -13,10 +13,13 @@ use std::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use tokio::process::Command;
+use tokio::{
+    io::{AsyncRead, AsyncReadExt},
+    process::Command,
+};
 
 use super::{
-    limits::{ToolLimits, truncate_utf8},
+    limits::ToolLimits,
     types::{Tool, ToolOutputSink, ToolResult},
 };
 use crate::config::paths;
@@ -223,6 +226,7 @@ impl ScriptTool {
         &self,
         arguments: &Value,
         cwd: Option<&str>,
+        output: Option<ToolOutputSink>,
     ) -> Result<ToolResult, anyhow::Error> {
         let arguments = arguments
             .as_object()
@@ -250,13 +254,50 @@ impl ScriptTool {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        let output =
-            match tokio::time::timeout(Duration::from_secs(self.timeout), process.output()).await {
-                Ok(output) => output.map_err(|error| {
-                    anyhow::anyhow!("failed to execute script tool '{}': {error}", self.name)
-                })?,
+        let mut child = process.spawn().map_err(|error| {
+            anyhow::anyhow!("failed to execute script tool '{}': {error}", self.name)
+        })?;
+
+        let stdout = child.stdout.take().expect("stdout was explicitly piped");
+        let stderr = child.stderr.take().expect("stderr was explicitly piped");
+        let stream_limit = self.limits.max_tool_result_bytes;
+
+        // Read both pipes concurrently so a verbose stderr stream cannot block
+        // a script whose stdout is being displayed in the transcript.
+        let stdout_task = tokio::spawn(capture_pipe(stdout, stream_limit, output));
+        let stderr_task = tokio::spawn(capture_pipe(stderr, stream_limit, None));
+
+        let status =
+            match tokio::time::timeout(Duration::from_secs(self.timeout), child.wait()).await {
+                Ok(Ok(status)) => status,
+
+                Ok(Err(error)) => {
+                    return Err(anyhow::anyhow!(
+                        "failed while waiting for script tool '{}': {error}",
+                        self.name
+                    ));
+                },
 
                 Err(_) => {
+                    if let Err(error) = child.kill().await
+                        && error.kind() != std::io::ErrorKind::InvalidInput
+                    {
+                        return Err(anyhow::anyhow!(
+                            "failed to kill timed-out script tool '{}': {error}",
+                            self.name
+                        ));
+                    }
+
+                    child.wait().await.map_err(|error| {
+                        anyhow::anyhow!(
+                            "failed to reap timed-out script tool '{}': {error}",
+                            self.name
+                        )
+                    })?;
+
+                    let _ = stdout_task.await;
+                    let _ = stderr_task.await;
+
                     return Ok(ToolResult::error(
                         "",
                         &self.name,
@@ -265,25 +306,18 @@ impl ScriptTool {
                 },
             };
 
-        let stdout = truncate_utf8(
-            &String::from_utf8_lossy(&output.stdout),
-            self.limits.max_tool_result_bytes,
-            "stdout",
-        );
+        let stdout = stdout_task
+            .await
+            .map_err(|error| anyhow::anyhow!("stdout capture task failed: {error}"))??;
+        let stderr = stderr_task
+            .await
+            .map_err(|error| anyhow::anyhow!("stderr capture task failed: {error}"))??;
 
-        let stderr = truncate_utf8(
-            &String::from_utf8_lossy(&output.stderr),
-            self.limits.max_tool_result_bytes,
-            "stderr",
-        );
+        let stdout = format_captured_stream("stdout", stdout);
+        let stderr = format_captured_stream("stderr", stderr);
+        let content = if status.success() { stdout } else { stderr };
 
-        let content = if output.status.success() {
-            stdout
-        } else {
-            stderr
-        };
-
-        Ok(if output.status.success() {
+        Ok(if status.success() {
             ToolResult::success("", &self.name, content)
         } else {
             ToolResult::error("", &self.name, content)
@@ -356,17 +390,74 @@ impl Tool for ScriptTool {
         arguments: &'a Value,
         cwd: Option<&'a str>,
     ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>> {
-        Box::pin(self.execute_inner(arguments, cwd))
+        Box::pin(self.execute_inner(arguments, cwd, None))
     }
 
     fn execute_with_output<'a>(
         &'a self,
         arguments: &'a Value,
         cwd: Option<&'a str>,
-        _output: Option<ToolOutputSink>,
+        output: Option<ToolOutputSink>,
     ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>> {
-        Box::pin(self.execute_inner(arguments, cwd))
+        Box::pin(self.execute_inner(arguments, cwd, output))
     }
+}
+
+/// Captured output from a script stream, including truncation status.
+#[derive(Debug)]
+struct CapturedStream {
+    /// Raw bytes retained from the stream.
+    bytes: Vec<u8>,
+
+    /// Whether the stream exceeded its configured output limit.
+    truncated: bool,
+}
+
+/// Capture a pipe while optionally sending each retained chunk to the TUI.
+async fn capture_pipe<R: AsyncRead + Unpin>(
+    mut reader: R,
+    limit: usize,
+    output: Option<ToolOutputSink>,
+) -> Result<CapturedStream, anyhow::Error> {
+    let mut bytes = Vec::with_capacity(limit);
+    let mut buffer = [0_u8; 8_192];
+    let mut truncated = false;
+
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+
+        let remaining = limit.saturating_sub(bytes.len());
+        let retained = read.min(remaining);
+        bytes.extend_from_slice(&buffer[..retained]);
+
+        if let Some(output) = &output {
+            output.emit(String::from_utf8_lossy(&buffer[..retained]).to_string());
+        }
+
+        truncated |= retained < read;
+    }
+
+    Ok(CapturedStream { bytes, truncated })
+}
+
+/// Convert captured stream bytes to text and append a truncation notice.
+fn format_captured_stream(
+    name: &str,
+    captured: CapturedStream,
+) -> String {
+    let mut output = String::from_utf8_lossy(&captured.bytes).to_string();
+
+    if captured.truncated {
+        output.push_str(&format!(
+            "\n[{name} truncated after {} bytes]",
+            captured.bytes.len()
+        ));
+    }
+
+    output
 }
 
 /// Load global tools first and project-local tools second. Project definitions
@@ -761,6 +852,54 @@ mod tests {
                 .to_string()
                 .contains("timeout must be greater than zero")
         );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn streams_stdout_before_the_script_finishes() {
+        let definition: ScriptToolDefinition = toml::from_str(
+            "command = [\"sh\", \"-c\", \"printf first; sleep 1; printf second\"]\n\
+             description = \"Stream stdout\"",
+        )
+        .unwrap();
+
+        let tool = ScriptTool::from_definition(
+            "stream-stdout".to_string(),
+            definition,
+            Path::new("/tmp/script-tools/stream-stdout.toml"),
+            60,
+        )
+        .unwrap();
+
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+
+        let output = ToolOutputSink::new(sender, "call-1", "stream-stdout");
+
+        let arguments = json!({});
+
+        let execution = tool.execute_with_output(&arguments, None, Some(output));
+        tokio::pin!(execution);
+
+        let first_output = tokio::select! {
+            output = receiver.recv() => output.expect("output channel should remain open"),
+
+            result = &mut execution => panic!("script finished before emitting output: {result:?}"),
+
+            _ = tokio::time::sleep(Duration::from_millis(500)) => {
+                panic!("stdout should arrive before the script completes");
+            },
+        };
+
+        assert_eq!(first_output.tool_call_id, "call-1");
+        assert_eq!(first_output.output, "first");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut execution)
+                .await
+                .is_err()
+        );
+
+        let result = execution.await.unwrap();
+        assert_eq!(result.content, "firstsecond");
     }
 
     #[tokio::test]
