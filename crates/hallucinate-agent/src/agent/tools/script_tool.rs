@@ -55,6 +55,10 @@ pub struct ScriptToolDefinition {
     shell: Option<Vec<String>>,
 
     #[serde(default)]
+    /// Maximum execution time in seconds. Defaults to the configured shell timeout.
+    timeout: Option<u64>,
+
+    #[serde(default)]
     /// Named parameters accepted by the tool.
     parameters: BTreeMap<String, ScriptToolParameter>,
 }
@@ -131,6 +135,10 @@ impl ScriptTool {
             anyhow::bail!("shell must contain a non-empty executable when configured");
         }
 
+        if definition.timeout.is_some_and(|timeout| timeout == 0) {
+            anyhow::bail!("timeout must be greater than zero when configured");
+        }
+
         for (name, parameter) in &definition.parameters {
             if !valid_name(name, false) {
                 anyhow::bail!(
@@ -156,7 +164,7 @@ impl ScriptTool {
             command: definition.command,
             shell: definition.shell,
             parameters: definition.parameters,
-            timeout,
+            timeout: definition.timeout.unwrap_or(timeout),
             limits: ToolLimits::default(),
         })
     }
@@ -514,7 +522,7 @@ mod tests {
 
     #[test]
     fn schema_and_template_use_declared_parameters() {
-        let definition: ScriptToolDefinition = toml::from_str("command = [\"echo\", \"{{name}}\"]\ndescription = \"test\"\n[parameters.name]\ndescription = \"Name\"\nrequired = true").unwrap();
+        let definition: ScriptToolDefinition = toml::from_str("command = [\"echo\", \"{{name}}\"]\ndescription = \"test\"\ntimeout = 30\n[parameters.name]\ndescription = \"Name\"\nrequired = true").unwrap();
 
         let tool = ScriptTool::from_definition(
             "example".to_string(),
@@ -524,11 +532,32 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(tool.timeout, 30);
         assert_eq!(tool.parameters()["required"], json!(["name"]));
         assert_eq!(
             tool.render_command(&Map::from_iter([(String::from("name"), json!("Ada"))]))
                 .unwrap(),
             vec!["echo", "Ada"]
+        );
+    }
+
+    #[test]
+    fn rejects_a_zero_timeout() {
+        let definition: ScriptToolDefinition =
+            toml::from_str("command = [\"echo\"]\ndescription = \"test\"\ntimeout = 0").unwrap();
+
+        let error = ScriptTool::from_definition(
+            "example".to_string(),
+            definition,
+            Path::new("/tmp/example.toml"),
+            60,
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("timeout must be greater than zero")
         );
     }
 

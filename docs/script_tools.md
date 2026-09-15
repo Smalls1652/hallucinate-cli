@@ -47,6 +47,7 @@ input_type = "string"
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `shell` | `array` | `$SHELL` (Unix) / `%COMSPEC%` (Windows) | Shell executable and arguments used to run the command. Overrides the global `shell` setting for this tool only. |
+| `timeout` | `integer` | Configured `shell_timeout` (60 seconds by default) | Maximum execution time in seconds. Must be greater than zero. |
 
 ### Parameters
 
@@ -89,7 +90,7 @@ input_type = "string"
 ## Execution Behavior
 
 - **Working directory**: The command runs in the agent's current working directory. The agent may override the CWD per invocation.
-- **Timeout**: Commands are terminated after the configured timeout (default: 60 seconds). Timed-out commands return an error.
+- **Timeout**: Commands are terminated after the timeout specified in the tool definition. Definitions without `timeout` use the configured shell timeout (default: 60 seconds). Timed-out commands return an error.
 - **Shell quoting**: All arguments are single-quoted with inner quotes escaped (`'\''`), preventing injection even when parameter values contain special characters.
 - **Output**: On success, stdout is returned. On failure, stderr is returned. Output is truncated to the configured tool result limit.
 - **Exit code**: The tool reports success or failure based on the process exit code.
@@ -128,6 +129,7 @@ required = true
 command = ["python3", "{{script}}", "--output={{output}}"]
 description = "Run a Python data processing script"
 shell = ["/usr/bin/python3"]
+timeout = 300
 
 [parameters.script]
 description = "Path to the Python script"
@@ -192,6 +194,7 @@ Invalid definitions are silently skipped and logged as diagnostics. Common reaso
 - `command` is empty or has no executable
 - `description` is empty
 - `shell` is configured but has no executable
+- `timeout` is zero
 - Parameter name contains invalid characters (only letters, numbers, and underscores allowed)
 - Parameter `description` is empty
 - Parameter `input_type` is not a supported type

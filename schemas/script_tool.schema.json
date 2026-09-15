@@ -32,6 +32,16 @@
       "items": {
         "type": "string"
       }
+    },
+    "timeout": {
+      "description": "Maximum execution time in seconds. Defaults to the configured shell timeout.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "default": null,
+      "minimum": 0
     }
   },
   "required": [
