@@ -18,6 +18,7 @@ pub mod ls;
 pub mod mcp;
 mod paths;
 pub mod read;
+pub mod script_tool;
 pub mod types;
 mod walker;
 pub mod write;

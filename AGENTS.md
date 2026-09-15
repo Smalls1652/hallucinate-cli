@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**hallucinate** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search), session management, skills, prompt templates, and multiple run modes (interactive, print, RPC).
+**hallucinate** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search, user-defined script tools), session management, skills, prompt templates, and multiple run modes (interactive, print, RPC).
 
 This is a **Cargo workspace** with four crates:
 
@@ -29,6 +29,7 @@ Key features:
 - **Image Support**: Base64 image content and auto-resize via `image` crate
 - **Auth CLI**: `auth set/remove/list` subcommands for provider API key management; keys are stored in the platform-native keyring (macOS keychain, Linux keyutils, Windows keyring), not in the settings file
 - **Configurable Shell**: Bash tool supports explicit shell executable and full shell syntax (pipes, redirects, `&&`, `||`)
+- **Script Tools**: User-defined tools backed by shell commands — define TOML files in `script_tools/` directories to expose any executable as an LLM-invocable tool with typed parameters and `{{parameter}}` template substitution. Loaded from user config and project-local `.hallucinate/script_tools` (project overrides user by tool ID). See `docs/script_tools.md` for the full reference.
 - **System Prompt Override**: Place a `SYSTEM.md` in the config directory to replace the built-in system prompt; `AGENTS.md` at project root is appended under `## Project Instructions`
 - **API Variants**: Both `openai-completions` (Chat Completions wire format) and `openai-responses` (Responses API wire format) are supported
 - **Credential Resolution**: API keys are resolved in order: CLI override → environment variables (global, provider-specific, or fallback) → inline `api_key` in provider TOML settings → platform keyring. The `HALLUCINATE_<PROVIDER>_API_KEY` env var is supported for multi-provider setups
@@ -135,7 +136,8 @@ crates/
 │   │   │       ├── limits.rs    # Tool output size limits
 │   │   │       ├── walker.rs    # Filesystem traversal
 │   │   │       ├── read.rs      # File read
-│   │   │       └── write.rs     # File write
+│   │   │       ├── write.rs     # File write
+│   │   │       └── script_tool.rs # User-defined script tools (TOML-backed shell commands)
 │   │   └── config/          # Settings and paths
 │   │       ├── mod.rs
 │   │       ├── paths.rs     # Config directory paths (.agents protocol support)

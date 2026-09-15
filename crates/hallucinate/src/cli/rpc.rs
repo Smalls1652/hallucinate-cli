@@ -376,6 +376,7 @@ async fn chat(
     )
     .with_cwd(session.cwd.clone());
 
+    // Load MCP servers.
     if let Err(error) = agent.add_mcp_servers(&settings.mcp_servers).await {
         return RpcResponse::error(
             -32603,
@@ -383,6 +384,32 @@ async fn chat(
             id,
             error.to_string(),
         );
+    }
+
+    // Load in any script tools the user has defined.
+    let script_tools = hallucinate_agent::agent::tools::script_tool::load_script_tools(
+        &session.cwd,
+        hallucinate_agent::config::resolve_shell_timeout(settings, None),
+    );
+
+    if let Some(diagnostic) = script_tools.diagnostics.first() {
+        return RpcResponse::error(
+            -32603,
+            "Script tool configuration failed",
+            id,
+            format!("{}: {}", diagnostic.path.display(), diagnostic.message),
+        );
+    }
+
+    for tool in script_tools.tools {
+        if let Err(error) = agent.add_tool_checked(std::sync::Arc::new(tool)) {
+            return RpcResponse::error(
+                -32603,
+                "Script tool configuration failed",
+                id,
+                error.to_string(),
+            );
+        }
     }
 
     if let Some(system_prompt) = &args.system_prompt {

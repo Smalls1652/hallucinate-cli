@@ -166,6 +166,16 @@ pub fn project_agents_skills_dir(cwd: impl AsRef<std::path::Path>) -> PathBuf {
     cwd.as_ref().join(".agents").join("skills")
 }
 
+/// Get the user-level script tool definitions directory.
+pub fn script_tools_dir() -> Option<PathBuf> {
+    config_dir().map(|dir| dir.join("script_tools"))
+}
+
+/// Get the project-local script tool definitions directory.
+pub fn project_script_tools_dir(cwd: impl AsRef<std::path::Path>) -> PathBuf {
+    cwd.as_ref().join(".hallucinate").join("script_tools")
+}
+
 /// Get the user-level prompt templates directory.
 pub fn prompts_dir() -> Option<PathBuf> {
     config_dir().map(|dir| dir.join("prompts"))
@@ -213,6 +223,10 @@ pub fn ensure_directories() -> Result<(), std::io::Error> {
     }
 
     if let Some(dir) = skills_dir() {
+        std::fs::create_dir_all(&dir)?;
+    }
+
+    if let Some(dir) = script_tools_dir() {
         std::fs::create_dir_all(&dir)?;
     }
 

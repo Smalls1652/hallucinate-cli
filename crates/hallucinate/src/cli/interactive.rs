@@ -90,7 +90,30 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
     .with_cwd(cwd.to_string_lossy().into_owned())
     .with_skills(loaded_skills.clone());
 
+    // Load MCP servers.
     agent.add_mcp_servers(&settings.mcp_servers).await?;
+
+    // Load in any script tools the user has defined.
+    let script_tools = hallucinate_agent::agent::tools::script_tool::load_script_tools(
+        &cwd,
+        hallucinate_agent::config::resolve_shell_timeout(settings, None),
+    );
+
+    for diagnostic in script_tools.diagnostics {
+        eprintln!(
+            "Warning: could not load script tool {}: {}",
+            hallucinate_agent::config::paths::display_path(&diagnostic.path, &cwd),
+            diagnostic.message
+        );
+    }
+
+    for tool in script_tools.tools {
+        if agent.add_tool_checked(std::sync::Arc::new(tool)).is_err() {
+            eprintln!(
+                "Warning: could not add script tool because its ID conflicts with an existing tool"
+            );
+        }
+    }
 
     // Apply prompt overrides. Provider credentials and endpoint are resolved
     // when `create_provider` constructs the provider.

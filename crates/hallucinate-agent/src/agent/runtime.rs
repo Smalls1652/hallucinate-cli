@@ -303,6 +303,20 @@ impl Agent {
         self.invalidate_context_base();
     }
 
+    /// Add a model-invocable tool, rejecting duplicate names.
+    pub fn add_tool_checked(
+        &mut self,
+        tool: Arc<dyn AgentTool + Send + Sync>,
+    ) -> Result<(), anyhow::Error> {
+        if self.tool_registry.get_tool(tool.name()).is_some() {
+            anyhow::bail!("tool name conflicts with an existing tool: {}", tool.name());
+        }
+
+        self.add_tool(tool);
+
+        Ok(())
+    }
+
     /// Add all tools discovered from configured MCP servers.
     ///
     /// MCP tools use their remote names by default. A duplicate name—whether
