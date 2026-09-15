@@ -741,6 +741,15 @@ mod tests {
     }
 
     #[test]
+    fn markdown_display_preserves_source_line_breaks() {
+        let rendered = markdown_to_lines("first\r\nsecond")
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>();
+        assert_eq!(rendered, vec!["first", "second"]);
+    }
+
+    #[test]
     fn renders_markdown_structure_without_markers() {
         let output = plain(markdown_to_lines("# Title\n\n- **one**\n- `two`"));
 

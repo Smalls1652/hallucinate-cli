@@ -20,7 +20,7 @@ Key features:
 - **LLM Provider Abstraction**: OpenAI API-compatible provider supporting any compatible endpoint (OpenAI, Azure, Ollama, vLLM, LM Studio, etc.) with multi-provider model support via `providers` config section
 - **Agent Runtime**: Single `Agent` struct in `hallucinate-agent::agent::runtime` owns the production turn-loop, builds context, executes tool calls, and emits lifecycle events
 - **Context Compaction**: Context-history selection at turn boundaries with serialization for LLM-backed summarization; preserves complete user turns
-- **Terminal UI**: Built on `ratatui` with alternate screen, multi-line editor with keyboard enhancements, undo support, model picker overlay, and markdown rendering
+- **Terminal UI**: Built on `ratatui` with alternate screen, multi-line editor with keyboard enhancements, undo support, model picker overlay, markdown rendering, thinking/reasoning display, tool result rendering, and status bar
 - **Multiple Modes**: Interactive (TUI), print (`-p "prompt"`), and RPC (newline-delimited JSON-RPC 2.0 over stdin/stdout)
 - **Session Management**: CLI-oriented JSONL persistence with CRUD operations and lifecycle archival (via `hallucinate-session`)
 
@@ -163,10 +163,15 @@ crates/
     │   ├── components/      # UI components
     │   │   ├── mod.rs
     │   │   ├── editor.rs    # Multi-line editor with cursor, undo, keyboard enhancements
-    │   │   └── markdown.rs  # Markdown rendering
+    │   │   ├── markdown.rs  # Markdown rendering
+    │   │   ├── picker_overlays.rs  # Model picker and other overlay widgets
+    │   │   ├── status_bar.rs   # Status bar rendering
+    │   │   ├── thinking.rs     # Thinking/reasoning display
+    │   │   └── tool_results.rs # Tool call and result rendering
     │   ├── input.rs         # Keyboard/mouse input
     │   ├── keys.rs          # Key parsing
-    │   └── undo.rs          # Undo stack
+    │   ├── undo.rs          # Undo stack
+    │   └── utils.rs         # Shared utilities (line wrapping, truncation, prefixing)
     └── Cargo.toml
 ```
 

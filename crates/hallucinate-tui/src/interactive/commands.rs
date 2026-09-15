@@ -10,17 +10,19 @@ use super::{
     AgentRunCompletion,
     AgentRunOperation,
     InteractiveTui,
-    ModelPicker,
-    PromptPicker,
-    SessionPicker,
-    SessionPickerRow,
-    TranscriptMessagePicker,
-    TranscriptMessagePickerRow,
     session::transcript_from_messages,
     short_session_id,
 };
 use crate::{
     alt_screen::TranscriptRenderer,
+    components::picker_overlays::{
+        ModelPicker,
+        PromptPicker,
+        SessionPicker,
+        SessionPickerRow,
+        TranscriptMessagePicker,
+        TranscriptMessagePickerRow,
+    },
     keys::Key,
     slash_commands::{BUILTIN_COMMANDS, is_builtin_command, parse},
 };

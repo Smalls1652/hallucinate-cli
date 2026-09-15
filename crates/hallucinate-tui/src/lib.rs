@@ -10,3 +10,4 @@ pub mod interactive;
 pub mod keys;
 pub mod slash_commands;
 pub mod undo;
+pub mod utils;

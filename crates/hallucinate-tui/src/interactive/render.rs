@@ -1,29 +1,33 @@
 //! Ratatui rendering for the interactive transcript and overlays.
 
-use std::{borrow::Cow, path::Path};
+use std::path::Path;
 
-use hallucinate_agent::agent::types::AgentState;
 use ratatui::{
+    buffer::Buffer,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Padding, Paragraph, Widget},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::InteractiveTui;
 use crate::{
     alt_screen::{MessageRole, ToolCall, TranscriptRenderer},
-    components::markdown_to_lines,
+    components::{
+        markdown_to_lines,
+        picker_overlays::{
+            render_model_picker,
+            render_prompt_picker,
+            render_session_picker,
+            render_transcript_message_picker,
+        },
+        status_bar::render_status_bar,
+        thinking::append_thinking_box,
+        tool_results::{append_tool_result_box, tool_result_content, tool_result_for_display},
+    },
+    utils::{append_prefixed_lines, line_is_empty, truncate_one_line, wrap_line_to_width},
 };
-
-/// Cached visual transcript layout for a particular content width and display
-/// configuration. It intentionally excludes scrolling so viewport redraws can
-/// reuse the complete layout without reparsing historic Markdown or cloning
-/// every visual line.
-const COMPACT_TOOL_RESULT_WIDTH: usize = 100;
-
-const MINIMUM_HALF_WIDTH_TOOL_RESULT_TERMINAL_WIDTH: u16 = 95;
 
 #[derive(Default)]
 pub(super) struct TranscriptLayoutCache {
@@ -46,7 +50,7 @@ pub(super) struct TranscriptLayoutCache {
     transcript_revision: u64,
 
     /// Cached visual transcript lines.
-    lines: Vec<ratatui::text::Line<'static>>,
+    lines: Vec<Line<'static>>,
 
     /// Column offset where each line becomes selectable, or `None`.
     selection_line_starts: Vec<Option<usize>>,
@@ -63,7 +67,7 @@ pub(super) struct TranscriptLayoutCache {
 /// viewport, making scroll work proportional to the terminal height.
 struct TranscriptViewport<'a> {
     /// Cached visual lines to render.
-    lines: &'a [ratatui::text::Line<'static>],
+    lines: &'a [Line<'static>],
 
     /// Number of rows to skip from the top (scroll offset).
     scroll: usize,
@@ -73,7 +77,7 @@ impl ratatui::widgets::Widget for TranscriptViewport<'_> {
     fn render(
         self,
         area: Rect,
-        buffer: &mut ratatui::buffer::Buffer,
+        buffer: &mut Buffer,
     ) {
         // Unlike Paragraph, this lightweight viewport does not render trailing
         // spaces for every row. Clear its complete area first so shorter rows,
@@ -124,7 +128,7 @@ impl TranscriptLayoutCache {
         width: u16,
         show_full_tool_output: bool,
         streaming_message_index: Option<usize>,
-        lines: Vec<ratatui::text::Line<'static>>,
+        lines: Vec<Line<'static>>,
         selection_line_starts: Vec<Option<usize>>,
         selection_message_indices: Vec<Option<usize>>,
     ) {
@@ -295,12 +299,6 @@ fn render_transcript(
     streaming_message_index: Option<usize>,
     project_cwd: &Path,
 ) -> String {
-    use ratatui::{
-        style::{Color, Modifier, Style},
-        text::{Line, Span},
-        widgets::{Block, Borders, Padding, Paragraph, Widget},
-    };
-
     // Transcript
     //
     // Messages use a light-weight chat-card treatment instead of a
@@ -639,7 +637,7 @@ fn render_transcript(
             .map(|(line, start)| selection_mask_line(line, start))
             .collect::<Vec<_>>();
 
-        let mut mask_buffer = ratatui::buffer::Buffer::empty(area);
+        let mut mask_buffer = Buffer::empty(area);
         let mask = Paragraph::new(selection_mask_lines);
         mask.render(transcript_inner_area, &mut mask_buffer);
 
@@ -721,202 +719,6 @@ fn selected_markdown(
         .join("\n\n")
 }
 
-/// Render the active model picker overlay.
-fn render_model_picker(
-    frame: &mut ratatui::Frame,
-    picker: Option<&super::ModelPicker>,
-    models: &[hallucinate_agent::ai::types::Model],
-) {
-    let Some(picker) = picker else {
-        return;
-    };
-
-    render_picker(
-        frame,
-        &format!(
-            " Select model · filter: {} · ↑↓ PgUp/PgDn Home/End Enter Esc ",
-            picker.filter
-        ),
-        &picker.filtered_indices,
-        picker.selected,
-        |model_index, selected_index, _| {
-            let model = &models[model_index];
-            let metadata = format!(
-                "context {} · max {} · {}{}",
-                model.context_window,
-                model.max_tokens,
-                model.input.join(", "),
-                if model.reasoning { " · reasoning" } else { "" }
-            );
-
-            picker_row(
-                selected_index,
-                picker.selected,
-                vec![
-                    Span::styled(
-                        model.name.to_string(),
-                        Style::default().add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        " - ",
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::DIM),
-                    ),
-                    Span::styled(
-                        format!("{}/{}", model.provider, model.id),
-                        Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM),
-                    ),
-                    Span::styled(
-                        format!(" ({})", metadata),
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::DIM),
-                    ),
-                ],
-            )
-        },
-    );
-}
-
-/// Render the active session picker overlay.
-fn render_session_picker(
-    frame: &mut ratatui::Frame,
-    picker: Option<&super::SessionPicker>,
-) {
-    let Some(picker) = picker else {
-        return;
-    };
-
-    render_picker(
-        frame,
-        &format!(
-            " Select session · filter: {} · ↑↓ PgUp/PgDn Home/End Enter Esc ",
-            picker.filter
-        ),
-        &picker.filtered_indices,
-        picker.selected,
-        |session_index, selected_index, popup_width| {
-            let session = &picker.rows[session_index];
-            let title =
-                truncate_one_line(&session.title, usize::from(popup_width.saturating_sub(34)));
-
-            picker_row(
-                selected_index,
-                picker.selected,
-                vec![
-                    Span::styled(
-                        format!("{:<8}  ", session.short_id),
-                        Style::default().fg(Color::Cyan),
-                    ),
-                    Span::styled(
-                        format!("{:<16}  ", session.datetime),
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                    Span::styled(title, Style::default().fg(Color::White)),
-                ],
-            )
-        },
-    );
-}
-
-/// Render the active prompt picker overlay.
-fn render_prompt_picker(
-    frame: &mut ratatui::Frame,
-    picker: Option<&super::PromptPicker>,
-    prompt_templates: &[hallucinate_agent::agent::prompt_templates::PromptTemplate],
-) {
-    let Some(picker) = picker else {
-        return;
-    };
-
-    render_picker(
-        frame,
-        &format!(
-            " Select prompt · filter: {} · ↑↓ PgUp/PgDn Home/End Enter Esc ",
-            picker.filter
-        ),
-        &picker.filtered_indices,
-        picker.selected,
-        |template_index, selected_index, _| {
-            let template = &prompt_templates[template_index];
-            let hint = template
-                .argument_hint
-                .as_deref()
-                .map(|hint| format!(" {hint}"))
-                .unwrap_or_default();
-
-            picker_row(
-                selected_index,
-                picker.selected,
-                vec![
-                    Span::styled(
-                        format!("/{}", template.name),
-                        Style::default().add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        hint,
-                        Style::default()
-                            .add_modifier(Modifier::DIM)
-                            .add_modifier(Modifier::ITALIC),
-                    ),
-                    Span::styled(
-                        " - ",
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::DIM),
-                    ),
-                    Span::styled(
-                        template.description.clone(),
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                ],
-            )
-        },
-    );
-}
-
-/// Render the active transcript-message picker overlay.
-fn render_transcript_message_picker(
-    frame: &mut ratatui::Frame,
-    picker: Option<&super::TranscriptMessagePicker>,
-) {
-    let Some(picker) = picker else {
-        return;
-    };
-
-    render_picker(
-        frame,
-        " Select message to copy · ↑↓ PgUp/PgDn Home/End Enter Esc ",
-        &(0..picker.rows.len()).collect::<Vec<_>>(),
-        picker.selected,
-        |row_index, selected_index, popup_width| {
-            let row = &picker.rows[row_index];
-            let role = match row.role {
-                MessageRole::User => "You",
-                MessageRole::Assistant => "Assistant",
-                _ => unreachable!("copy picker contains only user or assistant messages"),
-            };
-            let preview =
-                truncate_one_line(&row.preview, usize::from(popup_width.saturating_sub(16)));
-
-            picker_row(
-                selected_index,
-                picker.selected,
-                vec![
-                    Span::styled(
-                        format!("{role:<9}"),
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(preview, Style::default().fg(Color::White)),
-                ],
-            )
-        },
-    );
-}
-
 /// Render a modal warning before deleting all saved sessions in a directory.
 fn render_clear_sessions_confirmation(
     frame: &mut ratatui::Frame,
@@ -957,164 +759,6 @@ fn render_clear_sessions_confirmation(
             ),
         popup_area,
     );
-}
-
-/// Render a centered, scrollable picker popup.
-fn render_picker<F>(
-    frame: &mut ratatui::Frame,
-    title: &str,
-    filtered_indices: &[usize],
-    selected: usize,
-    mut render_row: F,
-) where
-    F: FnMut(usize, usize, u16) -> ratatui::text::Line<'static>,
-{
-    let item_count = filtered_indices.len();
-    let area = frame.area();
-    let popup_width = area.width.saturating_sub(4).min(140);
-    let popup_height = area
-        .height
-        .saturating_sub(4)
-        .min((item_count.max(1) + 2).min(18) as u16);
-
-    if popup_width <= 4 || popup_height <= 2 {
-        return;
-    }
-
-    let popup_area = Rect::new(
-        area.x + (area.width - popup_width) / 2,
-        area.y + (area.height - popup_height) / 2,
-        popup_width,
-        popup_height,
-    );
-
-    let visible_rows = usize::from(popup_height.saturating_sub(2));
-    let start = selected
-        .saturating_sub(visible_rows / 2)
-        .min(item_count.saturating_sub(visible_rows));
-    let rows = (start..item_count)
-        .take(visible_rows)
-        .map(|index| render_row(filtered_indices[index], index, popup_width))
-        .collect::<Vec<_>>();
-
-    frame.render_widget(Clear, popup_area);
-    frame.render_widget(
-        Paragraph::new(rows).block(Block::default().borders(Borders::ALL).title(title)),
-        popup_area,
-    );
-}
-
-/// Prefix a picker row with its selected-state marker.
-///
-/// The marker is `> ` for the selected row and `  ` (two spaces) for others.
-fn picker_row(
-    index: usize,
-    selected: usize,
-    mut spans: Vec<ratatui::text::Span<'static>>,
-) -> ratatui::text::Line<'static> {
-    spans.insert(
-        0,
-        Span::styled(
-            if index == selected { "> " } else { "  " },
-            Style::default().fg(if index == selected {
-                Color::Yellow
-            } else {
-                Color::DarkGray
-            }),
-        ),
-    );
-
-    Line::from(spans)
-}
-
-/// Render the session state and model information above the transcript.
-fn render_status_bar(
-    frame: &mut ratatui::Frame,
-    area: Rect,
-    agent_state: &AgentState,
-    session_manager: &hallucinate_session::SessionManager,
-    token_count: u64,
-    model: &hallucinate_agent::ai::types::Model,
-    show_thinking: bool,
-    title_generation_in_progress: bool,
-    notice: Option<&super::EphemeralNotice>,
-) {
-    let state_str = if title_generation_in_progress {
-        "generating title...".to_string()
-    } else {
-        match agent_state {
-            AgentState::Idle => "idle".to_string(),
-
-            AgentState::Streaming => "streaming...".to_string(),
-
-            AgentState::ToolExecuting => "executing tools...".to_string(),
-
-            AgentState::TurnComplete => "idle".to_string(),
-
-            AgentState::Error(_) => "error — see transcript".to_string(),
-
-            AgentState::Aborted => "aborted".to_string(),
-        }
-    };
-
-    let session_id = session_manager
-        .current_id()
-        .map(|id| &id[..8.min(id.len())])
-        .unwrap_or("none");
-    let session_title = session_manager
-        .current()
-        .and_then(|session| session.title.as_deref())
-        .filter(|title| !title.trim().is_empty());
-
-    let token_count = format!("{token_count} tokens");
-
-    let status_text = Line::from(vec![
-        Span::styled(
-            "hallucinate ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        ),
-        if let Some(notice) = notice {
-            Span::styled(
-                format!("! {}  |  ", truncate_one_line(&notice.message, 80)),
-                Style::default().fg(Color::LightYellow),
-            )
-        } else {
-            Span::styled("", Style::default())
-        },
-        Span::styled("[", Style::default().fg(Color::DarkGray)),
-        Span::styled(state_str, Style::default().fg(Color::Yellow)),
-        Span::styled("] ", Style::default().fg(Color::DarkGray)),
-        Span::styled("session:", Style::default().fg(Color::DarkGray)),
-        if let Some(title) = session_title {
-            Span::styled(
-                truncate_one_line(title, 48),
-                Style::default().fg(Color::White),
-            )
-        } else {
-            Span::styled(session_id, Style::default().fg(Color::Green))
-        },
-        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-        Span::styled(token_count, Style::default().fg(Color::DarkGray)),
-        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            format!("model: {}/{}", model.provider, model.id),
-            Style::default().fg(Color::Cyan),
-        ),
-        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            if show_thinking {
-                "thinking: on"
-            } else {
-                "thinking: off"
-            },
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]);
-
-    let status = Paragraph::new(status_text);
-    frame.render_widget(status, area);
 }
 
 /// Return a concise tool-call summary while the provider streams raw JSON.
@@ -1267,29 +911,24 @@ fn ends_transcript_card(
     )
 }
 
-/// Return whether a [`Line`] contains no non-empty spans.
-fn line_is_empty(line: &ratatui::text::Line<'_>) -> bool {
-    line.spans.iter().all(|span| span.content.is_empty())
-}
-
 /// Return whether a [`Line`] consists solely of the card-rail marker `"│ "`.
-fn line_is_empty_card_rail(line: &ratatui::text::Line<'_>) -> bool {
+fn line_is_empty_card_rail(line: &Line<'_>) -> bool {
     line.spans.iter().all(|span| span.content == "│ ")
 }
 
 /// Foreground color marker for selectable text in the transcript.
-const SELECTION_MARKER: ratatui::style::Color = ratatui::style::Color::Rgb(1, 2, 3);
+const SELECTION_MARKER: Color = Color::Rgb(1, 2, 3);
 
 /// Foreground color marker for non-selectable text in the transcript.
-const NON_SELECTION_MARKER: ratatui::style::Color = ratatui::style::Color::Rgb(4, 5, 6);
+const NON_SELECTION_MARKER: Color = Color::Rgb(4, 5, 6);
 
 /// Make a copy of a rendered line for the selection mask. Keeping the original
 /// symbols means ratatui applies exactly the same word wrapping to the mask as
 /// it applies to the visible transcript; only the foreground color differs.
 fn selection_mask_line(
-    line: &ratatui::text::Line<'static>,
+    line: &Line<'static>,
     selectable_start: Option<usize>,
-) -> ratatui::text::Line<'static> {
+) -> Line<'static> {
     let mut column = 0;
 
     let spans = line
@@ -1300,9 +939,9 @@ fn selection_mask_line(
 
             column += span.content.width();
 
-            ratatui::text::Span::styled(
+            Span::styled(
                 span.content.clone(),
-                ratatui::style::Style::default().fg(if selectable {
+                Style::default().fg(if selectable {
                     SELECTION_MARKER
                 } else {
                     NON_SELECTION_MARKER
@@ -1311,443 +950,23 @@ fn selection_mask_line(
         })
         .collect();
 
-    ratatui::text::Line {
+    Line {
         style: line.style,
         alignment: line.alignment,
         spans,
     }
 }
 
-/// Wrap a styled Markdown line to the available content width.
-///
-/// Ratatui's `Paragraph` wrapper is intentionally used here so word breaking,
-/// whitespace, and Unicode graphemes behave exactly as they do in the final
-/// widget. Rendering into a temporary buffer lets us turn the wrapped visual
-/// rows back into `Line`s without losing inline styles.
-fn wrap_line_to_width(
-    line: ratatui::text::Line<'static>,
-    width: u16,
-) -> Vec<ratatui::text::Line<'static>> {
-    if width == 0 {
-        return vec![ratatui::text::Line::from("")];
-    }
-
-    let line_style = line.style;
-    let alignment = line.alignment;
-
-    let paragraph =
-        ratatui::widgets::Paragraph::new(line).wrap(ratatui::widgets::Wrap { trim: false });
-
-    let line_count = paragraph.line_count(width).max(1);
-
-    let height = u16::try_from(line_count).unwrap_or(u16::MAX);
-    let area = ratatui::layout::Rect::new(0, 0, width, height);
-
-    let mut buffer = ratatui::buffer::Buffer::empty(area);
-    ratatui::widgets::Widget::render(paragraph, area, &mut buffer);
-
-    (0..height)
-        .map(|row| {
-            let mut spans = Vec::new();
-            let mut column = 0;
-
-            while column < width {
-                let cell = buffer
-                    .cell((column, row))
-                    .expect("temporary wrapping buffer contains every cell");
-
-                let symbol = cell.symbol();
-                let symbol_width = UnicodeWidthStr::width(symbol) as u16;
-
-                if symbol_width == 0 {
-                    column += 1;
-                    continue;
-                }
-
-                spans.push(ratatui::text::Span::styled(
-                    symbol.to_string(),
-                    cell.style(),
-                ));
-
-                // A wide grapheme occupies more than one buffer cell. Skip
-                // its continuation cells so it is not emitted twice when the
-                // reconstructed line is rendered again.
-                column = column.saturating_add(symbol_width).min(width);
-            }
-
-            while spans
-                .last()
-                .is_some_and(|span| span.content.as_ref() == " ")
-            {
-                spans.pop();
-            }
-
-            ratatui::text::Line {
-                style: line_style,
-                alignment,
-                spans,
-            }
-        })
-        .collect()
-}
-
 /// Prefix a Markdown line with the transcript's accent rail while preserving
 /// all of the inline styles produced by the Markdown renderer.
 fn prefix_message_line(
-    line: ratatui::text::Line<'static>,
-    accent: ratatui::style::Color,
-) -> ratatui::text::Line<'static> {
-    let mut spans = vec![ratatui::text::Span::styled(
-        "│ ",
-        ratatui::style::Style::default().fg(accent),
-    )];
+    line: Line<'static>,
+    accent: Color,
+) -> Line<'static> {
+    let mut spans = vec![Span::styled("│ ", Style::default().fg(accent))];
     spans.extend(line.spans);
 
-    ratatui::text::Line::from(spans)
-}
-
-/// Append a muted, boxed reasoning surface inside an assistant card.
-///
-/// Thinking uses the same compact dimensions and padded rows as tool output,
-/// making streamed reasoning a distinct transcript item instead of text that
-/// blends into the assistant response.
-fn append_thinking_box(
-    lines: &mut Vec<ratatui::text::Line<'static>>,
-    thinking: &str,
-    width: u16,
-) {
-    if width == 0 {
-        return;
-    }
-
-    let style = Style::default()
-        .fg(Color::Gray)
-        .bg(Color::Rgb(45, 45, 45))
-        .add_modifier(Modifier::DIM);
-    let rail_style = Style::default().fg(Color::Gray);
-
-    let box_width = tool_result_box_width(width);
-    let horizontal_padding = usize::from(box_width >= 3);
-    let content_width = box_width.saturating_sub(horizontal_padding * 2).max(1);
-
-    lines.push(Line::from(vec![
-        Span::styled("│ ", rail_style),
-        Span::styled(" ".repeat(box_width), style),
-    ]));
-
-    let heading_style = style.add_modifier(Modifier::ITALIC);
-    append_thinking_box_line(
-        lines,
-        Line::from(Span::styled("💭 Thinking", heading_style)),
-        style,
-        rail_style,
-        content_width,
-        horizontal_padding,
-    );
-
-    let mut thinking_lines = markdown_to_lines(thinking);
-    while thinking_lines.last().is_some_and(line_is_empty) {
-        thinking_lines.pop();
-    }
-
-    for thinking_line in thinking_lines {
-        // Reasoning formatting is intentionally flattened so this surface stays
-        // quiet.
-        let thinking_line = Line::from(
-            thinking_line
-                .spans
-                .into_iter()
-                .map(|span| Span::styled(span.content.into_owned(), style))
-                .collect::<Vec<_>>(),
-        );
-
-        append_thinking_box_line(
-            lines,
-            thinking_line,
-            style,
-            rail_style,
-            content_width,
-            horizontal_padding,
-        );
-    }
-
-    lines.push(Line::from(vec![
-        Span::styled("│ ", rail_style),
-        Span::styled(" ".repeat(box_width), style),
-    ]));
-}
-
-/// Append one wrapped line to a thinking surface, preserving its padding.
-fn append_thinking_box_line(
-    lines: &mut Vec<ratatui::text::Line<'static>>,
-    line: ratatui::text::Line<'static>,
-    style: ratatui::style::Style,
-    rail_style: ratatui::style::Style,
-    content_width: usize,
-    horizontal_padding: usize,
-) {
-    for line in wrap_line_to_width(line, u16::try_from(content_width).unwrap_or(u16::MAX)) {
-        let remaining_width = content_width.saturating_sub(line.width());
-
-        let mut spans = vec![Span::styled("│ ", rail_style)];
-
-        if horizontal_padding > 0 {
-            spans.push(Span::styled(" ".repeat(horizontal_padding), style));
-        }
-        spans.extend(line.spans);
-
-        if remaining_width > 0 {
-            spans.push(Span::styled(" ".repeat(remaining_width), style));
-        }
-
-        if horizontal_padding > 0 {
-            spans.push(Span::styled(" ".repeat(horizontal_padding), style));
-        }
-
-        lines.push(Line::from(spans));
-    }
-}
-
-/// Append a color-coded surface for tool output.
-///
-/// The assistant card rail remains visible on the left, with a small gap before
-/// the result box. The box is half-width in sufficiently wide terminals, but
-/// fills the remaining width in narrow terminals so its content stays legible.
-/// Running output uses an amber surface distinct from completed success and
-/// failure results, so streamed output visibly indicates that the tool has not
-/// finished yet.
-fn append_tool_result_box(
-    lines: &mut Vec<ratatui::text::Line<'static>>,
-    result: &str,
-    is_error: bool,
-    is_running: bool,
-    width: u16,
-) {
-    if width == 0 {
-        return;
-    }
-
-    let background = if is_running {
-        Color::Rgb(65, 50, 15)
-    } else if is_error {
-        Color::Rgb(80, 20, 20)
-    } else {
-        Color::Rgb(15, 65, 30)
-    };
-
-    let style = Style::default().fg(Color::DarkGray).bg(background);
-    let rail_style = Style::default().fg(Color::LightBlue);
-
-    let box_width = tool_result_box_width(width);
-
-    // Keep the output clear of the coloured box edges without overflowing very
-    // narrow terminal layouts.
-    let horizontal_padding = usize::from(box_width >= 3);
-    let content_width = box_width.saturating_sub(horizontal_padding * 2).max(1);
-
-    lines.push(ratatui::text::Line::from(vec![
-        Span::styled("│ ", rail_style),
-        Span::styled(" ".repeat(box_width), style),
-    ]));
-
-    for physical_line in result.split('\n') {
-        for line in wrap_line_to_width(
-            styled_tool_result_line(physical_line.trim_end(), style),
-            u16::try_from(content_width).unwrap_or(u16::MAX),
-        ) {
-            let content_width_used = line.width();
-            let remaining_width = content_width.saturating_sub(content_width_used);
-
-            let mut spans = vec![Span::styled("│ ", rail_style)];
-
-            if horizontal_padding > 0 {
-                spans.push(Span::styled(" ".repeat(horizontal_padding), style));
-            }
-            spans.extend(line.spans);
-
-            if remaining_width > 0 {
-                spans.push(Span::styled(" ".repeat(remaining_width), style));
-            }
-
-            if horizontal_padding > 0 {
-                spans.push(Span::styled(" ".repeat(horizontal_padding), style));
-            }
-
-            lines.push(ratatui::text::Line::from(spans));
-        }
-    }
-}
-
-/// Return the width used by compact transcript surfaces.
-///
-/// In narrow terminals the box fills the remaining width; in wide ones it
-/// stays at half width for a balanced layout.
-fn tool_result_box_width(width: u16) -> usize {
-    if width < MINIMUM_HALF_WIDTH_TOOL_RESULT_TERMINAL_WIDTH {
-        // Half-width output becomes too narrow for useful content below a
-        // conventional 95-column terminal.
-        usize::from(width.saturating_sub(2).max(1))
-    } else {
-        usize::from(width / 2)
-    }
-}
-
-/// Style edit diffs directly in tool-result surfaces without exposing Markdown
-/// syntax in the transcript.
-fn styled_tool_result_line(
-    content: &str,
-    default_style: Style,
-) -> ratatui::text::Line<'static> {
-    let (marker, text, marker_style) = if let Some(text) = content.strip_prefix("  − ") {
-        (
-            "  − ",
-            text,
-            default_style
-                .fg(Color::LightRed)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else if let Some(text) = content.strip_prefix("  + ") {
-        (
-            "  + ",
-            text,
-            default_style
-                .fg(Color::LightGreen)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else if content.starts_with("Edit ") {
-        (
-            "",
-            content,
-            default_style
-                .fg(Color::LightCyan)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else {
-        return ratatui::text::Line::from(Span::styled(content.to_string(), default_style));
-    };
-
-    ratatui::text::Line::from(vec![
-        Span::styled(marker, marker_style),
-        Span::styled(text.to_string(), default_style),
-    ])
-}
-
-/// Remove the internal success or failure marker from persisted tool output.
-///
-/// Status is represented by the result box colour rather than a repeated emoji
-/// in the transcript.
-fn tool_result_content(result: &str) -> &str {
-    result
-        .strip_prefix("✅ ")
-        .or_else(|| result.strip_prefix("❌ "))
-        .unwrap_or(result)
-}
-
-/// Append text that may contain newlines, using the supplied visual prefix on
-/// continuation lines (useful for tool calls and results).
-fn append_prefixed_lines(
-    lines: &mut Vec<ratatui::text::Line<'static>>,
-    text: &str,
-    prefix: &'static str,
-    continuation_prefix: &'static str,
-    prefix_style: ratatui::style::Style,
-    text_style: ratatui::style::Style,
-    width: u16,
-) {
-    let prefix_width = prefix.width().max(continuation_prefix.width());
-    let prefix_width = u16::try_from(prefix_width).unwrap_or(u16::MAX);
-    let content_width = width.saturating_sub(prefix_width);
-
-    for (index, physical_line) in text.split('\n').enumerate() {
-        let initial_prefix = if index == 0 {
-            prefix
-        } else {
-            continuation_prefix
-        };
-
-        let wrapped_lines = wrap_line_to_width(
-            ratatui::text::Line::from(ratatui::text::Span::styled(
-                physical_line.trim_end().to_string(),
-                text_style,
-            )),
-            content_width,
-        );
-
-        for (wrapped_index, line) in wrapped_lines.into_iter().enumerate() {
-            let line_prefix = if wrapped_index == 0 {
-                initial_prefix
-            } else {
-                continuation_prefix
-            };
-
-            let mut spans = vec![ratatui::text::Span::styled(line_prefix, prefix_style)];
-            spans.extend(line.spans);
-
-            lines.push(ratatui::text::Line::from(spans));
-        }
-    }
-}
-
-/// Return a tool result in its selected transcript display mode.
-///
-/// Full output remains subject to the tool's execution-time result limit; this
-/// setting only controls the TUI's compact display.
-fn tool_result_for_display<'a>(
-    result: &'a str,
-    show_full_tool_output: bool,
-) -> Cow<'a, str> {
-    if show_full_tool_output {
-        Cow::Borrowed(result)
-    } else {
-        Cow::Owned(truncate_width(result, COMPACT_TOOL_RESULT_WIDTH))
-    }
-}
-
-/// Truncate a string to one display line and a maximum display width.
-///
-/// Carriage returns and newlines are replaced with spaces so the result fits
-/// on a single terminal row, then the result is truncated to `max_width`.
-fn truncate_one_line(
-    s: &str,
-    max_width: usize,
-) -> String {
-    let single_line = s.replace(['\r', '\n'], " ");
-
-    truncate_width(&single_line, max_width)
-}
-
-/// Truncate a string to a maximum display width.
-fn truncate_width(
-    s: &str,
-    max_width: usize,
-) -> String {
-    let total_width: usize = s.chars().map(|ch| ch.width().unwrap_or(0)).sum();
-
-    if total_width <= max_width {
-        return s.to_string();
-    }
-
-    if max_width == 0 {
-        return String::new();
-    }
-
-    let mut result = String::with_capacity(max_width);
-    let mut current_width = 0;
-
-    for ch in s.chars() {
-        let ch_width = ch.width().unwrap_or(0);
-
-        if current_width + ch_width > max_width - 1 {
-            break;
-        }
-
-        current_width += ch_width;
-        result.push(ch);
-    }
-
-    result.push('…');
-
-    result
+    Line::from(spans)
 }
 
 #[cfg(test)]
@@ -1803,107 +1022,6 @@ mod tests {
     }
 
     #[test]
-    fn tool_output_display_can_switch_between_compact_and_full() {
-        let result = format!("{} tail", "x".repeat(COMPACT_TOOL_RESULT_WIDTH));
-
-        assert_eq!(
-            tool_result_for_display(&result, false),
-            format!("{}…", "x".repeat(COMPACT_TOOL_RESULT_WIDTH - 1)),
-        );
-        assert_eq!(tool_result_for_display(&result, true), result);
-    }
-
-    #[test]
-    fn tool_result_boxes_are_half_width_with_padding_from_the_rail() {
-        let mut success_lines = Vec::new();
-        append_tool_result_box(&mut success_lines, "done", false, false, 95);
-
-        assert_eq!(success_lines.len(), 2);
-        assert_eq!(success_lines[0].width(), 49);
-        assert_eq!(success_lines[0].spans[0].content, "│ ");
-        assert_eq!(success_lines[0].spans[0].style.bg, None);
-        assert_eq!(
-            success_lines[0].spans[1].style.bg,
-            Some(Color::Rgb(15, 65, 30)),
-        );
-        assert_eq!(success_lines[0].spans[1].style.fg, Some(Color::DarkGray));
-        assert_eq!(success_lines[0].spans[1].content, " ".repeat(47));
-        assert_eq!(success_lines[1].width(), 49);
-        assert_eq!(success_lines[1].spans[0].content, "│ ");
-        assert_eq!(success_lines[1].spans[0].style.bg, None);
-        assert_eq!(
-            success_lines[1].spans[1].style.bg,
-            Some(Color::Rgb(15, 65, 30)),
-        );
-        assert_eq!(success_lines[1].spans[1].style.fg, Some(Color::DarkGray));
-
-        let success_content = success_lines[1]
-            .spans
-            .iter()
-            .skip(1)
-            .map(|span| span.content.as_ref())
-            .collect::<String>();
-        assert_eq!(success_content, format!(" done{}", " ".repeat(42)));
-
-        let mut error_lines = Vec::new();
-        append_tool_result_box(&mut error_lines, "failed", true, false, 95);
-
-        assert_eq!(error_lines.len(), 2);
-        assert_eq!(error_lines[0].width(), 49);
-        assert_eq!(
-            error_lines[0].spans[1].style.bg,
-            Some(Color::Rgb(80, 20, 20)),
-        );
-        assert_eq!(error_lines[0].spans[1].style.fg, Some(Color::DarkGray));
-        assert_eq!(error_lines[0].spans[1].content, " ".repeat(47));
-        assert_eq!(error_lines[1].spans[1].style.fg, Some(Color::DarkGray));
-
-        let mut running_lines = Vec::new();
-        append_tool_result_box(&mut running_lines, "streaming", false, true, 95);
-
-        assert_eq!(
-            running_lines[0].spans[1].style.bg,
-            Some(Color::Rgb(65, 50, 15)),
-        );
-        assert_eq!(
-            running_lines[1].spans[1].style.bg,
-            Some(Color::Rgb(65, 50, 15)),
-        );
-    }
-
-    #[test]
-    fn tool_result_boxes_fill_narrow_terminal_widths() {
-        let mut lines = Vec::new();
-        append_tool_result_box(&mut lines, "done", false, false, 20);
-
-        assert_eq!(lines[0].width(), 20);
-        assert_eq!(lines[0].spans[1].content, " ".repeat(18));
-        assert_eq!(lines[1].width(), 20);
-    }
-
-    #[test]
-    fn styles_edit_diff_lines_without_markdown() {
-        let default_style = Style::default().fg(Color::DarkGray);
-        let removed = styled_tool_result_line("  − old value", default_style);
-        let added = styled_tool_result_line("  + new value", default_style);
-        let header = styled_tool_result_line("Edit 1 · 1 occurrence(s)", default_style);
-
-        assert_eq!(removed.spans[0].content, "  − ");
-        assert_eq!(removed.spans[1].content, "old value");
-        assert_eq!(removed.spans[1].style, default_style);
-        assert_eq!(added.spans[0].content, "  + ");
-        assert_eq!(added.spans[0].style.fg, Some(Color::LightGreen));
-        assert_eq!(header.spans[0].style.fg, Some(Color::LightCyan));
-    }
-
-    #[test]
-    fn tool_result_content_removes_the_status_emoji() {
-        assert_eq!(tool_result_content("✅ completed"), "completed");
-        assert_eq!(tool_result_content("❌ failed"), "failed");
-        assert_eq!(tool_result_content("unmarked output"), "unmarked output");
-    }
-
-    #[test]
     fn long_message_rows_keep_their_rail_when_wrapped() {
         let rows = wrap_line_to_width(Line::from("one two three four five"), 8)
             .into_iter()
@@ -1924,15 +1042,6 @@ mod tests {
         let mask = selection_mask_line(&line, None);
 
         assert_eq!(mask.spans[0].style.fg, Some(NON_SELECTION_MARKER));
-    }
-
-    #[test]
-    fn markdown_display_preserves_source_line_breaks() {
-        let rendered = markdown_to_lines("first\r\nsecond")
-            .into_iter()
-            .map(String::from)
-            .collect::<Vec<_>>();
-        assert_eq!(rendered, vec!["first", "second"]);
     }
 
     #[test]
@@ -2002,14 +1111,6 @@ mod tests {
             streamed_tool_call_summary(&tool_call, Path::new(".")),
             "write …"
         );
-    }
-
-    #[test]
-    fn width_truncation_does_not_split_wide_unicode() {
-        let truncated = truncate_width("abc😀def", 5);
-
-        assert!(truncated.is_char_boundary(truncated.len()));
-        assert!(truncated.ends_with('…'));
     }
 
     #[test]
@@ -2085,7 +1186,7 @@ mod tests {
 
         let area = Rect::new(0, 0, 10, 2);
 
-        let mut buffer = ratatui::buffer::Buffer::empty(area);
+        let mut buffer = Buffer::empty(area);
 
         ratatui::widgets::Widget::render(
             TranscriptViewport {
@@ -2106,7 +1207,7 @@ mod tests {
 
         let area = Rect::new(0, 0, 10, 2);
 
-        let mut buffer = ratatui::buffer::Buffer::empty(area);
+        let mut buffer = Buffer::empty(area);
         buffer.cell_mut((8, 0)).unwrap().set_symbol("x");
         buffer.cell_mut((0, 1)).unwrap().set_symbol("y");
 
@@ -2131,8 +1232,8 @@ mod tests {
             "one two three",
             "├─ ",
             "│  ",
-            ratatui::style::Style::default(),
-            ratatui::style::Style::default(),
+            Style::default(),
+            Style::default(),
             8,
         );
 

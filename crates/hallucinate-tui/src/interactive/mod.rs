@@ -26,24 +26,17 @@ use ratatui::{Terminal, backend::CrosstermBackend, crossterm, layout::Rect};
 
 use crate::{
     alt_screen::{Message as TuiMessage, MessageRole, TranscriptRenderer},
-    components::Editor,
+    components::{
+        Editor,
+        picker_overlays::{ModelPicker, PromptPicker, SessionPicker, TranscriptMessagePicker},
+        status_bar::{EPHEMERAL_NOTICE_DURATION, EphemeralNotice},
+    },
 };
 
 mod commands;
 mod input;
 mod render;
 mod session;
-
-const EPHEMERAL_NOTICE_DURATION: Duration = Duration::from_secs(4);
-
-/// A short-lived UI notice with an expiration time.
-struct EphemeralNotice {
-    /// The notice text to display.
-    message: String,
-
-    /// When the notice should expire and be cleared.
-    expires_at: Instant,
-}
 
 /// A selection in the rendered chat area. Positions are terminal cell
 /// coordinates, which means selection continues to work for wrapped and
@@ -232,87 +225,6 @@ struct AutocompleteItem {
 
     /// A human-readable description of the completion.
     description: String,
-}
-
-/// State for the keyboard-driven model picker overlay.
-#[derive(Debug, Clone)]
-struct ModelPicker {
-    /// Text used to limit models by display name.
-    filter: String,
-
-    /// Model indexes matching `filter`.
-    filtered_indices: Vec<usize>,
-
-    /// Index of the currently selected matching model.
-    selected: usize,
-}
-
-/// State for the keyboard-driven session picker overlay.
-#[derive(Debug, Clone)]
-struct SessionPicker {
-    /// Rows captured when the picker opened or was deliberately refreshed.
-    rows: Vec<SessionPickerRow>,
-
-    /// Text used to limit sessions by title.
-    filter: String,
-
-    /// Row indexes matching `filter`.
-    filtered_indices: Vec<usize>,
-
-    /// Index of the currently selected matching session.
-    selected: usize,
-}
-
-/// Display-ready data for one session-picker row.
-#[derive(Debug, Clone)]
-struct SessionPickerRow {
-    /// Full session ID used when the row is selected.
-    id: String,
-
-    /// Short session ID displayed in the picker.
-    short_id: String,
-
-    /// Last session activity time displayed in the picker.
-    datetime: String,
-
-    /// Human-readable session title.
-    title: String,
-}
-
-/// State for the keyboard-driven prompt picker overlay.
-#[derive(Debug, Clone)]
-struct PromptPicker {
-    /// Text used to limit prompt templates by name.
-    filter: String,
-
-    /// Template indexes matching `filter`.
-    filtered_indices: Vec<usize>,
-
-    /// Index of the currently selected matching template.
-    selected: usize,
-}
-
-/// State for selecting a transcript message to copy.
-#[derive(Debug, Clone)]
-struct TranscriptMessagePicker {
-    /// Copyable transcript messages captured when the picker opened.
-    rows: Vec<TranscriptMessagePickerRow>,
-
-    /// Index of the selected message.
-    selected: usize,
-}
-
-/// Display-ready data for one copyable transcript message.
-#[derive(Debug, Clone)]
-struct TranscriptMessagePickerRow {
-    /// Index in the complete transcript.
-    message_index: usize,
-
-    /// Role shown to distinguish user and assistant messages.
-    role: MessageRole,
-
-    /// First line of the message, used as a picker preview.
-    preview: String,
 }
 
 /// A pending confirmation to delete every saved session for one directory.
