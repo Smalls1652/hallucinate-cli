@@ -10,7 +10,6 @@ use std::{
     time::Duration,
 };
 
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio::{
@@ -44,7 +43,8 @@ pub struct ScriptToolLoadResult {
     pub diagnostics: Vec<ScriptToolDiagnostic>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[cfg_attr(not(feature = "schemas"), derive(Debug, Deserialize))]
+#[cfg_attr(feature = "schemas", derive(Debug, Deserialize, schemars::JsonSchema))]
 /// A parsed TOML definition for a script tool.
 pub struct ScriptToolDefinition {
     /// Shell command to execute.
@@ -67,7 +67,8 @@ pub struct ScriptToolDefinition {
     parameters: BTreeMap<String, ScriptToolParameter>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[cfg_attr(not(feature = "schemas"), derive(Debug, Deserialize))]
+#[cfg_attr(feature = "schemas", derive(Debug, Deserialize, schemars::JsonSchema))]
 /// A single parameter definition for a script tool.
 pub struct ScriptToolParameter {
     /// Description of the parameter.
@@ -86,7 +87,11 @@ pub struct ScriptToolParameter {
     constraints: Option<ScriptToolParameterConstraints>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[cfg_attr(not(feature = "schemas"), derive(Debug, Serialize, Deserialize))]
+#[cfg_attr(
+    feature = "schemas",
+    derive(Debug, Deserialize, Serialize, schemars::JsonSchema)
+)]
 /// Value constraints for a script tool parameter.
 pub struct ScriptToolParameterConstraints {
     /// Values accepted by the parameter.

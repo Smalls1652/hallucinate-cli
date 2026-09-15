@@ -5,14 +5,28 @@
 
 use std::{fmt, path::Path, sync::Arc};
 
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 // ── API & Provider Types ─────────────────────────────────────────────────────
 
 /// Known APIs supported by providers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Serialize,
+        Deserialize,
+        schemars::JsonSchema
+    )
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum Api {
     /// OpenAI Chat Completions-compatible API.
@@ -26,7 +40,22 @@ pub enum Api {
 pub type ProviderId = String;
 
 /// Tool choice options.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Serialize,
+        Deserialize,
+        schemars::JsonSchema
+    )
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolChoice {
     Auto,
@@ -574,7 +603,14 @@ impl Tool {
 // ── Model ────────────────────────────────────────────────────────────────────
 
 /// Model cost rates per million tokens.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, Default, Serialize, Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)
+)]
 pub struct ModelCostRates {
     /// Cost per million input tokens.
     #[serde(default)]

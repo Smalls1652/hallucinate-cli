@@ -15,7 +15,7 @@ name = "hallucinate-agent-schemagen"
 path = "src/main.rs"
 
 [dependencies]
-hallucinate-agent.workspace = true
+hallucinate-agent = { workspace = true, features = ["schemas"] }
 
 anyhow.workspace = true
 clap.workspace = true

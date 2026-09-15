@@ -19,7 +19,7 @@ image = { workspace = true, default-features = false, features = ["bmp", "gif", 
 keyring-core.workspace = true
 regex.workspace = true
 reqwest.workspace = true
-schemars.workspace = true
+schemars = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
@@ -29,6 +29,10 @@ tokio = { workspace = true, features = ["io-util", "macros", "process", "rt", "s
 toml.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+
+[features]
+default = []
+schemas = ["dep:schemars"]
 
 [dev-dependencies]
 mockito.workspace = true
