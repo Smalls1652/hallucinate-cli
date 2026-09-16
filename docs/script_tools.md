@@ -12,7 +12,7 @@ Script tools are discovered from two locations. Project-local definitions overri
 
 | Priority | Location | Description |
 | --- | --- | --- |
-| 1 | `~/.config/hallucinate/script_tools` (Linux) / `~/Library/Application Support/com.hallucinate.hallucinate/script_tools` (macOS) | User-level tools |
+| 1 | `<user level path>/script_tools` | User-level tools |
 | 2 | `<cwd>/.hallucinate/script_tools` | Project-local tools |
 
 | Platform | User-level Path |
