@@ -22,6 +22,25 @@ use ratatui::{
 /// while the parser's arena is dropped. Paragraph wrapping is deliberately
 /// left to ratatui's `Paragraph` widget, which knows the available width.
 pub fn markdown_to_lines(markdown: &str) -> Vec<Line<'static>> {
+    markdown_to_lines_with_table_width(markdown, None)
+}
+
+/// Convert Markdown into styled terminal lines sized for a visible viewport.
+///
+/// Tables are laid out to fit `max_width`, wrapping their cell content before
+/// borders are drawn. Other blocks retain their natural width so their caller
+/// can apply its usual wrapping and prefixes.
+pub fn markdown_to_lines_with_width(
+    markdown: &str,
+    max_width: usize,
+) -> Vec<Line<'static>> {
+    markdown_to_lines_with_table_width(markdown, Some(max_width))
+}
+
+pub fn markdown_to_lines_with_table_width(
+    markdown: &str,
+    max_width: Option<usize>,
+) -> Vec<Line<'static>> {
     let arena = Arena::new();
 
     let mut options = Options::default();
@@ -32,7 +51,10 @@ pub fn markdown_to_lines(markdown: &str) -> Vec<Line<'static>> {
 
     let root = parse_document(&arena, markdown, &options);
 
-    let mut renderer = Renderer { lines: Vec::new() };
+    let mut renderer = Renderer {
+        lines: Vec::new(),
+        table_max_width: max_width,
+    };
     renderer.blocks(root);
 
     while renderer.lines.last().is_some_and(Vec::is_empty) {
@@ -94,6 +116,9 @@ pub fn markdown_to_ansi(markdown: &str) -> String {
 struct Renderer {
     /// Buffered output lines as vectors of styled spans.
     lines: Vec<Vec<Span<'static>>>,
+
+    /// Maximum rendered width for a table, if constrained by a viewport.
+    table_max_width: Option<usize>,
 }
 
 impl Renderer {
@@ -180,7 +205,10 @@ impl Renderer {
             },
 
             NodeValue::BlockQuote => {
-                let mut nested = Renderer { lines: Vec::new() };
+                let mut nested = Renderer {
+                    lines: Vec::new(),
+                    table_max_width: self.table_max_width,
+                };
                 nested.blocks(node);
                 nested.remove_trailing_separators();
 
@@ -275,7 +303,10 @@ impl Renderer {
                 (ListType::Bullet, None) => "• ".to_string(),
             };
 
-            let mut nested = Renderer { lines: Vec::new() };
+            let mut nested = Renderer {
+                lines: Vec::new(),
+                table_max_width: self.table_max_width,
+            };
             nested.list_item_blocks(item);
             nested.remove_trailing_separators();
 
@@ -384,9 +415,32 @@ impl Renderer {
             }
         }
 
+        let max_cell_width = self.table_max_width.and_then(|max_width| {
+            let border_width = indent + 1 + column_count * 3;
+            max_width.checked_sub(border_width)
+        });
+
+        if let Some(max_cell_width) = max_cell_width {
+            fit_table_widths(&mut widths, max_cell_width);
+        }
+
         let border_style = Style::default().fg(Color::DarkGray);
 
         for (header, cells) in rows {
+            let cells = cells
+                .into_iter()
+                .enumerate()
+                .map(|(column, cell_lines)| {
+                    cell_lines
+                        .into_iter()
+                        .flat_map(|line| {
+                            let width = u16::try_from(widths[column]).unwrap_or(u16::MAX);
+                            crate::utils::wrap_line_to_width(Line::from(line), width)
+                        })
+                        .map(|line| line.spans)
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
             let height = cells.iter().map(Vec::len).max().unwrap_or(1);
 
             for line_index in 0..height {
@@ -561,6 +615,48 @@ fn line_width(line: &[Span<'static>]) -> usize {
     line.iter()
         .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
         .sum()
+}
+
+/// Reduce column widths until their combined content width fits the viewport.
+///
+/// Every column retains one content cell when possible. Extra cells are
+/// distributed in column order, which keeps narrow columns compact and gives
+/// long cells the remaining room to wrap naturally.
+fn fit_table_widths(
+    widths: &mut [usize],
+    max_total_width: usize,
+) {
+    let natural_widths = widths.to_vec();
+    let minimum_total_width = widths.len();
+    let target_width = max_total_width.max(minimum_total_width);
+    let natural_total_width = natural_widths.iter().sum::<usize>();
+
+    if natural_total_width <= target_width {
+        return;
+    }
+
+    widths.fill(1);
+    let mut remaining_width = target_width.saturating_sub(minimum_total_width);
+
+    while remaining_width > 0 {
+        let mut allocated_width = false;
+
+        for (width, natural_width) in widths.iter_mut().zip(&natural_widths) {
+            if remaining_width == 0 {
+                break;
+            }
+
+            if *width < *natural_width {
+                *width += 1;
+                remaining_width -= 1;
+                allocated_width = true;
+            }
+        }
+
+        if !allocated_width {
+            break;
+        }
+    }
 }
 
 /// Compute left and right padding around a table cell based on alignment.
@@ -774,6 +870,26 @@ mod tests {
 
         assert!(output.contains("\x1b[1m"));
         assert!(output.contains("bold"));
+    }
+
+    #[test]
+    fn wraps_table_cells_before_rendering_their_borders() {
+        let lines = markdown_to_lines_with_width(
+            "| Name | Description |\n| --- | --- |\n| A | A long description that must wrap inside its cell. |",
+            30,
+        );
+
+        let table_lines = lines
+            .into_iter()
+            .filter(|line| String::from(line.clone()).contains('│'))
+            .collect::<Vec<_>>();
+
+        assert!(table_lines.len() > 3);
+        assert!(table_lines.iter().all(|line| line.width() <= 30));
+        assert!(table_lines.iter().all(|line| {
+            let text = String::from(line.clone());
+            text.starts_with('│') && text.ends_with('│')
+        }));
     }
 
     #[test]

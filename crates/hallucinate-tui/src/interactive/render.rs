@@ -15,7 +15,7 @@ use super::InteractiveTui;
 use crate::{
     alt_screen::{MessageRole, ToolCall, TranscriptRenderer},
     components::{
-        markdown_to_lines,
+        markdown::markdown_to_lines_with_width,
         markdown_to_text,
         picker_overlays::{
             render_model_picker,
@@ -399,7 +399,10 @@ fn render_transcript(
                     message_indices.push(None);
                 }
 
-                let mut body = markdown_to_lines(&msg.content);
+                let mut body = markdown_to_lines_with_width(
+                    &msg.content,
+                    usize::from(transcript_width.saturating_sub(2)),
+                );
                 while body.last().is_some_and(line_is_empty) {
                     body.pop();
                 }
