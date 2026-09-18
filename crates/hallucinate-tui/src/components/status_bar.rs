@@ -4,7 +4,10 @@
 //! state, session title/ID, token count, model provider, and thinking
 //! indicator. Supports short-lived ephemeral notices that auto-expire.
 
-use std::time::{Duration, Instant};
+use std::{
+    sync::LazyLock,
+    time::{Duration, Instant},
+};
 
 use hallucinate_agent::agent::types::AgentState;
 use ratatui::{
@@ -15,6 +18,35 @@ use ratatui::{
 };
 
 use crate::utils::truncate_one_line;
+
+/// Title of the app, to show in the status bar, that is
+/// determined based off whether the platform supports
+/// emojis.
+///
+/// If it does, it returns "🤖 hallucinate "; however,
+/// if it doesn't then it returns "hallucinate ".
+const APP_TITLE: LazyLock<&str> = LazyLock::new(|| {
+    let supports_emojis = cfg_select! {
+        target_os = "macos" => true,
+        target_os = "linux" => {
+            if let Ok(lang) = std::env::var("LANG")
+                .or_else(|_| std::env::var("LC_ALL"))
+                .or_else(|_| std::env::var("LC_CTYPE"))
+            {
+                lang.to_lowercase().replace("-", "").contains("utf8")
+            } else {
+                false
+            }
+        },
+        target_os = "windows" => std::env::var("WT_SESSION").is_ok(),
+        _ => false,
+    };
+
+    match supports_emojis {
+        true => "🤖 hallucinate ",
+        false => "hallucinate ",
+    }
+});
 
 pub(crate) const EPHEMERAL_NOTICE_DURATION: Duration = Duration::from_secs(4);
 
@@ -70,7 +102,7 @@ pub(crate) fn render_status_bar(
 
     let status_text = Line::from(vec![
         Span::styled(
-            "hallucinate ",
+            *APP_TITLE,
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
