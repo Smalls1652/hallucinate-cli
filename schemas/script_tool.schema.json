@@ -6,10 +6,7 @@
   "properties": {
     "command": {
       "description": "Shell command to execute.",
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "type": "string"
     },
     "description": {
       "description": "Human-readable description of what the tool does.",

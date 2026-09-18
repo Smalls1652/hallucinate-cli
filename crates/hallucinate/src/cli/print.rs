@@ -87,7 +87,7 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
         images,
     ))]);
 
-    let system_prompt = hallucinate_agent::agent::system_prompt::build_system_prompt_for_cwd(
+    let system_prompt = hallucinate_agent::agent::system_prompt::build_system_prompt(
         args.system_prompt.as_deref(),
         Some(&cwd),
         false,

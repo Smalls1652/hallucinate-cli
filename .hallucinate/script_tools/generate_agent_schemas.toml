@@ -1,5 +1,5 @@
 #:schema https://git.smalls.online/smalls/hallucinate-cli/raw/branch/main/schemas/script_tool.schema.json
 
-command = ["make", "generate-schemas"]
+command = "make generate-schemas"
 description = "Generate schema files for the hallucinate agent's config files."
 timeout = 90

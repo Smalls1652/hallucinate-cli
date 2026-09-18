@@ -1,5 +1,7 @@
 #:schema https://git.smalls.online/smalls/hallucinate-cli/raw/branch/main/schemas/script_tool.schema.json
 
-command = ["make", "build-release-artifacts"]
+command = """
+make build-release-artifacts
+"""
 description = "Create release artifacts for this project."
 timeout = 120

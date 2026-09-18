@@ -26,7 +26,9 @@ Script tools are discovered from two locations. Project-local definitions overri
 Each tool is defined in a TOML file named `<tool-id>.toml`. The file stem becomes the tool ID (letters, numbers, underscores, or hyphens). The TOML structure uses the following keys:
 
 ```toml
-command = ["echo", "Hello {{name}}"]
+command = """
+echo "Hello {{ name }}"
+"""
 description = "Print a greeting to a named person"
 
 [parameters.name]
@@ -39,7 +41,7 @@ input_type = "string"
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `command` | `array` | Executable and arguments. The first element is the path to the script/binary; remaining elements are arguments. Supports `{{parameter}}` template substitution. |
+| `command` | `string` | Shell command to execute. Supports `{{parameter}}` template substitution using Jinja2-like syntax. |
 | `description` | `string` | Human-readable description of what the tool does (becomes the tool description sent to the LLM). |
 
 ### Optional Fields
@@ -102,10 +104,34 @@ maximum = 100
 
 ## Template Substitution
 
-Command arguments support `{{parameter_name}}` template substitution. Parameters are replaced with their string representation (or the raw value for strings). All templates must resolve — unresolved `{{` delimiters cause execution to fail.
+Command arguments support `{{ parameter_name }}` template substitution using Jinja2-like syntax. Parameters are replaced with their string representation. All templates must resolve — unresolved `{{` delimiters cause execution to fail.
+
+You can use Jinja2 features such as conditionals, filters, and loops inside the command string:
 
 ```toml
-command = ["git", "log", "--since={{since}}", "--until={{until}}"]
+command = """
+{% if verbose %}git{% else %}git{% endif %} log --since={{ since }} --until={{ until }}
+"""
+
+[parameters.since]
+description = "Start date (e.g., 2024-01-01)"
+required = true
+input_type = "string"
+
+[parameters.until]
+description = "End date (e.g., 2025-01-01)"
+input_type = "string"
+
+[parameters.verbose]
+description = "Enable verbose output"
+required = false
+input_type = "boolean"
+```
+
+```toml
+command = """
+git log --since={{ since }} --until={{ until }}
+"""
 
 [parameters.since]
 description = "Start date (e.g., 2024-01-01)"
@@ -130,7 +156,9 @@ input_type = "string"
 ### Simple Utility
 
 ```toml
-command = ["echo", "{{message}}"]
+command = """
+echo "{{ message }}"
+"""
 description = "Echo a message back"
 
 [parameters.message]
@@ -141,7 +169,7 @@ required = true
 ### Git Log with Date Range
 
 ```toml
-command = ["git", "log", "--since={{since}}", "--until={{until}}", "--pretty=format:%h %s"]
+command = "git log --since={{ since }} --until={{ until }} --pretty=format:%h %s"
 description = "Show git commits within a date range"
 
 [parameters.since]
@@ -156,7 +184,9 @@ required = true
 ### Script with Custom Shell
 
 ```toml
-command = ["python3", "{{script}}", "--output={{output}}"]
+command = """
+python3 "{{ script }}" --output={{ output }}
+"""
 description = "Run a Python data processing script"
 shell = ["/usr/bin/python3"]
 timeout = 300
@@ -173,7 +203,9 @@ required = true
 ### Integer and Boolean Parameters
 
 ```toml
-command = ["convert", "{{input}}", "-resize", "{{width}}x{{height}}", "-quality", "{{quality}}", "{{output}}"]
+command = """
+convert "{{ input }}" -resize {{ width }}x{{ height }} -quality {{ quality }} "{{ output }}"
+"""
 description = "Resize and compress an image"
 
 [parameters.input]
@@ -207,7 +239,7 @@ maximum = 100
 ### Array Parameter
 
 ```toml
-command = ["echo", "{{items}}"]
+command = 'echo "{{ items }}"'
 description = "Join and print a list of items"
 
 [parameters.items]
@@ -225,7 +257,7 @@ User-level tools are loaded first, then project-local tools. When a project-loca
 Invalid definitions are silently skipped and logged as diagnostics. Common reasons for rejection:
 
 - Tool ID contains invalid characters (only letters, numbers, underscores, and hyphens allowed)
-- `command` is empty or has no executable
+- `command` is empty or contains only whitespace
 - `description` is empty
 - `shell` is configured but has no executable
 - `timeout` is zero

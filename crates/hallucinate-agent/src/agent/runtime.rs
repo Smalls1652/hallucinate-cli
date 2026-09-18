@@ -558,7 +558,7 @@ impl Agent {
 
         let has_tools = self.config.enable_tools && !self.tool_registry.is_empty();
 
-        let mut system_prompt = crate::agent::system_prompt::build_system_prompt_for_cwd(
+        let mut system_prompt = crate::agent::system_prompt::build_system_prompt(
             self.system_prompt.as_deref(),
             cwd,
             has_tools,

@@ -8,7 +8,7 @@ use std::{
 use crate::config::paths;
 
 /// Default system prompt template for agents with configured tools.
-const DEFAULT_SYSTEM_PROMPT: &str = r#"You are an expert assistant operating inside hallucinate, an agent harness. You help users by reading files, executing commands, editing code, and writing new files.
+const DEFAULT_SYSTEM_PROMPT: &str = r#"You are an expert assistant operating inside hallucinate, an agent harness, running on {{ operating_system }}. You help users by reading files, executing commands, editing code, and writing new files. The current date is `{{ current_date }}`.
 
 ## Guidelines
 
@@ -39,6 +39,14 @@ If the user's request matches one of skills in the `<available_skills>` section,
 const LIGHTWEIGHT_DEFAULT_SYSTEM_PROMPT: &str =
     "You are an expert assistant operating inside hallucinate, an agent harness.";
 
+/// The operating system compiled for.
+const OPERATING_SYSTEM: &str = cfg_select! {
+    target_os = "macos" => "macOS",
+    target_os = "linux" => "Linux",
+    target_os = "windows" => "Windows",
+    _ => panic!("Unsupported platform :("),
+};
+
 /// Files which can contribute project or user instructions to the system
 /// prompt. The paths are reported independently of whether their contents can
 /// be read, so the UI can still tell the user which files were found.
@@ -63,48 +71,68 @@ pub fn prompt_file_paths(cwd: impl AsRef<Path>) -> SystemPromptFiles {
 }
 
 /// Build the system prompt using the global `SYSTEM.md` override when one is
-/// available. This variant is kept for callers that do not have a project
-/// working directory; it still applies the global override.
+/// available.
+///
+/// When a working directory is provided,
 ///
 /// When no override is available, agents without configured tools use a
 /// smaller prompt that does not describe unavailable tool capabilities.
 pub fn build_system_prompt(
     custom_prompt: Option<&str>,
+    cwd: Option<&Path>,
     has_tools: bool,
 ) -> String {
     let global_prompt = paths::system_prompt_file().and_then(|path| fs::read_to_string(path).ok());
+
     let default_prompt = if has_tools {
         DEFAULT_SYSTEM_PROMPT
     } else {
         LIGHTWEIGHT_DEFAULT_SYSTEM_PROMPT
     };
 
-    custom_prompt
+    let prompt = custom_prompt
         .map(str::to_owned)
         .or(global_prompt)
-        .unwrap_or_else(|| default_prompt.to_string())
-}
+        .unwrap_or_else(|| default_prompt.to_string());
 
-/// Build the system prompt for a working directory.
-///
-/// An explicit prompt (for example, `--system-prompt`) takes precedence over
-/// the global file. `AGENTS.md` is always appended when it can be read.
-pub fn build_system_prompt_for_cwd(
-    custom_prompt: Option<&str>,
-    cwd: Option<&Path>,
-    has_tools: bool,
-) -> String {
-    let mut prompt = build_system_prompt(custom_prompt, has_tools);
+    let current_date = chrono::Local::now()
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string();
 
-    if let Some(cwd) = cwd
-        && let Some(path) = prompt_file_paths(cwd).agents
-        && let Ok(agents_prompt) = fs::read_to_string(path)
-    {
-        prompt.push_str("\n\n## Project Instructions\n\n");
-        prompt.push_str(&agents_prompt);
+    let mut prompt = minijinja::render!(
+        &prompt,
+        operating_system => OPERATING_SYSTEM,
+        current_date => current_date
+    );
+
+    if let Some(cwd) = cwd {
+        let lossy_cwd_path = format!(
+            "\n\nCurrent working directory: `{}`",
+            cwd.to_string_lossy().to_string()
+        );
+        prompt.push_str(&lossy_cwd_path);
+
+        if let Some(agents_prompt) = build_agents_prompt(cwd) {
+            prompt.push_str(&agents_prompt);
+        }
     }
 
     prompt
+}
+
+fn build_agents_prompt(cwd: &Path) -> Option<String> {
+    if let Some(path) = prompt_file_paths(cwd).agents
+        && let Ok(agents_prompt) = fs::read_to_string(path)
+    {
+        let mut prompt = String::new();
+        prompt.push_str("\n\n## Project Instructions\n\n");
+        prompt.push_str(&agents_prompt);
+
+        Some(prompt)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -113,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt() {
-        let prompt = build_system_prompt(None, true);
+        let prompt = build_system_prompt(None, None, true);
 
         // A user-installed SYSTEM.md is allowed to customize this result, so
         // this assertion only verifies that the result is non-empty.
@@ -123,20 +151,34 @@ mod tests {
     #[test]
     fn test_build_system_prompt_with_custom() {
         let custom = "You are a custom assistant.";
-        let prompt = build_system_prompt(Some(custom), true);
+        let prompt = build_system_prompt(Some(custom), None, true);
 
         assert_eq!(prompt, custom);
     }
 
     #[test]
+    fn test_build_system_prompt_jinja_template_replacement() {
+        let current_date = chrono::Local::now()
+            .date_naive()
+            .format("%Y-%m-%d")
+            .to_string();
+        let expected_value = format!("{} - {}", OPERATING_SYSTEM, current_date);
+
+        let custom = "{{ operating_system }} - {{ current_date }}";
+        let prompt = build_system_prompt(Some(custom), None, true);
+
+        assert_eq!(prompt, expected_value);
+    }
+
+    #[test]
     fn agents_without_tools_use_the_lightweight_default_prompt() {
-        let prompt = build_system_prompt(Some("Custom prompt."), false);
+        let prompt = build_system_prompt(Some("Custom prompt."), None, false);
         assert_eq!(prompt, "Custom prompt.");
 
         // This assertion remains valid even when a user-installed SYSTEM.md
         // overrides the default prompt on the test machine.
         if paths::system_prompt_file().is_none_or(|path| !path.is_file()) {
-            let prompt = build_system_prompt(None, false);
+            let prompt = build_system_prompt(None, None, false);
             assert_eq!(prompt, LIGHTWEIGHT_DEFAULT_SYSTEM_PROMPT);
             assert!(!prompt.contains("Use `bash`"));
         }
@@ -151,7 +193,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         fs::write(directory.join("AGENTS.md"), "Follow project conventions.").unwrap();
 
-        let prompt = build_system_prompt_for_cwd(Some("Base prompt."), Some(&directory), true);
+        let prompt = build_system_prompt(Some("Base prompt."), Some(&directory), true);
 
         assert!(prompt.starts_with("Base prompt."));
         assert!(prompt.contains("## Project Instructions"));

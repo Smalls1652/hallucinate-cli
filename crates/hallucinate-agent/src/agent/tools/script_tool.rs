@@ -48,7 +48,7 @@ pub struct ScriptToolLoadResult {
 /// A parsed TOML definition for a script tool.
 pub struct ScriptToolDefinition {
     /// Shell command to execute.
-    command: Vec<String>,
+    command: String,
 
     /// Human-readable description of what the tool does.
     description: String,
@@ -117,7 +117,7 @@ pub struct ScriptTool {
     description: String,
 
     /// Shell command to execute.
-    command: Vec<String>,
+    command: String,
 
     /// Optional shell override (e.g. `["bash", "-c"]`).
     shell: Option<Vec<String>>,
@@ -144,11 +144,7 @@ impl ScriptTool {
             anyhow::bail!("tool ID must contain only letters, numbers, underscores, or hyphens");
         }
 
-        if definition
-            .command
-            .first()
-            .is_none_or(|value| value.trim().is_empty())
-        {
+        if definition.command.trim().is_empty() {
             anyhow::bail!("command must contain a non-empty executable");
         }
 
@@ -204,7 +200,7 @@ impl ScriptTool {
     fn render_command(
         &self,
         arguments: &Map<String, Value>,
-    ) -> Result<Vec<String>, anyhow::Error> {
+    ) -> Result<String, anyhow::Error> {
         for (name, parameter) in &self.parameters {
             match arguments.get(name) {
                 Some(value) if value_matches_type(value, &parameter.input_type) => {
@@ -220,10 +216,8 @@ impl ScriptTool {
                 None => {},
             }
         }
-        self.command
-            .iter()
-            .map(|value| render_template(value, arguments))
-            .collect()
+
+        Ok(minijinja::Environment::new().render_str(&self.command.trim(), arguments)?)
     }
 
     /// Execute the script tool with the given arguments.
@@ -238,11 +232,6 @@ impl ScriptTool {
             .ok_or_else(|| anyhow::anyhow!("tool arguments must be an object"))?;
 
         let command = self.render_command(arguments)?;
-        let command = command
-            .iter()
-            .map(|value| shell_quote(value))
-            .collect::<Vec<_>>()
-            .join(" ");
 
         let execution_directory = cwd
             .map(PathBuf::from)
@@ -322,7 +311,7 @@ impl ScriptTool {
         let stderr = format_captured_stream("stderr", stderr);
 
         let mut content = String::new();
-        
+
         match status.success() {
             true => content.push_str(&stdout),
             false => content.push_str(&stderr),
@@ -669,33 +658,6 @@ fn value_matches_constraints(
         && constraints.maximum.is_none_or(|maximum| number <= maximum)
 }
 
-/// Render a template by substituting `{{parameter}}` placeholders with values.
-fn render_template(
-    template: &str,
-    arguments: &Map<String, Value>,
-) -> Result<String, anyhow::Error> {
-    let mut rendered = template.to_string();
-
-    for (name, value) in arguments {
-        let value = value
-            .as_str()
-            .map(str::to_owned)
-            .unwrap_or_else(|| value.to_string());
-        rendered = rendered.replace(&format!("{{{{{name}}}}}"), &value);
-    }
-
-    if rendered.contains("{{") || rendered.contains("}}") {
-        anyhow::bail!("command contains an unresolved parameter template: {rendered}");
-    }
-
-    Ok(rendered)
-}
-
-/// Shell-quote a single argument value using single quotes.
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
 #[cfg(unix)]
 /// Build a `Command` that runs the given shell command string.
 fn shell_command(
@@ -751,7 +713,7 @@ mod tests {
 
     #[test]
     fn schema_and_template_use_declared_parameters() {
-        let definition: ScriptToolDefinition = toml::from_str("command = [\"echo\", \"{{name}}\"]\ndescription = \"test\"\ntimeout = 30\n[parameters.name]\ndescription = \"Name\"\nrequired = true").unwrap();
+        let definition: ScriptToolDefinition = toml::from_str("command = \"\"\"\necho \"{{ name }}\"\n\"\"\"\ndescription = \"test\"\ntimeout = 30\n[parameters.name]\ndescription = \"Name\"\nrequired = true").unwrap();
 
         let tool = ScriptTool::from_definition(
             "example".to_string(),
@@ -766,14 +728,14 @@ mod tests {
         assert_eq!(
             tool.render_command(&Map::from_iter([(String::from("name"), json!("Ada"))]))
                 .unwrap(),
-            vec!["echo", "Ada"]
+            "echo \"Ada\""
         );
     }
 
     #[test]
     fn includes_and_enforces_parameter_constraints() {
         let definition: ScriptToolDefinition = toml::from_str(
-            "command = [\"echo\", \"{{format}}\", \"{{quality}}\"]\n\
+            "command = \"\"\"echo \"{{ format }} {{ quality }}\"\"\"\"\n\
              description = \"test\"\n\
              [parameters.format]\n\
              description = \"Format\"\n\
@@ -832,7 +794,7 @@ mod tests {
     #[test]
     fn rejects_constraints_incompatible_with_parameter_type() {
         let definition: ScriptToolDefinition = toml::from_str(
-            "command = [\"echo\"]\ndescription = \"test\"\n\
+            "command = \"echo\"\ndescription = \"test\"\n\
              [parameters.enabled]\ndescription = \"Enabled\"\ninput_type = \"boolean\"\n\
              [parameters.enabled.constraints]\nminimum = 0",
         )
@@ -852,7 +814,7 @@ mod tests {
     #[test]
     fn rejects_a_zero_timeout() {
         let definition: ScriptToolDefinition =
-            toml::from_str("command = [\"echo\"]\ndescription = \"test\"\ntimeout = 0").unwrap();
+            toml::from_str("command = \"echo\"\ndescription = \"test\"\ntimeout = 0").unwrap();
 
         let error = ScriptTool::from_definition(
             "example".to_string(),
@@ -873,7 +835,7 @@ mod tests {
     #[cfg(unix)]
     async fn streams_stdout_before_the_script_finishes() {
         let definition: ScriptToolDefinition = toml::from_str(
-            "command = [\"sh\", \"-c\", \"printf first; sleep 1; printf second\"]\n\
+            "command = \"\"\"sh -c \"printf first; sleep 1; printf second\"\"\"\"\n\
              description = \"Stream stdout\"",
         )
         .unwrap();
@@ -921,7 +883,7 @@ mod tests {
     #[cfg(unix)]
     async fn executes_in_the_current_directory_by_default() {
         let definition: ScriptToolDefinition =
-            toml::from_str("command = [\"pwd\"]\ndescription = \"Print the working directory\"")
+            toml::from_str("command = \"pwd\"\ndescription = \"Print the working directory\"")
                 .unwrap();
         let tool = ScriptTool::from_definition(
             "print-directory".to_string(),
