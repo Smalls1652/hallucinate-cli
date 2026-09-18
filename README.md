@@ -1,9 +1,4 @@
-# Hallucinate
-
-[![The image displays the Hallucinate logo featuring a stylized robotic face icon with a rounded square design set against a dark blue gradient background. The robot head is rendered in
-glowing neon blue and white tones, giving it a holographic, futuristic appearance. Two simple circular dots serve as eyes on a dark screen-like face, framed by a luminous border that
-appears to emit light from within. Below the head sits what resembles a computer terminal or server unit with a plus symbol and ventilation lines, all enclosed within a softly glowing
-rounded square icon shape.](.forgejo/images/hallucinate_logo_wide.jpg)](.forgejo/images/hallucinate_logo_wide.jpg)
+# 🤖 Hallucinate
 
 > [!CAUTION]
 > I'm making this for myself. Use it if you want to, but I can't provide support for you.
