@@ -320,7 +320,17 @@ impl ScriptTool {
 
         let stdout = format_captured_stream("stdout", stdout);
         let stderr = format_captured_stream("stderr", stderr);
-        let content = if status.success() { stdout } else { stderr };
+
+        let mut content = String::new();
+        
+        match status.success() {
+            true => content.push_str(&stdout),
+            false => content.push_str(&stderr),
+        };
+
+        if content.is_empty() {
+            content.push_str("Command exited successfully");
+        }
 
         Ok(if status.success() {
             ToolResult::success("", &self.name, content)

@@ -221,6 +221,10 @@ impl BashTool {
             content.push_str(&stderr);
         }
 
+        if content.is_empty() {
+            content.push_str("Command exited successfully");
+        }
+
         Ok(super::types::ToolResult::success(
             "bash",
             "bash",
