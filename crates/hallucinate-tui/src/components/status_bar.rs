@@ -12,7 +12,7 @@ use std::{
 use hallucinate_agent::agent::types::AgentState;
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::Stylize,
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -23,8 +23,8 @@ use crate::utils::truncate_one_line;
 /// determined based off whether the platform supports
 /// emojis.
 ///
-/// If it does, it returns "🤖 hallucinate "; however,
-/// if it doesn't then it returns "hallucinate ".
+/// If it does, it returns "🤖 hallucinate"; however,
+/// if it doesn't then it returns "hallucinate".
 const APP_TITLE: LazyLock<&str> = LazyLock::new(|| {
     let supports_emojis = cfg_select! {
         target_os = "macos" => true,
@@ -43,8 +43,8 @@ const APP_TITLE: LazyLock<&str> = LazyLock::new(|| {
     };
 
     match supports_emojis {
-        true => "🤖 hallucinate ",
-        false => "hallucinate ",
+        true => "🤖 hallucinate",
+        false => "hallucinate",
     }
 });
 
@@ -89,62 +89,148 @@ pub(crate) fn render_status_bar(
         }
     };
 
-    let session_id = session_manager
-        .current_id()
-        .map(|id| &id[..8.min(id.len())])
-        .unwrap_or("none");
-    let session_title = session_manager
-        .current()
-        .and_then(|session| session.title.as_deref())
-        .filter(|title| !title.trim().is_empty());
-
-    let token_count = format!("{token_count} tokens");
-
-    let status_text = Line::from(vec![
-        Span::styled(
-            *APP_TITLE,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        if let Some(notice) = notice {
-            Span::styled(
-                format!("! {}  |  ", truncate_one_line(&notice.message, 80)),
-                Style::default().fg(Color::LightYellow),
-            )
-        } else {
-            Span::styled("", Style::default())
-        },
-        Span::styled("[", Style::default().fg(Color::DarkGray)),
-        Span::styled(state_str, Style::default().fg(Color::Yellow)),
-        Span::styled("] ", Style::default().fg(Color::DarkGray)),
-        Span::styled("session:", Style::default().fg(Color::DarkGray)),
-        if let Some(title) = session_title {
-            Span::styled(
-                truncate_one_line(title, 48),
-                Style::default().fg(Color::White),
-            )
-        } else {
-            Span::styled(session_id, Style::default().fg(Color::Green))
-        },
-        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-        Span::styled(token_count, Style::default().fg(Color::DarkGray)),
-        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            format!("model: {}/{}", model.provider, model.id),
-            Style::default().fg(Color::Cyan),
-        ),
-        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
-        Span::styled(
-            if show_thinking {
-                "thinking: on"
-            } else {
-                "thinking: off"
-            },
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]);
+    let status_text = StatusBarBuilder::new()
+        .insert_blank_space()
+        .with_notice(notice)
+        .with_state(&state_str)
+        .insert_blank_space()
+        .with_session_title(session_manager)
+        .insert_separator()
+        .with_token_count(token_count)
+        .insert_separator()
+        .with_model(model)
+        .insert_separator()
+        .with_thinking(show_thinking)
+        .build();
 
     let status = Paragraph::new(status_text);
     frame.render_widget(status, area);
+}
+
+/// Builder for constructing the status bar line.
+struct StatusBarBuilder<'spans> {
+    /// The spans to render in the status bar.
+    spans: Vec<Span<'spans>>,
+}
+
+impl<'spans> StatusBarBuilder<'spans> {
+    /// Create a new builder with the app title as the initial span.
+    pub fn new() -> Self {
+        Self {
+            spans: vec![APP_TITLE.cyan().bold()],
+        }
+    }
+
+    /// Consume the builder and produce the final `Line`.
+    pub fn build(self) -> Line<'spans> {
+        Line::from(self.spans)
+    }
+
+    /// Insert a single blank space between spans.
+    pub fn insert_blank_space(mut self) -> Self {
+        self.spans.push(Span::raw(" "));
+
+        self
+    }
+
+    /// Insert a separator (` | `) between spans.
+    pub fn insert_separator(mut self) -> Self {
+        self.spans.push(" | ".dark_gray());
+
+        self
+    }
+
+    /// Add an ephemeral notice, if provided.
+    pub fn with_notice(
+        mut self,
+        notice: Option<&EphemeralNotice>,
+    ) -> Self {
+        if let Some(notice) = notice {
+            let notice_content = format!("! {} |", truncate_one_line(&notice.message, 80));
+
+            self.spans.push(notice_content.light_yellow());
+            self = self.insert_blank_space();
+        }
+
+        self
+    }
+
+    /// Add the agent state indicator.
+    pub fn with_state(
+        mut self,
+        state: &str,
+    ) -> Self {
+        let state = state.to_string();
+
+        self.spans.push("[".dark_gray());
+        self.spans.push(state.yellow());
+        self.spans.push("]".dark_gray());
+
+        self
+    }
+
+    /// Add the session title or ID.
+    pub fn with_session_title(
+        mut self,
+        session_manager: &hallucinate_session::SessionManager,
+    ) -> Self {
+        let session_display = if let Some(title) = session_manager
+            .current()
+            .and_then(|session| session.title.as_deref())
+            .filter(|title| !title.trim().is_empty())
+        {
+            truncate_one_line(title, 48).white()
+        } else {
+            session_manager
+                .current_id()
+                .map(|id| &id[..8.min(id.len())])
+                .unwrap_or("none")
+                .to_string()
+                .green()
+        };
+
+        self.spans.push("session:".dark_gray());
+        self.spans.push(session_display);
+
+        self
+    }
+
+    /// Add the token count.
+    pub fn with_token_count(
+        mut self,
+        token_count: u64,
+    ) -> Self {
+        let token_count = format!("{} tokens", token_count);
+
+        self.spans.push(token_count.dark_gray());
+
+        self
+    }
+
+    /// Add the model provider and ID.
+    pub fn with_model(
+        mut self,
+        model: &hallucinate_agent::ai::types::Model,
+    ) -> Self {
+        let model = format!("model: {}/{}", model.provider, model.id);
+
+        self.spans.push(model.cyan());
+
+        self
+    }
+
+    /// Add the thinking indicator.
+    pub fn with_thinking(
+        mut self,
+        show_thinking: bool,
+    ) -> Self {
+        let thinking_display = match show_thinking {
+            true => "thinking: on",
+            false => "thinking: off",
+        };
+
+        self.spans.push(thinking_display.dark_gray());
+
+        self
+    }
 }
