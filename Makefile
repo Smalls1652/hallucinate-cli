@@ -150,7 +150,18 @@ build-release-artifacts:
 
 # Perform a release install from the repo.
 install:
-	@cargo install --path "./crates/hallucinate" --locked
+	@cargo \
+		install \
+			--path "./crates/hallucinate" \
+			--locked
+
+# Perform a release install from the repo, using optimized compilation.
+install-optimized:
+	@cargo \
+		--config "./compiler-configs/optimized-release-build.toml" \
+		install \
+			--path "./crates/hallucinate" \
+			--locked
 
 # Clean the Rust target directory.
 clean:

@@ -82,8 +82,3 @@ tokio-test = "0.4.5"
 apple-native-keyring-store = "1.0.2"
 zbus-secret-service-keyring-store = "1.0.1"
 windows-native-keyring-store = "1.1.0"
-
-[profile.release]
-opt-level = "s"
-lto = true
-
