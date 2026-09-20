@@ -7,9 +7,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  packages: read
-
 jobs:
   build:
     name: Build project
