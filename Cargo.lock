@@ -1408,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "hallucinate"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1428,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "hallucinate-agent"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "apple-native-keyring-store",
@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "hallucinate-agent-schemagen"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "hallucinate-session"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1483,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "hallucinate-tui"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
