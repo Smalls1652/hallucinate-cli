@@ -8,6 +8,7 @@ mod rpc;
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
+use hallucinate_agent::ai::types::ReasoningEffort;
 
 pub use self::{
     auth::AuthCommand,
@@ -61,6 +62,10 @@ pub struct Cli {
     #[arg(long = "temperature")]
     pub temperature: Option<f64>,
 
+    /// Reasoning effort for models that support it.
+    #[arg(long = "reasoning-effort", value_parser = parse_reasoning_effort)]
+    pub reasoning_effort: Option<ReasoningEffort>,
+
     /// System prompt to use.
     #[arg(long = "system-prompt")]
     pub system_prompt: Option<String>,
@@ -99,9 +104,15 @@ impl From<&Cli> for hallucinate_agent::config::RuntimeOverrides {
             shell: cli.shell.clone(),
             max_tokens: cli.max_tokens,
             temperature: cli.temperature,
+            reasoning_effort: cli.reasoning_effort,
             system_prompt: cli.system_prompt.clone(),
         }
     }
+}
+
+/// Parse a CLI reasoning-effort value with a user-facing validation error.
+fn parse_reasoning_effort(value: &str) -> Result<ReasoningEffort, String> {
+    value.parse()
 }
 
 impl Cli {

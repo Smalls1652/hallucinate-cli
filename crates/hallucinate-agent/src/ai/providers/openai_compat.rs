@@ -1640,8 +1640,22 @@ impl OpenaiCompatProvider {
 
         // OpenAI only emits displayable reasoning summaries when explicitly
         // requested. The raw chain of thought is not exposed by the API.
-        if model.reasoning {
-            body.insert("reasoning".into(), serde_json::json!({ "summary": "auto" }));
+        if model.reasoning
+            || (model.supports_reasoning_effort && options.reasoning_effort.is_some())
+        {
+            let mut reasoning = serde_json::Map::new();
+
+            if model.reasoning {
+                reasoning.insert("summary".into(), "auto".into());
+            }
+
+            if model.supports_reasoning_effort
+                && let Some(effort) = options.reasoning_effort
+            {
+                reasoning.insert("effort".into(), effort.to_string().into());
+            }
+
+            body.insert("reasoning".into(), reasoning.into());
         }
 
         if let Some(tools) = &context.tools
@@ -2515,20 +2529,20 @@ mod tests {
             .with_max_tokens(42);
         options.tool_choice = Some(crate::ai::types::ToolChoice::Auto);
 
-        let body = provider.build_responses_request_body(
-            &Model::new(
-                "gpt-5",
-                "GPT-5",
-                Api::OpenaiResponses,
-                "openai",
-                "http://localhost/v1",
-                true,
-                128_000,
-                16_384,
-            ),
-            &context,
-            &options,
+        let mut model = Model::new(
+            "gpt-5",
+            "GPT-5",
+            Api::OpenaiResponses,
+            "openai",
+            "http://localhost/v1",
+            true,
+            128_000,
+            16_384,
         );
+        model.supports_reasoning_effort = true;
+
+        let options = options.with_reasoning_effort(crate::ai::types::ReasoningEffort::Low);
+        let body = provider.build_responses_request_body(&model, &context, &options);
 
         assert_eq!(body["model"], "gpt-5");
         assert_eq!(body["input"][0]["role"], "developer");
@@ -2537,6 +2551,7 @@ mod tests {
         assert_eq!(body["input"][1]["content"][0]["type"], "input_text");
         assert_eq!(body["input"][1]["content"][0]["text"], "Hello");
         assert_eq!(body["reasoning"]["summary"], "auto");
+        assert_eq!(body["reasoning"]["effort"], "low");
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["name"], "lookup");
         assert_eq!(body["tool_choice"], "auto");

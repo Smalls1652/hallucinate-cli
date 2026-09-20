@@ -52,6 +52,7 @@ include_usage = true
 name = "GPT-4o"
 api = "openai-completions"
 reasoning = false
+supports_reasoning_effort = false
 input = ["text", "image"]
 context_window = 128000
 max_tokens = 16384
@@ -79,6 +80,7 @@ Cost configuration is optional. Omit the entire `cost` table for models whose pr
 | `api` | `string` | `"openai-completions"` | API variant: `openai-completions` or `openai-responses`. |
 | `base_url` | `string` | Provider URL | Per-model endpoint override. |
 | `reasoning` | `bool` | `false` | Whether the model supports reasoning/thinking output. |
+| `supports_reasoning_effort` | `bool` | `false` | Whether the model accepts the Responses API `reasoning.effort` option. |
 | `hidden` | `bool` | `false` | Hide the model from the interactive model picker. |
 | `input` | `array` | `["text"]` | Supported input modalities (e.g., `"text"`, `"image"`). |
 | `context_window` | `number` | `128000` | Maximum context window in tokens. |
@@ -430,6 +432,7 @@ The CLI uses a **subcommand-based** architecture. Global options apply to all su
 | `--session <id>` | Resume a persisted session in interactive mode. |
 | `--max-tokens <n>` | Response max tokens override. |
 | `--thinking` | Show model thinking output. |
+| `--reasoning-effort <none\|low\|medium\|high\|xhigh\|max>` | Set reasoning effort for a supported model. |
 | `--temperature <n>` | Sampling temperature override. |
 | `--system-prompt <text>` | Custom system prompt. |
 | `--image <path>` | Attach an image (repeatable). |
@@ -477,6 +480,7 @@ hallucinate auth list
 | `/skills` | — | List loaded skills. |
 | `/model` | `[provider/model]` | Open model picker or switch. |
 | `/thinking` | `[on\|off]` | Toggle thinking output. |
+| `/reasoning-effort` | `<none\|low\|medium\|high\|xhigh\|max>` | Set model reasoning effort. |
 | `/skill:<name>` | `[arguments]` | Invoke a loaded skill. |
 | `/compact` | — | Compact the current context. |
 | `/stop` | — | Cancel the running response. |
@@ -550,6 +554,7 @@ base_url = "http://localhost:1234/v1"
 name = "Llama 3"
 api = "openai-completions"
 reasoning = false
+supports_reasoning_effort = false
 input = ["text"]
 context_window = 32_768
 max_tokens = 4_096

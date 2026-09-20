@@ -55,6 +55,10 @@ pub struct ModelSettings {
     #[serde(default)]
     pub reasoning: bool,
 
+    /// Whether this model accepts the Responses API `reasoning.effort` option.
+    #[serde(default)]
+    pub supports_reasoning_effort: bool,
+
     /// Whether this model is hidden from the interactive model picker.
     #[serde(default)]
     pub hidden: bool,
@@ -85,6 +89,7 @@ impl Default for ModelSettings {
             api: default_api(),
             base_url: None,
             reasoning: false,
+            supports_reasoning_effort: false,
             hidden: false,
             input: default_input(),
             context_window: default_context_window(),
@@ -702,6 +707,7 @@ impl Settings {
                         config.context_window,
                         config.max_tokens,
                     );
+                    model.supports_reasoning_effort = config.supports_reasoning_effort;
                     model.input = config.input.clone();
                     model.hidden = config.hidden;
                     if let Some(cost) = &config.cost {
@@ -1008,6 +1014,7 @@ mod tests {
             name = "Llama 3"
             api = "openai-responses"
             reasoning = true
+            supports_reasoning_effort = true
             input = ["text", "image"]
             context_window = 32768
             max_tokens = 4096
@@ -1026,6 +1033,7 @@ mod tests {
         assert_eq!(model.name, "Llama 3");
         assert_eq!(model.api, Api::OpenaiResponses);
         assert!(model.reasoning);
+        assert!(model.supports_reasoning_effort);
         assert_eq!(model.input, vec!["text", "image"]);
         assert_eq!(model.context_window, 32_768);
         assert_eq!(model.max_tokens, 4096);

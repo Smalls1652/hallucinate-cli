@@ -405,6 +405,15 @@ impl Agent {
         self.invalidate_context_base();
     }
 
+    /// Update the reasoning effort used by subsequent requests. Callers must
+    /// only invoke this while the agent is idle.
+    pub fn set_reasoning_effort(
+        &mut self,
+        reasoning_effort: Option<crate::ai::types::ReasoningEffort>,
+    ) {
+        self.config.reasoning_effort = reasoning_effort;
+    }
+
     /// Get the message history.
     /// Return provider-visible conversation history, including a checkpoint
     /// summary when older history has been compacted.
@@ -713,6 +722,10 @@ impl Agent {
 
         if let Some(max) = self.config.max_tokens {
             options = options.with_max_tokens(max);
+        }
+
+        if let Some(effort) = self.config.reasoning_effort {
+            options = options.with_reasoning_effort(effort);
         }
 
         options.cancellation = Some(self.cancellation.request_cancellation());

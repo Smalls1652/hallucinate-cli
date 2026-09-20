@@ -6,7 +6,7 @@ use crate::{
     agent::types::AgentConfig,
     ai::{
         provider::Provider,
-        types::{Api, Model},
+        types::{Api, Model, ReasoningEffort},
     },
 };
 
@@ -36,6 +36,9 @@ pub struct RuntimeOverrides {
 
     /// Sampling temperature.
     pub temperature: Option<f64>,
+
+    /// Requested model reasoning effort.
+    pub reasoning_effort: Option<ReasoningEffort>,
 
     /// Explicit system prompt.
     pub system_prompt: Option<String>,
@@ -146,6 +149,11 @@ pub fn agent_config(
         enable_compaction: settings.enable_compaction,
         enable_tools: settings.enable_tools,
         temperature: overrides.temperature.or(settings.temperature),
+        reasoning_effort: model.supports_reasoning_effort.then(|| {
+            overrides
+                .reasoning_effort
+                .unwrap_or_else(ReasoningEffort::default_for_supported_model)
+        }),
         max_tokens: resolve_max_tokens(settings, overrides.max_tokens, model),
         include_usage: settings
             .providers

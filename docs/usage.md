@@ -30,6 +30,7 @@ These flags work with any subcommand (including the default interactive mode).
 | `--session <ID>` | Resume a persisted session (interactive mode). |
 | `--max-tokens <N>` | Maximum number of tokens in the response. |
 | `--thinking` | Show model thinking/reasoning output. Overrides the settings file. |
+| `--reasoning-effort <none\|low\|medium\|high\|xhigh\|max>` | Set reasoning effort for a supported model. |
 | `--temperature <N>` | Sampling temperature (0.0 – 2.0). |
 | `--system-prompt <TEXT>` | Custom system prompt to use. |
 | `--image <PATH>` | Attach an image (repeatable). |
@@ -85,6 +86,7 @@ All commands are entered in the editor input prefixed with `/`. The first whites
 | `/skills` | — | List loaded skills. |
 | `/model` | `[provider/model]` | Open the model picker or switch directly. |
 | `/thinking` | `[on\|off]` | Toggle model thinking/reasoning output. |
+| `/reasoning-effort` | `<none\|low\|medium\|high\|xhigh\|max>` | Set model reasoning effort. |
 | `/skill:<name>` | `[arguments]` | Invoke a loaded skill. |
 | `/compact` | — | Compact the current context. |
 | `/reload` | — | Reload prompt templates and system prompt files. |

@@ -3,7 +3,7 @@
 use anyhow::{Result, anyhow};
 use clap::{ArgAction, Args};
 use hallucinate_agent::{
-    ai::types::{AssistantContent, Context, Message, StreamOptions, UserMessage},
+    ai::types::{AssistantContent, Context, Message, ReasoningEffort, StreamOptions, UserMessage},
     config::settings::Settings,
 };
 use hallucinate_tui::components::markdown_to_ansi;
@@ -32,6 +32,10 @@ pub struct PrintArgs {
     #[arg(long = "temperature")]
     pub temperature: Option<f64>,
 
+    /// Reasoning effort for models that support it.
+    #[arg(long = "reasoning-effort", value_parser = parse_reasoning_effort)]
+    pub reasoning_effort: Option<ReasoningEffort>,
+
     /// System prompt to use.
     #[arg(long = "system-prompt")]
     pub system_prompt: Option<String>,
@@ -57,9 +61,15 @@ impl From<&PrintArgs> for hallucinate_agent::config::RuntimeOverrides {
             shell: None,
             max_tokens: args.max_tokens,
             temperature: args.temperature,
+            reasoning_effort: args.reasoning_effort,
             system_prompt: args.system_prompt.clone(),
         }
     }
+}
+
+/// Parse a CLI reasoning-effort value with a user-facing validation error.
+fn parse_reasoning_effort(value: &str) -> Result<ReasoningEffort, String> {
+    value.parse()
 }
 
 /// Run print mode with the given CLI arguments and settings.
@@ -118,6 +128,13 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
 
     if let Some(temperature) = args.temperature.or(settings.temperature) {
         options = options.with_temperature(temperature);
+    }
+
+    if model.supports_reasoning_effort {
+        let effort = args
+            .reasoning_effort
+            .unwrap_or_else(ReasoningEffort::default_for_supported_model);
+        options = options.with_reasoning_effort(effort);
     }
 
     // Create provider for the model's provider group.

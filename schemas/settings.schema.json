@@ -334,6 +334,11 @@
           "description": "Whether this model supports reasoning/thinking output.",
           "type": "boolean",
           "default": false
+        },
+        "supports_reasoning_effort": {
+          "description": "Whether this model accepts the Responses API `reasoning.effort` option.",
+          "type": "boolean",
+          "default": false
         }
       }
     },

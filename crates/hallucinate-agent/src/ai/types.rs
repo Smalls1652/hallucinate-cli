@@ -629,6 +629,66 @@ pub struct ModelCostRates {
     pub cache_write: f64,
 }
 
+/// Amount of reasoning a model should perform for a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    None,
+
+    Low,
+
+    Medium,
+
+    High,
+
+    Xhigh,
+
+    Max,
+}
+
+impl ReasoningEffort {
+    /// Return the default effort for models that support this request option.
+    pub const fn default_for_supported_model() -> Self {
+        Self::Medium
+    }
+}
+
+impl fmt::Display for ReasoningEffort {
+    fn fmt(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        let value = match self {
+            Self::None => "none",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+            Self::Max => "max",
+        };
+
+        f.write_str(value)
+    }
+}
+
+impl std::str::FromStr for ReasoningEffort {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "none" => Ok(Self::None),
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            "xhigh" => Ok(Self::Xhigh),
+            "max" => Ok(Self::Max),
+            _ => Err(
+                "reasoning effort must be one of: none, low, medium, high, xhigh, max".to_string(),
+            ),
+        }
+    }
+}
+
 /// Model metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Model {
@@ -649,6 +709,9 @@ pub struct Model {
 
     /// Whether this model supports reasoning/thinking output.
     pub reasoning: bool,
+
+    /// Whether this model accepts the Responses API `reasoning.effort` option.
+    pub supports_reasoning_effort: bool,
 
     /// Whether this model is hidden from the interactive model picker.
     pub hidden: bool,
@@ -688,6 +751,7 @@ impl Model {
             provider: provider.into(),
             base_url: base_url.into(),
             reasoning,
+            supports_reasoning_effort: false,
             hidden: false,
             input: vec!["text".to_string()],
             cost: ModelCostRates::default(),
@@ -810,6 +874,10 @@ pub struct StreamOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ToolChoice>,
 
+    /// Requested model reasoning effort.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<ReasoningEffort>,
+
     /// Session identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -858,6 +926,15 @@ impl StreamOptions {
         include: bool,
     ) -> Self {
         self.include_usage = Some(include);
+        self
+    }
+
+    /// Set the requested model reasoning effort.
+    pub fn with_reasoning_effort(
+        mut self,
+        effort: ReasoningEffort,
+    ) -> Self {
+        self.reasoning_effort = Some(effort);
         self
     }
 

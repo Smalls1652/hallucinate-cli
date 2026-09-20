@@ -365,6 +365,8 @@ impl InteractiveTui {
 
             "thinking" => self.handle_thinking_command(&arguments),
 
+            "reasoning-effort" => self.handle_reasoning_effort_command(&arguments),
+
             "copy-message" => self.open_transcript_message_picker(&arguments),
 
             "compact" => {
@@ -911,6 +913,14 @@ impl InteractiveTui {
             .as_mut()
             .expect("model changes require an idle agent");
         agent.set_model(provider, model.clone(), max_tokens);
+        agent.set_reasoning_effort(
+            hallucinate_agent::config::agent_config(
+                &self.settings,
+                &model,
+                &self.runtime_overrides,
+            )
+            .reasoning_effort,
+        );
         agent.reload_system_prompt();
 
         self.model = model.clone();
@@ -947,6 +957,36 @@ impl InteractiveTui {
         } else {
             "Thinking output disabled."
         });
+    }
+
+    /// Set the reasoning effort for a model that supports this request option.
+    fn handle_reasoning_effort_command(
+        &mut self,
+        arguments: &str,
+    ) {
+        if !self.model.supports_reasoning_effort {
+            self.show_notice("The active model does not support reasoning effort.");
+            return;
+        }
+
+        let effort = match arguments.trim().parse() {
+            Ok(effort) => effort,
+            Err(_) => {
+                self.show_notice("Usage: /reasoning-effort <none|low|medium|high|xhigh|max>");
+                return;
+            },
+        };
+
+        if !self.ensure_idle("changing reasoning effort") {
+            return;
+        }
+
+        self.runtime_overrides.reasoning_effort = Some(effort);
+        self.agent
+            .as_mut()
+            .expect("reasoning effort changes require an idle agent")
+            .set_reasoning_effort(Some(effort));
+        self.show_notice(format!("Reasoning effort set to {effort}."));
     }
 
     /// Return whether a command which changes the active context may run.

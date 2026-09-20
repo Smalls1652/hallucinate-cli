@@ -330,6 +330,9 @@ pub struct AgentConfig {
     /// Default max tokens for LLM calls.
     pub max_tokens: Option<u32>,
 
+    /// Requested model reasoning effort.
+    pub reasoning_effort: Option<crate::ai::types::ReasoningEffort>,
+
     /// Whether streaming requests include usage data.
     pub include_usage: Option<bool>,
 
@@ -349,6 +352,7 @@ impl Default for AgentConfig {
             enable_tools: true,
             temperature: None,
             max_tokens: None,
+            reasoning_effort: None,
             include_usage: None,
             include_tool_definitions: true,
             max_concurrent_tool_calls: 4,

@@ -8,7 +8,11 @@ use std::io::{self, BufRead, Write};
 
 use anyhow::Result;
 use clap::{ArgAction, Args};
-use hallucinate_agent::{agent::runtime::Agent, ai::types::Message, config::settings::Settings};
+use hallucinate_agent::{
+    agent::runtime::Agent,
+    ai::types::{Message, ReasoningEffort},
+    config::settings::Settings,
+};
 use hallucinate_session::manager::{SessionCreateOptions, SessionManager};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -42,6 +46,10 @@ pub struct RpcArgs {
     #[arg(long = "temperature")]
     pub temperature: Option<f64>,
 
+    /// Reasoning effort for models that support it.
+    #[arg(long = "reasoning-effort", value_parser = parse_reasoning_effort)]
+    pub reasoning_effort: Option<ReasoningEffort>,
+
     /// System prompt to use.
     #[arg(long = "system-prompt")]
     pub system_prompt: Option<String>,
@@ -68,9 +76,15 @@ impl From<&RpcArgs> for hallucinate_agent::config::RuntimeOverrides {
             shell: args.shell.clone(),
             max_tokens: args.max_tokens,
             temperature: args.temperature,
+            reasoning_effort: args.reasoning_effort,
             system_prompt: args.system_prompt.clone(),
         }
     }
+}
+
+/// Parse a CLI reasoning-effort value with a user-facing validation error.
+fn parse_reasoning_effort(value: &str) -> Result<ReasoningEffort, String> {
+    value.parse()
 }
 
 /// Run the RPC mode server, reading JSON-RPC requests from stdin and writing

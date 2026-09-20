@@ -119,6 +119,11 @@ pub const BUILTIN_COMMANDS: &[CommandInfo] = &[
         description: "Toggle model thinking/reasoning output",
     },
     CommandInfo {
+        name: "reasoning-effort",
+        usage: "/reasoning-effort <none|low|medium|high|xhigh|max>",
+        description: "Set model reasoning effort",
+    },
+    CommandInfo {
         name: "copy-message",
         usage: "/copy-message",
         description: "Select a transcript message to copy",
