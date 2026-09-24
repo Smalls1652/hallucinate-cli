@@ -4,16 +4,17 @@
 
 **hallucinate** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search, user-defined script tools), session management, skills, prompt templates, and multiple run modes (interactive, print, RPC).
 
-This is a **Cargo workspace** with four crates:
+This is a **Cargo workspace** with five crates:
 
 | Crate | Path | Description | Publish |
 | --- | --- | --- | --- |
 | `hallucinate` | `crates/hallucinate` | CLI binary — entry point, argument parsing, run modes, session management, logging | `smalls-personal` |
 | `hallucinate-agent` | `crates/hallucinate-agent` | Agent core library — LLM provider abstraction, agent runtime, tools, config, skills, prompt templates | `smalls-personal` |
+| `hallucinate-agent-schemagen` | `crates/hallucinate-agent-schemagen` | Schema generator for settings and script tool definitions (JSON Schema) | — |
 | `hallucinate-session` | `crates/hallucinate-session` | CLI-oriented JSONL session persistence and lifecycle archival | `smalls-personal` |
 | `hallucinate-tui` | `crates/hallucinate-tui` | Terminal UI and interactive controller — ratatui rendering, editor, input, commands | `smalls-personal` |
 
-**Dependency graph**: `hallucinate-tui` → `hallucinate-agent` · `hallucinate` → `hallucinate-agent` + `hallucinate-tui` + `hallucinate-session`
+**Dependency graph**: `hallucinate-tui` → `hallucinate-agent` · `hallucinate` → `hallucinate-agent` + `hallucinate-tui` + `hallucinate-session` · `hallucinate-agent-schemagen` → `hallucinate-agent`
 
 Key features:
 
@@ -30,6 +31,7 @@ Key features:
 - **Auth CLI**: `auth set/remove/list` subcommands for provider API key management; keys are stored in the platform-native keyring (macOS keychain, Linux keyutils, Windows keyring), not in the settings file
 - **Configurable Shell**: Bash tool supports explicit shell executable and full shell syntax (pipes, redirects, `&&`, `||`)
 - **Script Tools**: User-defined tools backed by shell commands — define TOML files in `script_tools/` directories to expose any executable as an LLM-invocable tool with typed parameters and `{{parameter}}` template substitution. Loaded from user config and project-local `.hallucinate/script_tools` (project overrides user by tool ID). See `docs/script_tools.md` for the full reference.
+- **MCP (Model Context Protocol)**: MCP client support via the `rmcp` crate, enabling the agent to interact with MCP servers for extended tool capabilities.
 - **System Prompt Override**: Place a `SYSTEM.md` in the config directory to replace the built-in system prompt; `AGENTS.md` at project root is appended under `## Project Instructions`
 - **API Variants**: Both `openai-completions` (Chat Completions wire format) and `openai-responses` (Responses API wire format) are supported
 - **Credential Resolution**: API keys are resolved in order: CLI override → environment variables (global, provider-specific, or fallback) → inline `api_key` in provider TOML settings → platform keyring. The `HALLUCINATE_<PROVIDER>_API_KEY` env var is supported for multi-provider setups
@@ -48,8 +50,10 @@ Key features:
 | HTTP Client | `reqwest` (json, stream features) |
 | Serialization | `serde` + `serde_json` + `serde_yaml` + `toml` |
 | Error Handling | `anyhow` (app-level) + `thiserror` (domain) |
-| Markdown | `comrak` 0.54 |
-| Images | `image` (default-features = false) |
+| Markdown | `comrak` 0.55 |
+| Images | `image` 0.25 |
+| MCP | `rmcp` 3.4 (client with reqwest transport) |
+| Schema Gen | `schemars` 1.2 |
 | Logging | `tracing` + `tracing-subscriber` (env-filter) |
 | Paths | `directories` + `path-absolutize` + `shellexpand` |
 | Other | `futures`, `tokio-stream`, `uuid`, `regex`, `glob`, `which`, `chrono`, `base64` |
@@ -132,6 +136,7 @@ crates/
 │   │   │       ├── find.rs      # File search (glob)
 │   │   │       ├── grep.rs      # Pattern-based search
 │   │   │       ├── ls.rs        # Directory listing
+│   │   │       ├── mcp.rs       # MCP (Model Context Protocol) client tool
 │   │   │       ├── paths.rs     # Shared filesystem path resolution
 │   │   │       ├── limits.rs    # Tool output size limits
 │   │   │       ├── walker.rs    # Filesystem traversal
@@ -142,6 +147,10 @@ crates/
 │   │       ├── mod.rs
 │   │       ├── paths.rs     # Config directory paths (.agents protocol support)
 │   │       └── settings.rs  # TOML settings manager with multi-provider config
+│   └── Cargo.toml
+├── hallucinate-agent-schemagen/  # Schema generator crate
+│   ├── src/
+│   │   └── main.rs          # CLI for generating JSON schemas
 │   └── Cargo.toml
 ├── hallucinate-session/     # CLI-oriented JSONL session persistence
 │   ├── src/
@@ -188,6 +197,10 @@ crates/
 ### Adding Dependencies
 
 Update the root `Cargo.toml` under `[workspace.dependencies]` and reference via `.workspace = true` in the target crate's `Cargo.toml`. Run `cargo build` to verify. The project uses Renovate for automated dependency updates (configured in `renovate.json`).
+
+- **Generating Schemas**
+
+Run `make generate-schemas` to regenerate JSON Schema files in `schemas/`. This uses the `hallucinate-agent-schemagen` crate to produce `settings.schema.json` and `script_tool.schema.json`.
 
 ## Code Style
 
@@ -264,6 +277,15 @@ make build-release
 # Build release and copy to artifacts/
 make build-release-artifacts
 
+# Generate JSON schemas
+make generate-schemas
+
+# Install from repo (release)
+cargo install --path "./crates/hallucinate" --locked
+
+# Install from repo with optimized compilation
+cargo --config "./compiler-configs/optimized-release-build.toml" install --path "./crates/hallucinate" --locked
+
 # Build with nightly toolchain
 make build-nightly
 
@@ -299,6 +321,15 @@ lto = true
 - Release builds: `target/<target-triple>/release/hallucinate`
 - Cross-compiled artifacts: `artifacts/<os>_<arch>/hallucinate`
 
+### Schemas
+
+JSON Schema files are generated in `schemas/`:
+
+- `schemas/settings.schema.json` — Settings TOML schema
+- `schemas/script_tool.schema.json` — Script tool definition schema
+
+Regenerate with `make generate-schemas`.
+
 ## Pull Request Guidelines
 
 - **Title format**: `[component] Brief description` (e.g., `[agent] Add tool execution loop`)
@@ -326,3 +357,6 @@ Custom registries are configured in `.cargo/config.toml`:
 - Configuration files: `.editorconfig`, `rustfmt.toml`, `renovate.json`
 - Git workflow: Git Town for branch management, Forgejo for PRs
 - Full configuration reference: `docs/config.md`
+- Usage guide: `docs/usage.md`
+- Schemas: `schemas/` (regenerate with `make generate-schemas`)
+- Compiler configs: `compiler-configs/optimized-release-build.toml`
