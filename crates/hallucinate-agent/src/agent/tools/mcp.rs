@@ -1,27 +1,26 @@
 //! Model Context Protocol (MCP) tool integration.
 //!
-//! Configured servers use either local stdio or the MCP streamable HTTP
-//! transport. Tools are discovered with `tools/list` and given unique,
-//! configurable names before the agent sees them.
+//! Configured servers use rmcp's local stdio or streamable HTTP transports.
+//! Tools are discovered with `tools/list` and given unique, configurable names
+//! before the agent sees them.
 
-use std::{
-    collections::HashMap,
-    fmt,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-};
+use std::{collections::HashMap, fmt, process::Stdio, sync::Arc};
 
 use futures::Future;
-use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
-    process::{Child, ChildStdin, ChildStdout, Command},
-    sync::Mutex,
+use rmcp::{
+    RoleClient,
+    ServiceExt,
+    model::{CallToolRequestParams, ContentBlock, JsonObject, Tool as RmcpTool},
+    service::RunningService,
+    transport::{
+        ConfigureCommandExt,
+        StreamableHttpClientTransport,
+        TokioChildProcess,
+        streamable_http_client::StreamableHttpClientTransportConfig,
+    },
 };
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::agent::tools::types::{Tool, ToolResult};
 
@@ -44,9 +43,11 @@ pub enum McpAuthSettings {
     ApiKey {
         /// API key value sent to the remote server.
         api_key: String,
+
         /// HTTP header receiving the API key. Defaults to `Authorization`.
         #[serde(default = "default_api_key_header")]
         header: String,
+
         /// Optional text prepended to the API key. Defaults to `Bearer `.
         #[serde(default = "default_api_key_prefix")]
         prefix: String,
@@ -97,80 +98,22 @@ pub struct McpServerSettings {
     pub auth: McpAuthSettings,
 
     /// Optional prefix for discovered tools.
-    ///
-    /// When omitted or empty, the remote tool name is used directly after
-    /// sanitization. Configure a prefix to disambiguate tools deliberately.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_prefix: Option<String>,
 }
 
-/// Parsed tool definition from an MCP server's `tools/list` response.
-#[derive(Debug, Deserialize)]
-struct McpToolDefinition {
-    /// Unique tool name.
-    name: String,
-
-    /// Human-readable tool description.
-    #[serde(default)]
-    description: String,
-
-    /// JSON Schema describing accepted input parameters.
-    #[serde(default, rename = "inputSchema")]
-    input_schema: Value,
+/// Return whether authentication is the default no-auth configuration.
+fn mcp_auth_is_no_auth(auth: &McpAuthSettings) -> bool {
+    matches!(auth, McpAuthSettings::NoAuth)
 }
 
-/// A connected local MCP stdio server.
-struct StdioConnection {
-    /// The spawned MCP server process.
-    child: Child,
+/// A connected MCP server managed by rmcp.
+enum McpClient {
+    /// A local server using rmcp's child-process transport.
+    Stdio(RunningService<RoleClient, ()>),
 
-    /// Pipe handle for writing JSON-RPC requests.
-    stdin: ChildStdin,
-
-    /// Line-buffered reader for JSON-RPC responses.
-    stdout: Lines<BufReader<ChildStdout>>,
-}
-
-impl Drop for StdioConnection {
-    fn drop(&mut self) {
-        // Stopping the runtime command also stops a `docker run -i` or similar
-        // container session. This prevents MCP containers surviving after the
-        // agent exits; use `--rm` to remove their stopped containers as well.
-        let _ = self.child.start_kill();
-    }
-}
-
-/// A connected remote MCP HTTP server.
-struct HttpConnection {
-    /// HTTP client for sending requests.
-    client: reqwest::Client,
-
-    /// Target MCP server URL.
-    url: String,
-
-    /// Authentication configuration for the server.
-    auth: McpAuthSettings,
-
-    /// Active session ID, set by the server.
-    session_id: Mutex<Option<HeaderValue>>,
-}
-
-/// Transport layer for an MCP server connection.
-enum McpTransport {
-    /// Local stdio-based server.
-    Stdio(Mutex<StdioConnection>),
-
-    /// Remote HTTP-based server.
-    Http(HttpConnection),
-}
-
-/// Client for a single MCP server.
-struct McpClient {
-    /// Transport used to communicate with the server.
-    transport: McpTransport,
-
-    /// Monotonically increasing request ID counter.
-    next_request_id: AtomicU64,
+    /// A remote server using rmcp's streamable HTTP transport.
+    Http(RunningService<RoleClient, ()>),
 }
 
 impl fmt::Debug for McpClient {
@@ -183,315 +126,106 @@ impl fmt::Debug for McpClient {
 }
 
 impl McpClient {
-    /// Initialize the MCP server connection and exchange handshake messages.
+    /// Connect to and initialize the configured MCP server.
     async fn start(settings: &McpServerSettings) -> Result<Self, anyhow::Error> {
-        let transport = match (&settings.command, &settings.url) {
+        match (&settings.command, &settings.url) {
             (Some(_), Some(_)) => {
                 anyhow::bail!("MCP server must configure either command or url, not both")
             },
-
             (None, None) => anyhow::bail!("MCP server must configure command or url"),
-
-            (Some(command), None) => {
-                McpTransport::Stdio(Mutex::new(start_stdio(command, settings).await?))
-            },
-
-            (None, Some(url)) => {
-                let url = reqwest::Url::parse(url)
-                    .map_err(|error| anyhow::anyhow!("invalid MCP server URL '{url}': {error}"))?;
-
-                if !matches!(url.scheme(), "http" | "https") {
-                    anyhow::bail!("MCP server URL must use http or https");
-                }
-
-                McpTransport::Http(HttpConnection {
-                    client: reqwest::Client::new(),
-                    url: url.into(),
-                    auth: settings.auth.clone(),
-                    session_id: Mutex::new(None),
-                })
-            },
-        };
-
-        let client = Self {
-            transport,
-            next_request_id: AtomicU64::new(1),
-        };
-
-        client
-            .request(
-                "initialize",
-                json!({
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": { "name": "hallucinate", "version": env!("CARGO_PKG_VERSION") }
-                }),
-            )
-            .await?;
-
-        client
-            .notify("notifications/initialized", json!({}))
-            .await?;
-
-        Ok(client)
-    }
-
-    /// Send a notification (fire-and-forget) to the MCP server.
-    async fn notify(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<(), anyhow::Error> {
-        self.send(
-            json!({ "jsonrpc": "2.0", "method": method, "params": params }),
-            None,
-        )
-        .await
-        .map(|_| ())
-    }
-
-    /// Send a request to the MCP server and return the result.
-    async fn request(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, anyhow::Error> {
-        let id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
-
-        let response = self
-            .send(
-                json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }),
-                Some(id),
-            )
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("MCP {method} response has no result"))?;
-
-        if let Some(error) = response.get("error") {
-            anyhow::bail!("MCP {method} failed: {error}");
-        }
-
-        response
-            .get("result")
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("MCP {method} response has no result"))
-    }
-
-    /// Send a JSON-RPC message to the server and optionally wait for a
-    /// response.
-    async fn send(
-        &self,
-        request: Value,
-        expected_id: Option<u64>,
-    ) -> Result<Option<Value>, anyhow::Error> {
-        match &self.transport {
-            McpTransport::Stdio(connection) => {
-                let mut connection = connection.lock().await;
-
-                write_jsonrpc_message(&mut connection.stdin, &request).await?;
-
-                let Some(expected_id) = expected_id else {
-                    return Ok(None);
-                };
-
-                while let Some(line) = connection.stdout.next_line().await? {
-                    let response = parse_jsonrpc_response(&line)?;
-
-                    if response.get("id") == Some(&json!(expected_id)) {
-                        return Ok(Some(response));
-                    }
-                }
-
-                match connection.child.try_wait().map_err(|error| {
-                    anyhow::anyhow!("failed to inspect MCP server process: {error}")
-                })? {
-                    Some(status) => {
-                        anyhow::bail!("MCP server exited while handling request: {status}")
-                    },
-
-                    None => anyhow::bail!(
-                        "MCP server closed stdout while handling request but is still running"
-                    ),
-                }
-            },
-            McpTransport::Http(connection) => {
-                send_http_request(connection, request, expected_id).await
-            },
-        }
-    }
-}
-
-/// Start a local MCP stdio server and return a connection handle.
-async fn start_stdio(
-    command: &str,
-
-    settings: &McpServerSettings,
-) -> Result<StdioConnection, anyhow::Error> {
-    if command.trim().is_empty() {
-        anyhow::bail!("MCP server command cannot be empty");
-    }
-
-    let mut process = Command::new(command);
-    process.args(&settings.args).envs(&settings.env);
-
-    // An MCP stdio server's stdout is its JSON-RPC transport, so it must
-    // always be captured rather than inherited by the user's terminal. Server
-    // diagnostics must not disrupt the TUI or RPC output either.
-    process.stdin(std::process::Stdio::piped());
-    process.stdout(std::process::Stdio::piped());
-    process.stderr(std::process::Stdio::null());
-
-    let mut child = process
-        .spawn()
-        .map_err(|error| anyhow::anyhow!("failed to start MCP server '{command}': {error}"))?;
-
-    let stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("MCP server stdin was not piped"))?;
-
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("MCP server stdout was not piped"))?;
-
-    // Retain the child as well as its pipe handles. This lets the client reap
-    // local servers and report their exit status, including a container
-    // runtime which fails to start its configured image.
-    Ok(StdioConnection {
-        child,
-        stdin,
-        stdout: BufReader::new(stdout).lines(),
-    })
-}
-
-/// Send an HTTP request to a remote MCP server and return the response.
-async fn send_http_request(
-    connection: &HttpConnection,
-    request: Value,
-    expected_id: Option<u64>,
-) -> Result<Option<Value>, anyhow::Error> {
-    let mut headers = HeaderMap::new();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    headers.insert(
-        ACCEPT,
-        HeaderValue::from_static("application/json, text/event-stream"),
-    );
-
-    if let Some(session_id) = connection.session_id.lock().await.clone() {
-        headers.insert("mcp-session-id", session_id);
-    }
-
-    add_auth_header(&mut headers, &connection.auth)?;
-
-    let response = connection
-        .client
-        .post(&connection.url)
-        .headers(headers)
-        .json(&request)
-        .send()
-        .await
-        .map_err(|error| anyhow::anyhow!("MCP HTTP request failed: {error}"))?
-        .error_for_status()
-        .map_err(|error| anyhow::anyhow!("MCP HTTP server returned an error: {error}"))?;
-
-    if let Some(session_id) = response.headers().get("mcp-session-id") {
-        *connection.session_id.lock().await = Some(session_id.clone());
-    }
-
-    if expected_id.is_none() || response.status() == reqwest::StatusCode::ACCEPTED {
-        return Ok(None);
-    }
-
-    let content_type = response
-        .headers()
-        .get(CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .to_owned();
-
-    let body = response.text().await?;
-
-    let response = if content_type.starts_with("text/event-stream") {
-        parse_sse_response(&body, expected_id.expect("requests have an expected ID"))?
-    } else {
-        parse_jsonrpc_response(&body)?
-    };
-
-    Ok(Some(response))
-}
-
-/// Return whether authentication is the default no-auth configuration.
-fn mcp_auth_is_no_auth(auth: &McpAuthSettings) -> bool {
-    matches!(auth, McpAuthSettings::NoAuth)
-}
-
-/// Add configured remote-server authentication to HTTP request headers.
-fn add_auth_header(
-    headers: &mut HeaderMap,
-    auth: &McpAuthSettings,
-) -> Result<(), anyhow::Error> {
-    let McpAuthSettings::ApiKey {
-        api_key,
-        header,
-        prefix,
-    } = auth
-    else {
-        return Ok(());
-    };
-
-    if api_key.trim().is_empty() {
-        anyhow::bail!("MCP API key cannot be empty");
-    }
-
-    let name = reqwest::header::HeaderName::from_bytes(header.as_bytes())
-        .map_err(|error| anyhow::anyhow!("invalid MCP API-key header '{header}': {error}"))?;
-    let value = HeaderValue::from_str(&format!("{prefix}{api_key}"))
-        .map_err(|error| anyhow::anyhow!("invalid MCP API-key value: {error}"))?;
-
-    headers.insert(name, value);
-
-    Ok(())
-}
-
-/// Parse a JSON-RPC response from a string body.
-fn parse_jsonrpc_response(body: &str) -> Result<Value, anyhow::Error> {
-    serde_json::from_str(body)
-        .map_err(|error| anyhow::anyhow!("MCP server returned invalid JSON-RPC: {error}"))
-}
-
-/// Parse a Server-Sent Events body and return the JSON-RPC response with the
-/// expected ID.
-fn parse_sse_response(
-    body: &str,
-    expected_id: u64,
-) -> Result<Value, anyhow::Error> {
-    for line in body.lines() {
-        let Some(data) = line.strip_prefix("data:") else {
-            continue;
-        };
-
-        let response = parse_jsonrpc_response(data.trim())?;
-
-        if response.get("id") == Some(&json!(expected_id)) {
-            return Ok(response);
+            (Some(command), None) => Self::start_stdio(command, settings).await,
+            (None, Some(url)) => Self::start_http(url, &settings.auth).await,
         }
     }
 
-    anyhow::bail!("MCP HTTP event stream ended without the request response")
-}
+    /// Start a local MCP server through rmcp's child-process transport.
+    async fn start_stdio(
+        command: &str,
+        settings: &McpServerSettings,
+    ) -> Result<Self, anyhow::Error> {
+        if command.trim().is_empty() {
+            anyhow::bail!("MCP server command cannot be empty");
+        }
 
-/// Write a JSON-RPC message to the server's stdin.
-async fn write_jsonrpc_message(
-    stdin: &mut ChildStdin,
-    message: &Value,
-) -> Result<(), anyhow::Error> {
-    let message = serde_json::to_string(message)?;
+        let process_command = command.to_string();
+        let command = tokio::process::Command::new(command).configure(|process| {
+            process.args(&settings.args).envs(&settings.env);
+        });
 
-    stdin.write_all(message.as_bytes()).await?;
-    stdin.write_all(b"\n").await?;
-    stdin.flush().await?;
+        let transport = TokioChildProcess::builder(command)
+            // MCP stdout is its protocol transport; server diagnostics must not
+            // be emitted into the application's terminal output.
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| {
+                anyhow::anyhow!("failed to start MCP server '{process_command}': {error}")
+            })?
+            .0;
 
-    Ok(())
+        let service = ().serve(transport).await?;
+
+        Ok(Self::Stdio(service))
+    }
+
+    /// Start a remote MCP server through rmcp's streamable HTTP transport.
+    async fn start_http(
+        url: &str,
+        auth: &McpAuthSettings,
+    ) -> Result<Self, anyhow::Error> {
+        let url = reqwest::Url::parse(url)
+            .map_err(|error| anyhow::anyhow!("invalid MCP server URL '{url}': {error}"))?;
+
+        if !matches!(url.scheme(), "http" | "https") {
+            anyhow::bail!("MCP server URL must use http or https");
+        }
+
+        let mut config = StreamableHttpClientTransportConfig::with_uri(url.to_string());
+
+        if let McpAuthSettings::ApiKey {
+            api_key,
+            header,
+            prefix,
+        } = auth
+        {
+            if api_key.trim().is_empty() {
+                anyhow::bail!("MCP API key cannot be empty");
+            }
+
+            let value = reqwest::header::HeaderValue::from_str(&format!("{prefix}{api_key}"))
+                .map_err(|error| anyhow::anyhow!("invalid MCP API-key value: {error}"))?;
+
+            let name =
+                reqwest::header::HeaderName::from_bytes(header.as_bytes()).map_err(|error| {
+                    anyhow::anyhow!("invalid MCP API-key header '{header}': {error}")
+                })?;
+
+            config.custom_headers.insert(name, value);
+        }
+
+        let service = ().serve(StreamableHttpClientTransport::from_config(config)).await?;
+
+        Ok(Self::Http(service))
+    }
+
+    /// List the remote server's tools.
+    async fn list_tools(&self) -> Result<Vec<RmcpTool>, anyhow::Error> {
+        match self {
+            Self::Stdio(service) | Self::Http(service) => Ok(service.list_all_tools().await?),
+        }
+    }
+
+    /// Call one remote tool.
+    async fn call_tool(
+        &self,
+        remote_name: String,
+        arguments: JsonObject,
+    ) -> Result<rmcp::model::CallToolResult, anyhow::Error> {
+        let request = CallToolRequestParams::new(remote_name).with_arguments(arguments);
+
+        match self {
+            Self::Stdio(service) | Self::Http(service) => Ok(service.call_tool(request).await?),
+        }
+    }
 }
 
 /// A tool supplied by a configured MCP server.
@@ -549,25 +283,21 @@ impl Tool for McpTool {
     ) -> std::pin::Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>>
     {
         Box::pin(async move {
+            let arguments = arguments.as_object().cloned().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "MCP tool arguments for '{}' must be a JSON object",
+                    self.name
+                )
+            })?;
+
             let result = self
                 .client
-                .request(
-                    "tools/call",
-                    json!({
-                        "name": self.remote_name,
-                        "arguments": arguments,
-                    }),
-                )
+                .call_tool(self.remote_name.clone(), arguments)
                 .await?;
 
-            let is_error = result
-                .get("isError")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
+            let content = format_mcp_content(&result.content);
 
-            let content = format_mcp_content(result.get("content"));
-
-            Ok(if is_error {
+            Ok(if result.is_error.unwrap_or(false) {
                 ToolResult::error("", &self.name, content)
             } else {
                 ToolResult::success("", &self.name, content)
@@ -584,24 +314,14 @@ pub async fn load_mcp_tools(
     servers.sort_unstable_by(|left, right| left.0.cmp(right.0));
 
     let mut tools: Vec<Arc<dyn Tool + Send + Sync>> = Vec::new();
-
     for (server_name, settings) in servers {
         let client = Arc::new(McpClient::start(settings).await.map_err(|error| {
             anyhow::anyhow!("failed to initialize MCP server '{server_name}': {error}")
         })?);
 
-        let result = client
-            .request("tools/list", json!({}))
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!("failed to list tools from MCP server '{server_name}': {error}")
-            })?;
-
-        let definitions: Vec<McpToolDefinition> =
-            serde_json::from_value(result.get("tools").cloned().unwrap_or_else(|| json!([])))
-                .map_err(|error| {
-                    anyhow::anyhow!("MCP server '{server_name}' returned invalid tools: {error}")
-                })?;
+        let definitions = client.list_tools().await.map_err(|error| {
+            anyhow::anyhow!("failed to list tools from MCP server '{server_name}': {error}")
+        })?;
 
         for definition in definitions {
             if definition.name.trim().is_empty() {
@@ -617,9 +337,9 @@ pub async fn load_mcp_tools(
             tools.push(Arc::new(McpTool {
                 name,
                 server_name: server_name.clone(),
-                remote_name: definition.name,
-                description: definition.description,
-                parameters: definition.input_schema,
+                remote_name: definition.name.into_owned(),
+                description: definition.description.map(Into::into).unwrap_or_default(),
+                parameters: Value::Object((*definition.input_schema).clone()),
                 client: client.clone(),
             }));
         }
@@ -635,7 +355,6 @@ fn qualified_tool_name(
     tool_name: &str,
 ) -> String {
     let tool_name = sanitize_name(tool_name);
-
     let Some(prefix) = prefix.filter(|prefix| !prefix.is_empty()) else {
         return tool_name;
     };
@@ -661,20 +380,12 @@ fn sanitize_name(name: &str) -> String {
 }
 
 /// Format MCP tool content into a single string.
-fn format_mcp_content(content: Option<&Value>) -> String {
-    let Some(Value::Array(items)) = content else {
-        return String::new();
-    };
-
-    items
+fn format_mcp_content(content: &[ContentBlock]) -> String {
+    content
         .iter()
-        .map(|item| match item.get("type").and_then(Value::as_str) {
-            Some("text") => item
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            _ => serde_json::to_string(item).unwrap_or_else(|_| item.to_string()),
+        .map(|item| match item.as_text() {
+            Some(text) => text.text.clone(),
+            None => serde_json::to_string(item).unwrap_or_else(|_| format!("{item:?}")),
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -696,50 +407,5 @@ mod tests {
             qualified_tool_name(Some("tools-"), "get/file"),
             "tools_get_file"
         );
-    }
-
-    #[test]
-    fn parses_sse_jsonrpc_responses() {
-        let response = parse_sse_response(
-            "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{}}\n",
-            7,
-        )
-        .unwrap();
-        assert_eq!(response["id"], 7);
-    }
-
-    #[test]
-    fn adds_default_bearer_api_key_authentication() {
-        let mut headers = HeaderMap::new();
-        add_auth_header(
-            &mut headers,
-            &McpAuthSettings::ApiKey {
-                api_key: "secret".to_string(),
-                header: default_api_key_header(),
-                prefix: default_api_key_prefix(),
-            },
-        )
-        .unwrap();
-
-        assert_eq!(
-            headers.get(reqwest::header::AUTHORIZATION).unwrap(),
-            "Bearer secret"
-        );
-    }
-
-    #[test]
-    fn supports_custom_api_key_headers() {
-        let mut headers = HeaderMap::new();
-        add_auth_header(
-            &mut headers,
-            &McpAuthSettings::ApiKey {
-                api_key: "secret".to_string(),
-                header: "X-API-Key".to_string(),
-                prefix: String::new(),
-            },
-        )
-        .unwrap();
-
-        assert_eq!(headers.get("x-api-key").unwrap(), "secret");
     }
 }

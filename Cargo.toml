@@ -39,6 +39,7 @@ keyring-core   = "1.0.0"
 minijinja = "2.24.0"
 ratatui = { version = "0.30.2", features = ["unstable-rendered-line-info"] }
 reqwest = { version = "0.13.4", features = ["json", "stream"] }
+rmcp = { version   = "3.4.1", features = ["client", "reqwest", "transport-child-process", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"], default-features = false }
 rpassword = "7.5.4"
 schemars = "1.2.2"
 serde = { version = "1.0.229", features = ["derive", "rc"] }
