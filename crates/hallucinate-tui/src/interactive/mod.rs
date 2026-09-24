@@ -81,6 +81,12 @@ pub struct InteractiveTui {
     /// layout calculation in the input path.
     transcript_area: Rect,
 
+    /// Last reported mouse position, used to refresh hover after redraws.
+    mouse_position: Option<(u16, u16)>,
+
+    /// Whether the terminal pointer is currently shaped for a transcript link.
+    hovering_link: bool,
+
     /// The currently selected range in the visible chat transcript.
     chat_selection: Option<ChatSelection>,
 
@@ -363,6 +369,8 @@ impl InteractiveTui {
             },
             editor: Editor::new("").placeholder("Type a message..."),
             transcript_area: Rect::default(),
+            mouse_position: None,
+            hovering_link: false,
             chat_selection: None,
             selected_text: String::new(),
             copy_selection_on_render: false,
@@ -471,6 +479,7 @@ impl InteractiveTui {
                 // the follow-up status redraw it needs.
                 self.render_state.clear();
                 self.render()?;
+                self.refresh_link_pointer()?;
 
                 next_stream_render = None;
 
@@ -516,6 +525,10 @@ impl InteractiveTui {
     /// Restore the terminal after leaving interactive mode.
     fn exit_raw_mode(&mut self) -> Result<(), anyhow::Error> {
         let mut cleanup_error = crossterm::terminal::disable_raw_mode().err();
+
+        if let Err(error) = input::set_link_pointer(&mut std::io::stdout(), false) {
+            cleanup_error.get_or_insert(error);
+        }
 
         if let Err(error) = crossterm::execute!(
             std::io::stdout(),

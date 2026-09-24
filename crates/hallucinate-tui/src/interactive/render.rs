@@ -15,7 +15,7 @@ use super::InteractiveTui;
 use crate::{
     alt_screen::{MessageRole, ToolCall, TranscriptRenderer},
     components::{
-        markdown::markdown_to_lines_with_width,
+        markdown::markdown_to_clickable_lines,
         markdown_to_text,
         picker_overlays::{
             render_model_picker,
@@ -52,6 +52,9 @@ pub(super) struct TranscriptLayoutCache {
 
     /// Cached visual transcript lines.
     lines: Vec<Line<'static>>,
+
+    /// Link destinations referenced by markers in cached visual lines.
+    links: Vec<String>,
 
     /// Column offset where each line becomes selectable, or `None`.
     selection_line_starts: Vec<Option<usize>>,
@@ -95,7 +98,13 @@ impl ratatui::widgets::Widget for TranscriptViewport<'_> {
         {
             let row_area = Rect::new(area.x, area.y.saturating_add(row as u16), area.width, 1);
 
-            ratatui::widgets::Widget::render(line, row_area, buffer);
+            let mut visible = line.clone();
+
+            for span in &mut visible.spans {
+                span.style.underline_color = None;
+            }
+
+            ratatui::widgets::Widget::render(visible, row_area, buffer);
         }
     }
 }
@@ -104,6 +113,38 @@ impl TranscriptLayoutCache {
     /// Return the number of cached visual transcript rows.
     pub(super) fn line_count(&self) -> usize {
         self.lines.len()
+    }
+
+    /// Find the link under a screen coordinate in the current scrolled view.
+    pub(super) fn link_at(
+        &self,
+        column: u16,
+        row: u16,
+        area: Rect,
+        scroll: usize,
+    ) -> Option<&str> {
+        let inner = Block::default().padding(Padding::horizontal(1)).inner(area);
+
+        if column < inner.x || column >= inner.right() || row < inner.y || row >= inner.bottom() {
+            return None;
+        }
+
+        let line = self.lines.get(scroll + usize::from(row - inner.y))?;
+
+        let mut x = 0;
+
+        for span in &line.spans {
+            let end = x + span.content.width();
+
+            if (x..end).contains(&usize::from(column - inner.x)) {
+                return link_index(span.style)
+                    .and_then(|index| self.links.get(index).map(String::as_str));
+            }
+
+            x = end;
+        }
+
+        None
     }
 
     /// Return whether the cache matches the given transcript configuration.
@@ -130,6 +171,7 @@ impl TranscriptLayoutCache {
         show_full_tool_output: bool,
         streaming_message_index: Option<usize>,
         lines: Vec<Line<'static>>,
+        links: Vec<String>,
         selection_line_starts: Vec<Option<usize>>,
         selection_message_indices: Vec<Option<usize>>,
     ) {
@@ -140,6 +182,7 @@ impl TranscriptLayoutCache {
         self.streaming_message_index = streaming_message_index;
         self.transcript_revision = transcript.layout_revision();
         self.lines = lines;
+        self.links = links;
         self.selection_line_starts = selection_line_starts;
         self.selection_message_indices = selection_message_indices;
     }
@@ -327,6 +370,7 @@ fn render_transcript(
     );
 
     if !cache_matches {
+        let mut links = Vec::new();
         let mut selection_line_starts = Vec::new();
         let mut selection_message_indices = Vec::new();
         let messages = transcript.messages();
@@ -399,10 +443,22 @@ fn render_transcript(
                     message_indices.push(None);
                 }
 
-                let mut body = markdown_to_lines_with_width(
+                let (mut body, message_links) = markdown_to_clickable_lines(
                     &msg.content,
                     usize::from(transcript_width.saturating_sub(2)),
                 );
+                let link_offset = links.len();
+
+                for line in &mut body {
+                    for span in &mut line.spans {
+                        if let Some(index) = link_index(span.style) {
+                            span.style = link_marker(span.style, index + link_offset);
+                        }
+                    }
+                }
+
+                links.extend(message_links);
+
                 while body.last().is_some_and(line_is_empty) {
                     body.pop();
                 }
@@ -586,6 +642,7 @@ fn render_transcript(
             show_full_tool_output,
             streaming_message_index,
             lines,
+            links,
             selection_line_starts,
             selection_message_indices,
         );
@@ -1006,6 +1063,28 @@ fn line_is_empty_card_rail(line: &Line<'_>) -> bool {
     line.spans.iter().all(|span| span.content == "│ ")
 }
 
+/// Decode the temporary link marker carried through Markdown wrapping.
+fn link_index(style: Style) -> Option<usize> {
+    let Some(Color::Rgb(red, green, blue)) = style.underline_color else {
+        return None;
+    };
+
+    let id = (usize::from(red) << 16) | (usize::from(green) << 8) | usize::from(blue);
+
+    id.checked_sub(1)
+}
+
+fn link_marker(
+    mut style: Style,
+    index: usize,
+) -> Style {
+    let id = index + 1;
+
+    style.underline_color = Some(Color::Rgb((id >> 16) as u8, (id >> 8) as u8, id as u8));
+
+    style
+}
+
 /// Foreground color marker for selectable text in the transcript.
 const SELECTION_MARKER: Color = Color::Rgb(1, 2, 3);
 
@@ -1063,6 +1142,32 @@ fn prefix_message_line(
 mod tests {
     use super::*;
     use crate::alt_screen::Message;
+
+    #[test]
+    fn link_hit_testing_respects_wrapping_padding_and_scroll() {
+        let (body, links) = markdown_to_clickable_lines("[documentation](https://example.com)", 12);
+
+        let mut rows = Vec::new();
+
+        for line in body {
+            rows.extend(
+                wrap_line_to_width(line, 12)
+                    .into_iter()
+                    .map(|line| prefix_message_line(line, Color::LightCyan)),
+            );
+        }
+        let mut cache = TranscriptLayoutCache::default();
+        cache.lines = rows;
+        cache.links = links;
+
+        let area = Rect::new(0, 1, 16, 2);
+
+        assert_eq!(cache.link_at(3, 1, area, 0), Some("https://example.com"));
+        assert_eq!(cache.link_at(1, 1, area, 0), None);
+        assert_eq!(cache.link_at(0, 1, area, 0), None);
+        assert_eq!(cache.link_at(3, 1, area, 1), Some("https://example.com"));
+        assert_eq!(cache.link_at(3, 0, area, 0), None);
+    }
 
     #[test]
     fn consecutive_assistant_turns_share_a_transcript_card() {
@@ -1246,6 +1351,7 @@ mod tests {
             false,
             None,
             vec![Line::from("cached")],
+            Vec::new(),
             vec![Some(0)],
             vec![Some(0)],
         );
@@ -1273,6 +1379,7 @@ mod tests {
             80,
             false,
             None,
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             Vec::new(),

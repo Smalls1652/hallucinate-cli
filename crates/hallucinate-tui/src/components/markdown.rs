@@ -37,9 +37,29 @@ pub fn markdown_to_lines_with_width(
     markdown_to_lines_with_table_width(markdown, Some(max_width))
 }
 
+/// Render Markdown with link destinations encoded in span underline colors.
+/// The interactive transcript extracts these markers after wrapping and
+/// removes them before painting the spans to the terminal.
+pub(crate) fn markdown_to_clickable_lines(
+    markdown: &str,
+    max_width: usize,
+) -> (Vec<Line<'static>>, Vec<String>) {
+    let mut links = Vec::new();
+    let lines = render_markdown(markdown, Some(max_width), Some(&mut links));
+    (lines, links)
+}
+
 pub fn markdown_to_lines_with_table_width(
     markdown: &str,
     max_width: Option<usize>,
+) -> Vec<Line<'static>> {
+    render_markdown(markdown, max_width, None)
+}
+
+fn render_markdown(
+    markdown: &str,
+    max_width: Option<usize>,
+    links: Option<&mut Vec<String>>,
 ) -> Vec<Line<'static>> {
     let arena = Arena::new();
 
@@ -54,6 +74,7 @@ pub fn markdown_to_lines_with_table_width(
     let mut renderer = Renderer {
         lines: Vec::new(),
         table_max_width: max_width,
+        links,
     };
     renderer.blocks(root);
 
@@ -113,15 +134,17 @@ pub fn markdown_to_ansi(markdown: &str) -> String {
 ///
 /// Accumulates spans in rows, applying indentation prefixes for nested blocks
 /// (lists, quotes, code blocks, tables).
-struct Renderer {
+struct Renderer<'a> {
     /// Buffered output lines as vectors of styled spans.
     lines: Vec<Vec<Span<'static>>>,
 
     /// Maximum rendered width for a table, if constrained by a viewport.
     table_max_width: Option<usize>,
+
+    links: Option<&'a mut Vec<String>>,
 }
 
-impl Renderer {
+impl Renderer<'_> {
     /// Recursively render all child nodes of the given parent.
     fn blocks<'a>(
         &mut self,
@@ -147,7 +170,7 @@ impl Renderer {
             NodeValue::Document => self.blocks(node),
 
             NodeValue::Paragraph => {
-                for line in inline_lines(node, Style::default()) {
+                for line in inline_lines(node, Style::default(), self.links.as_deref_mut()) {
                     self.lines.push(with_prefix(line, " ".repeat(indent)));
                 }
 
@@ -159,7 +182,7 @@ impl Renderer {
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD);
 
-                for line in inline_lines(node, style) {
+                for line in inline_lines(node, style, self.links.as_deref_mut()) {
                     self.lines.push(with_prefix(
                         line,
                         format!(
@@ -208,6 +231,7 @@ impl Renderer {
                 let mut nested = Renderer {
                     lines: Vec::new(),
                     table_max_width: self.table_max_width,
+                    links: self.links.as_deref_mut(),
                 };
                 nested.blocks(node);
                 nested.remove_trailing_separators();
@@ -306,6 +330,7 @@ impl Renderer {
             let mut nested = Renderer {
                 lines: Vec::new(),
                 table_max_width: self.table_max_width,
+                links: self.links.as_deref_mut(),
             };
             nested.list_item_blocks(item);
             nested.remove_trailing_separators();
@@ -388,7 +413,7 @@ impl Renderer {
 
                 let cells = row
                     .children()
-                    .map(|cell| inline_lines(cell, style))
+                    .map(|cell| inline_lines(cell, style, self.links.as_deref_mut()))
                     .collect::<Vec<_>>();
 
                 (header, cells)
@@ -514,11 +539,12 @@ impl Renderer {
 fn inline_lines<'a>(
     node: &'a comrak::nodes::AstNode<'a>,
     style: Style,
+    mut links: Option<&mut Vec<String>>,
 ) -> Vec<Vec<Span<'static>>> {
     let mut lines = vec![Vec::new()];
 
     for child in node.children() {
-        inline_node(child, style, &mut lines);
+        inline_node(child, style, &mut lines, links.as_deref_mut());
     }
 
     lines
@@ -529,6 +555,7 @@ fn inline_node<'a>(
     node: &'a comrak::nodes::AstNode<'a>,
     style: Style,
     lines: &mut Vec<Vec<Span<'static>>>,
+    mut links: Option<&mut Vec<String>>,
 ) {
     let value = node.data().value.clone();
 
@@ -550,32 +577,56 @@ fn inline_node<'a>(
                 .add_modifier(Modifier::BOLD),
         ),
 
-        NodeValue::Emph => children_inline(node, style.add_modifier(Modifier::ITALIC), lines),
-
-        NodeValue::Strong => children_inline(node, style.add_modifier(Modifier::BOLD), lines),
-
-        NodeValue::Strikethrough => {
-            children_inline(node, style.add_modifier(Modifier::CROSSED_OUT), lines)
+        NodeValue::Emph => {
+            children_inline(node, style.add_modifier(Modifier::ITALIC), lines, links)
         },
+
+        NodeValue::Strong => {
+            children_inline(node, style.add_modifier(Modifier::BOLD), lines, links)
+        },
+
+        NodeValue::Strikethrough => children_inline(
+            node,
+            style.add_modifier(Modifier::CROSSED_OUT),
+            lines,
+            links,
+        ),
 
         NodeValue::Link(link) => {
             let link_style = style.fg(Color::Cyan).add_modifier(Modifier::UNDERLINED);
-            children_inline(node, link_style, lines);
+            let link_style = mark_link(link_style, &link.url, links.as_deref_mut());
+            children_inline(node, link_style, lines, links.as_deref_mut());
 
-            if !link.url.is_empty() {
-                add_text(lines, format!(" ({})", link.url), style.fg(Color::DarkGray));
+            let label = node
+                .children()
+                .map(|child| match &child.data().value {
+                    NodeValue::Text(text) => text.to_string(),
+                    _ => String::new(),
+                })
+                .collect::<String>();
+            if !link.url.is_empty() && label != link.url {
+                add_text(lines, " (".to_string(), style);
+                add_text(lines, link.url, link_style);
+                add_text(lines, ")".to_string(), style);
             }
         },
 
         NodeValue::Image(link) => {
             add_text(lines, "[".to_string(), style);
-            children_inline(node, style.fg(Color::Cyan), lines);
-            add_text(lines, format!("]({})", link.url), style.fg(Color::DarkGray));
+            children_inline(node, style.fg(Color::Cyan), lines, links.as_deref_mut());
+            add_text(lines, "](".to_string(), style);
+            let link_style = mark_link(
+                style.fg(Color::Cyan).add_modifier(Modifier::UNDERLINED),
+                &link.url,
+                links,
+            );
+            add_text(lines, link.url, link_style);
+            add_text(lines, ")".to_string(), style);
         },
 
         NodeValue::HtmlInline(text) | NodeValue::Raw(text) => add_text(lines, text, style),
 
-        _ => children_inline(node, style, lines),
+        _ => children_inline(node, style, lines, links),
     }
 }
 
@@ -584,10 +635,31 @@ fn children_inline<'a>(
     node: &'a comrak::nodes::AstNode<'a>,
     style: Style,
     lines: &mut Vec<Vec<Span<'static>>>,
+    mut links: Option<&mut Vec<String>>,
 ) {
     for child in node.children() {
-        inline_node(child, style, lines);
+        inline_node(child, style, lines, links.as_deref_mut());
     }
+}
+
+/// Reserve an underline color as a temporary link identifier. Zero is never
+/// a link; the marker is stripped before the transcript reaches the terminal.
+fn mark_link(
+    style: Style,
+    url: &str,
+    links: Option<&mut Vec<String>>,
+) -> Style {
+    let Some(links) = links else { return style };
+
+    if url.is_empty() || links.len() >= 0xff_ffff {
+        return style;
+    }
+
+    links.push(url.to_string());
+
+    let id = links.len();
+
+    style.underline_color(Color::Rgb((id >> 16) as u8, (id >> 8) as u8, id as u8))
 }
 
 /// Append a text span (split by newlines) onto [`lines`] with the given style.
@@ -834,6 +906,39 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn bare_urls_are_shown_once_and_remain_clickable() {
+        let (lines, links) = markdown_to_clickable_lines("https://example.com/path", 80);
+
+        assert_eq!(plain(lines.clone()), "https://example.com/path");
+        assert_eq!(links, ["https://example.com/path"]);
+        assert!(
+            lines[0]
+                .spans
+                .iter()
+                .any(|span| span.style.underline_color.is_some())
+        );
+    }
+
+    #[test]
+    fn labeled_links_show_a_clickable_destination() {
+        let (lines, links) = markdown_to_clickable_lines("[docs](https://example.com)", 80);
+
+        assert_eq!(plain(lines.clone()), "docs (https://example.com)");
+        assert_eq!(links, ["https://example.com"]);
+        assert!(lines[0].spans.iter().any(|span| {
+            span.content == "https://example.com" && span.style.underline_color.is_some()
+        }));
+    }
+
+    #[test]
+    fn plain_output_does_not_include_terminal_link_markers() {
+        assert_eq!(
+            markdown_to_text("https://example.com"),
+            "https://example.com\n"
+        );
     }
 
     #[test]

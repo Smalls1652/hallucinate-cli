@@ -49,6 +49,38 @@ impl InteractiveTui {
         }
     }
 
+    /// Update the pointer only when the mouse crosses a clickable link
+    /// boundary.
+    pub(super) fn refresh_link_pointer(&mut self) -> io::Result<()> {
+        let is_link = self.mouse_position.is_some_and(|(column, row)| {
+            if self.model_picker.is_some()
+                || self.session_picker.is_some()
+                || self.prompt_picker.is_some()
+                || self.transcript_message_picker.is_some()
+                || self.clear_sessions_confirmation.is_some()
+                || self.chat_point(column, row).is_none()
+            {
+                return false;
+            }
+
+            let scroll = self.transcript.scroll_position(
+                self.transcript_layout_cache.line_count(),
+                usize::from(self.transcript_area.height),
+            );
+
+            self.transcript_layout_cache
+                .link_at(column, row, self.transcript_area, usize::from(scroll))
+                .is_some()
+        });
+
+        if is_link != self.hovering_link {
+            set_link_pointer(&mut io::stdout(), is_link)?;
+            self.hovering_link = is_link;
+        }
+
+        Ok(())
+    }
+
     /// Copy transcript text to the host clipboard.
     pub(super) fn copy_transcript_message(
         &mut self,
@@ -200,6 +232,17 @@ impl InteractiveTui {
                         )
                 );
 
+            if let crate::input::InputEvent::Mouse(mouse) = &input_event {
+                self.mouse_position = Some((mouse.column, mouse.row));
+                if matches!(mouse.kind, crossterm::event::MouseEventKind::Moved) {
+                    self.refresh_link_pointer()?;
+                    return Ok(false);
+                }
+            } else if matches!(&input_event, crate::input::InputEvent::FocusLost) {
+                self.mouse_position = None;
+                self.refresh_link_pointer()?;
+            }
+
             // Trackpad momentum can queue a large number of wheel events at
             // a transcript boundary. Those no-op events must be drained
             // without scheduling full terminal redraws, or the visible
@@ -240,6 +283,8 @@ impl InteractiveTui {
                     let _ = (width, height);
                     self.clear_chat_selection();
                     self.terminal.autoresize()?;
+                    self.mouse_position = None;
+                    self.refresh_link_pointer()?;
 
                     return Ok(false);
                 },
@@ -349,6 +394,26 @@ impl InteractiveTui {
                                 .is_some_and(|selection| !selection.has_range())
                             {
                                 self.clear_chat_selection();
+
+                                if self.chat_point(mouse.column, mouse.row).is_some() {
+                                    let scroll = self.transcript.scroll_position(
+                                        self.transcript_layout_cache.line_count(),
+                                        usize::from(self.transcript_area.height),
+                                    );
+
+                                    if let Some(url) = self.transcript_layout_cache.link_at(
+                                        mouse.column,
+                                        mouse.row,
+                                        self.transcript_area,
+                                        usize::from(scroll),
+                                    ) {
+                                        if let Err(error) = open_link(url) {
+                                            self.show_notice(format!(
+                                                "Could not open link: {error}"
+                                            ));
+                                        }
+                                    }
+                                }
                             } else {
                                 // Terminal.app and some other macOS terminals
                                 // consume Cmd+C instead of forwarding it once
@@ -788,6 +853,42 @@ fn resolve_title_model(
     .ok_or_else(|| anyhow::anyhow!("No title-generation model matches '{selector}'"))
 }
 
+/// Open a clicked web or email destination with the system handler.
+fn open_link(url: &str) -> io::Result<()> {
+    if !["https://", "http://", "mailto:"]
+        .iter()
+        .any(|scheme| url.starts_with(scheme))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "only web and email links can be opened",
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    let command = "open";
+    #[cfg(target_os = "windows")]
+    let command = "explorer";
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let command = "xdg-open";
+
+    // Pass the URL as an argument, never through a shell.
+    std::process::Command::new(command).arg(url).spawn()?;
+    Ok(())
+}
+
+/// OSC 22 requests a hand over links and a text cursor elsewhere. Some
+/// terminals ignore an empty OSC 22 reset, so use an explicit shape.
+pub(super) fn set_link_pointer(
+    output: &mut impl Write,
+    is_link: bool,
+) -> io::Result<()> {
+    let shape = if is_link { "pointer" } else { "default" };
+
+    write!(output, "\x1b]22;{shape}\x1b\\")?;
+
+    output.flush()
+}
+
 /// Enable mouse reporting so the application can constrain selections to
 /// message text instead of allowing the terminal to select UI decorations.
 pub(super) fn enable_mouse_capture() -> io::Result<()> {
@@ -833,6 +934,15 @@ fn copy_to_clipboard(text: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_shape_uses_osc_22_and_restores_text_pointer() {
+        let mut output = Vec::new();
+        set_link_pointer(&mut output, true).unwrap();
+        set_link_pointer(&mut output, false).unwrap();
+
+        assert_eq!(output, b"\x1b]22;pointer\x1b\\\x1b]22;text\x1b\\");
+    }
 
     #[test]
     fn chat_selection_orders_points_for_forward_and_reverse_drags() {
