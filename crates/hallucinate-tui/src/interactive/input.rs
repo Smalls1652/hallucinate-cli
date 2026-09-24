@@ -936,12 +936,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pointer_shape_uses_osc_22_and_restores_text_pointer() {
+    fn pointer_shape_uses_osc_22_and_restores_default_pointer() {
         let mut output = Vec::new();
         set_link_pointer(&mut output, true).unwrap();
         set_link_pointer(&mut output, false).unwrap();
 
-        assert_eq!(output, b"\x1b]22;pointer\x1b\\\x1b]22;text\x1b\\");
+        assert_eq!(output, b"\x1b]22;pointer\x1b\\\x1b]22;default\x1b\\");
     }
 
     #[test]
