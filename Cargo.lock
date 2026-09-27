@@ -1441,6 +1441,7 @@ dependencies = [
  "keyring-core",
  "minijinja",
  "mockito",
+ "nix 0.31.3",
  "regex",
  "reqwest",
  "rmcp",

@@ -10,6 +10,7 @@
 //! - `ls` - Directory listing
 
 pub mod bash;
+mod child_process;
 pub mod edit;
 pub mod find;
 pub mod grep;

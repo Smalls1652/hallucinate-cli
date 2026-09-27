@@ -40,6 +40,9 @@ schemas = ["dep:schemars"]
 [dev-dependencies]
 mockito.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store = { workspace = true, features = ["crypto-rust"] }
 

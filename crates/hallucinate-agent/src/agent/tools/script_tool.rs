@@ -18,6 +18,7 @@ use tokio::{
 };
 
 use super::{
+    child_process::spawn_shell,
     limits::ToolLimits,
     types::{Tool, ToolOutputSink, ToolResult},
 };
@@ -245,15 +246,22 @@ impl ScriptTool {
         process
             .current_dir(execution_directory)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            .stderr(Stdio::piped());
 
-        let mut child = process.spawn().map_err(|error| {
+        let mut child = spawn_shell(&mut process).map_err(|error| {
             anyhow::anyhow!("failed to execute script tool '{}': {error}", self.name)
         })?;
 
-        let stdout = child.stdout.take().expect("stdout was explicitly piped");
-        let stderr = child.stderr.take().expect("stderr was explicitly piped");
+        let stdout = child
+            .child
+            .stdout
+            .take()
+            .expect("stdout was explicitly piped");
+        let stderr = child
+            .child
+            .stderr
+            .take()
+            .expect("stderr was explicitly piped");
         let stream_limit = self.limits.max_tool_result_bytes;
 
         // Read both pipes concurrently so a verbose stderr stream cannot block
@@ -262,7 +270,8 @@ impl ScriptTool {
         let stderr_task = tokio::spawn(capture_pipe(stderr, stream_limit, None));
 
         let status =
-            match tokio::time::timeout(Duration::from_secs(self.timeout), child.wait()).await {
+            match tokio::time::timeout(Duration::from_secs(self.timeout), child.child.wait()).await
+            {
                 Ok(Ok(status)) => status,
 
                 Ok(Err(error)) => {
@@ -273,16 +282,14 @@ impl ScriptTool {
                 },
 
                 Err(_) => {
-                    if let Err(error) = child.kill().await
-                        && error.kind() != std::io::ErrorKind::InvalidInput
-                    {
-                        return Err(anyhow::anyhow!(
+                    child.terminate().map_err(|error| {
+                        anyhow::anyhow!(
                             "failed to kill timed-out script tool '{}': {error}",
                             self.name
-                        ));
-                    }
+                        )
+                    })?;
 
-                    child.wait().await.map_err(|error| {
+                    child.child.wait().await.map_err(|error| {
                         anyhow::anyhow!(
                             "failed to reap timed-out script tool '{}': {error}",
                             self.name
@@ -306,6 +313,8 @@ impl ScriptTool {
         let stderr = stderr_task
             .await
             .map_err(|error| anyhow::anyhow!("stderr capture task failed: {error}"))??;
+
+        child.finished();
 
         let stdout = format_captured_stream("stdout", stdout);
         let stderr = format_captured_stream("stderr", stderr);
@@ -877,6 +886,69 @@ mod tests {
 
         let result = execution.await.unwrap();
         assert_eq!(result.content, "firstsecond");
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn timeout_kills_spawned_commands() {
+        let marker = std::env::temp_dir().join(format!("script-timeout-{}", uuid::Uuid::new_v4()));
+
+        let definition: ScriptToolDefinition = toml::from_str(&format!(
+            "command = \"(sleep 2; printf orphan > '{}') & wait\"\ndescription = \"test\"\ntimeout = 1",
+            marker.display()
+        ))
+        .unwrap();
+
+        let tool = ScriptTool::from_definition(
+            "timeout-test".to_string(),
+            definition,
+            Path::new("/tmp/timeout-test.toml"),
+            60,
+        )
+        .unwrap();
+
+        let result = tool.execute(&json!({}), None).await.unwrap();
+
+        assert!(result.content.contains("timed out"));
+
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        assert!(!marker.exists(), "background script survived timeout");
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn dropping_execution_kills_spawned_commands() {
+        let marker = std::env::temp_dir().join(format!("script-cancel-{}", uuid::Uuid::new_v4()));
+
+        let definition: ScriptToolDefinition = toml::from_str(&format!(
+            "command = \"(sleep 1; printf orphan > '{}') & printf ready; wait\"\ndescription = \"test\"",
+            marker.display()
+        ))
+        .unwrap();
+
+        let tool = ScriptTool::from_definition(
+            "cancel-test".to_string(),
+            definition,
+            Path::new("/tmp/cancel-test.toml"),
+            60,
+        )
+        .unwrap();
+
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let output = ToolOutputSink::new(sender, "call-1", "cancel-test");
+        let arguments = json!({});
+
+        let mut execution = Box::pin(tool.execute_with_output(&arguments, None, Some(output)));
+
+        tokio::select! {
+            output = receiver.recv() => assert_eq!(output.unwrap().output, "ready"),
+            result = &mut execution => panic!("script finished early: {result:?}"),
+        }
+
+        drop(execution);
+
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        assert!(!marker.exists(), "background script survived cancellation");
     }
 
     #[tokio::test]

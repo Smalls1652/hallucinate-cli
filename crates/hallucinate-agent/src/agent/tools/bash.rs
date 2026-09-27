@@ -9,6 +9,7 @@ use tokio::{
 };
 
 use super::{
+    child_process::spawn_shell,
     limits::{ToolLimits, truncate_utf8},
     types::{Tool, ToolOutputSink},
 };
@@ -145,50 +146,55 @@ impl BashTool {
 
         command_process
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            .stderr(Stdio::piped());
 
-        let mut child = command_process
-            .spawn()
+        let mut child = spawn_shell(&mut command_process)
             .map_err(|error| anyhow::anyhow!("Failed to execute command: {error}"))?;
 
-        let stdout = child.stdout.take().expect("stdout was explicitly piped");
-        let stderr = child.stderr.take().expect("stderr was explicitly piped");
+        let stdout = child
+            .child
+            .stdout
+            .take()
+            .expect("stdout was explicitly piped");
+        let stderr = child
+            .child
+            .stderr
+            .take()
+            .expect("stderr was explicitly piped");
         let stream_limit = self.limits.max_shell_stream_bytes;
 
         let stdout_task = tokio::spawn(capture_pipe(stdout, stream_limit, output.clone()));
         let stderr_task = tokio::spawn(capture_pipe(stderr, stream_limit, output));
 
-        let status = match tokio::time::timeout(Duration::from_secs(timeout), child.wait()).await {
-            Ok(Ok(status)) => status,
+        let status =
+            match tokio::time::timeout(Duration::from_secs(timeout), child.child.wait()).await {
+                Ok(Ok(status)) => status,
 
-            Ok(Err(error)) => {
-                return Err(anyhow::anyhow!("Failed while waiting for command: {error}"));
-            },
+                Ok(Err(error)) => {
+                    return Err(anyhow::anyhow!("Failed while waiting for command: {error}"));
+                },
 
-            Err(_) => {
-                // `kill_on_drop` is a fallback; await explicit cleanup so a
-                // direct child cannot survive a timeout result.
-                if let Err(error) = child.kill().await
-                    && error.kind() != std::io::ErrorKind::InvalidInput
-                {
-                    return Err(anyhow::anyhow!("Failed to kill timed-out command: {error}"));
-                }
+                Err(_) => {
+                    // Terminate the shell's entire process group, including
+                    // commands still holding the output pipes open.
+                    child.terminate().map_err(|error| {
+                        anyhow::anyhow!("Failed to kill timed-out command: {error}")
+                    })?;
 
-                child.wait().await.map_err(|error| {
-                    anyhow::anyhow!("Failed to reap timed-out command: {error}")
-                })?;
+                    child.child.wait().await.map_err(|error| {
+                        anyhow::anyhow!("Failed to reap timed-out command: {error}")
+                    })?;
 
-                let _ = stdout_task.await;
-                let _ = stderr_task.await;
+                    let _ = stdout_task.await;
+                    let _ = stderr_task.await;
 
-                return Ok(super::types::ToolResult::error(
-                    "bash",
-                    "bash",
-                    format!("Command timed out after {timeout}s"),
-                ));
-            },
-        };
+                    return Ok(super::types::ToolResult::error(
+                        "bash",
+                        "bash",
+                        format!("Command timed out after {timeout}s"),
+                    ));
+                },
+            };
 
         let stdout = stdout_task
             .await
@@ -196,6 +202,8 @@ impl BashTool {
         let stderr = stderr_task
             .await
             .map_err(|error| anyhow::anyhow!("stderr capture task failed: {error}"))??;
+
+        child.finished();
 
         let stdout = format_captured_stream("stdout", stdout);
         let stderr = format_captured_stream("stderr", stderr);
@@ -400,6 +408,51 @@ mod tests {
             .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("timed out"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timeout_kills_spawned_commands() {
+        let marker = std::env::temp_dir().join(format!("bash-timeout-{}", uuid::Uuid::new_v4()));
+
+        let command = json!({
+            "command": format!("(sleep 2; printf orphan > '{}') & wait", marker.display()),
+            "timeout": 1
+        });
+
+        let result = BashTool::new().execute(&command, None).await.unwrap();
+        assert!(result.content.contains("timed out"));
+
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        assert!(!marker.exists(), "background command survived timeout");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dropping_execution_kills_spawned_commands() {
+        let marker = std::env::temp_dir().join(format!("bash-cancel-{}", uuid::Uuid::new_v4()));
+
+        let command = json!({ "command": format!(
+            "(sleep 1; printf orphan > '{}') & printf ready; wait",
+            marker.display()
+        ) });
+
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let output = ToolOutputSink::new(sender, "call-1", "bash");
+
+        let tool = BashTool::new();
+
+        let mut execution = Box::pin(tool.execute_with_output(&command, None, Some(output)));
+
+        tokio::select! {
+            output = receiver.recv() => assert_eq!(output.unwrap().output, "ready"),
+            result = &mut execution => panic!("command finished early: {result:?}"),
+        }
+
+        drop(execution);
+
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        assert!(!marker.exists(), "background command survived cancellation");
     }
 
     #[test]
