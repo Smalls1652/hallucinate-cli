@@ -199,7 +199,7 @@ impl Agent {
         model: Model,
         config: AgentConfig,
         auto_resize_images: bool,
-        shell: Option<&str>,
+        shell: Option<&[String]>,
     ) -> Self {
         Self::with_all_tools_and_image_resize_and_shell_with_timeout(
             provider,
@@ -218,7 +218,7 @@ impl Agent {
         model: Model,
         config: AgentConfig,
         auto_resize_images: bool,
-        shell: Option<&str>,
+        shell: Option<&[String]>,
         timeout: u64,
     ) -> Self {
         if shell.is_none() {

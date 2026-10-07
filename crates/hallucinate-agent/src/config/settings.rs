@@ -217,7 +217,7 @@ pub struct Settings {
     /// Shell executable used by the bash tool. When unset, the user's SHELL
     /// environment variable (or the platform fallback) is used.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub shell: Option<String>,
+    pub shell: Option<Vec<String>>,
 
     /// Default timeout in seconds for the bash tool. Commands that exceed
     /// this duration are killed. Defaults to 60 seconds.
@@ -854,7 +854,7 @@ mod tests {
             default_model = "example/model"
             provider = "example"
             base_url = "https://example.test/v1"
-            shell = "/bin/bash"
+            shell = ["/bin/bash"]
             timeout_ms = 30_000
             max_retries = 2
             auto_resize_images = false
@@ -882,7 +882,10 @@ mod tests {
             settings.base_url.as_deref(),
             Some("https://example.test/v1")
         );
-        assert_eq!(settings.shell.as_deref(), Some("/bin/bash"));
+        assert_eq!(
+            settings.shell.clone().unwrap(),
+            vec!["/bin/bash".to_string()]
+        );
         assert_eq!(settings.shell_timeout, 60);
         assert!(settings.mcp_servers.is_empty());
         assert_eq!(settings.timeout_ms, 30_000);

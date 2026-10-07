@@ -29,7 +29,7 @@ pub struct RuntimeOverrides {
     pub base_url: Option<String>,
 
     /// Shell executable for the bash tool.
-    pub shell: Option<String>,
+    pub shell: Option<Vec<String>>,
 
     /// Maximum response tokens.
     pub max_tokens: Option<u32>,
@@ -121,8 +121,8 @@ pub fn resolve_model(
 /// environment when both are unset.
 pub fn resolve_shell(
     settings: &self::settings::Settings,
-    shell: Option<String>,
-) -> Option<String> {
+    shell: Option<Vec<String>>,
+) -> Option<Vec<String>> {
     shell.or_else(|| settings.shell.clone())
 }
 

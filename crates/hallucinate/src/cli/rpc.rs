@@ -69,11 +69,22 @@ pub struct RpcArgs {
 
 impl From<&RpcArgs> for hallucinate_agent::config::RuntimeOverrides {
     fn from(args: &RpcArgs) -> Self {
+        let shell = match args.shell {
+            Some(ref value) => Some(
+                value
+                    .clone()
+                    .split(" ")
+                    .map(|item| item.to_string())
+                    .collect::<Vec<String>>(),
+            ),
+            None => None,
+        };
+
         Self {
             model: args.model.clone(),
             api_key: args.api_key.clone(),
             base_url: args.base_url.clone(),
-            shell: args.shell.clone(),
+            shell: shell,
             max_tokens: args.max_tokens,
             temperature: args.temperature,
             reasoning_effort: args.reasoning_effort,

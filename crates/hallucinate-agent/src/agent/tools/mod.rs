@@ -10,7 +10,6 @@
 //! - `ls` - Directory listing
 
 pub mod bash;
-mod child_process;
 pub mod edit;
 pub mod find;
 pub mod grep;
@@ -20,6 +19,7 @@ pub mod mcp;
 mod paths;
 pub mod read;
 pub mod script_tool;
+mod shell_exec;
 pub mod types;
 mod walker;
 pub mod write;
@@ -76,7 +76,7 @@ impl ToolRegistry {
     /// Create all built-in tools with an optional configured shell executable.
     pub fn with_all_builtins_and_image_resize_and_shell(
         auto_resize_images: bool,
-        shell: Option<&str>,
+        shell: Option<&[String]>,
     ) -> Self {
         Self::with_all_builtins_and_image_resize_and_shell_with_timeout(
             auto_resize_images,
@@ -89,7 +89,7 @@ impl ToolRegistry {
     /// and an explicit bash tool timeout (in seconds).
     pub fn with_all_builtins_and_image_resize_and_shell_with_timeout(
         auto_resize_images: bool,
-        shell: Option<&str>,
+        shell: Option<&[String]>,
         timeout: u64,
     ) -> Self {
         if shell.is_none() {
@@ -103,7 +103,7 @@ impl ToolRegistry {
         registry.add_tool(Arc::new(
             bash::BashTool::new()
                 .with_timeout(timeout)
-                .with_shell(shell.map(str::to_owned)),
+                .with_shell(shell.map(|value| value.iter().map(|item| item.to_owned()).collect())),
         ));
         registry.add_tool(Arc::new(
             read::ReadTool::new().with_auto_resize_images(auto_resize_images),

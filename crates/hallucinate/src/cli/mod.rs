@@ -97,11 +97,22 @@ pub struct Cli {
 
 impl From<&Cli> for hallucinate_agent::config::RuntimeOverrides {
     fn from(cli: &Cli) -> Self {
+        let shell = match cli.shell {
+            Some(ref value) => Some(
+                value
+                    .clone()
+                    .split(" ")
+                    .map(|item| item.to_string())
+                    .collect::<Vec<String>>(),
+            ),
+            None => None,
+        };
+
         Self {
             model: cli.model.clone(),
             api_key: cli.api_key.clone(),
             base_url: cli.base_url.clone(),
-            shell: cli.shell.clone(),
+            shell: shell,
             max_tokens: cli.max_tokens,
             temperature: cli.temperature,
             reasoning_effort: cli.reasoning_effort,

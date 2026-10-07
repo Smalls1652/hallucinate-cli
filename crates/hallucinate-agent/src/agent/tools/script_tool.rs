@@ -6,23 +6,16 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
-    process::Stdio,
-    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use tokio::{
-    io::{AsyncRead, AsyncReadExt},
-    process::Command,
-};
 
 use super::{
-    child_process::spawn_shell,
     limits::ToolLimits,
     types::{Tool, ToolOutputSink, ToolResult},
 };
-use crate::config::paths;
+use crate::{agent::tools::shell_exec::run_shell_command, config::paths};
 
 /// A definition file which could not be loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -242,98 +235,24 @@ impl ScriptTool {
                 anyhow::anyhow!("failed to determine the current directory: {error}")
             })?;
 
-        let mut process = shell_command(&command, self.shell.as_deref());
-        process
-            .current_dir(execution_directory)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        let mut child = spawn_shell(&mut process).map_err(|error| {
-            anyhow::anyhow!("failed to execute script tool '{}': {error}", self.name)
-        })?;
-
-        let stdout = child
-            .child
-            .stdout
-            .take()
-            .expect("stdout was explicitly piped");
-        let stderr = child
-            .child
-            .stderr
-            .take()
-            .expect("stderr was explicitly piped");
-        let stream_limit = self.limits.max_tool_result_bytes;
-
-        // Read both pipes concurrently so a verbose stderr stream cannot block
-        // a script whose stdout is being displayed in the transcript.
-        let stdout_task = tokio::spawn(capture_pipe(stdout, stream_limit, output));
-        let stderr_task = tokio::spawn(capture_pipe(stderr, stream_limit, None));
-
-        let status =
-            match tokio::time::timeout(Duration::from_secs(self.timeout), child.child.wait()).await
-            {
-                Ok(Ok(status)) => status,
-
-                Ok(Err(error)) => {
-                    return Err(anyhow::anyhow!(
-                        "failed while waiting for script tool '{}': {error}",
-                        self.name
-                    ));
-                },
-
-                Err(_) => {
-                    child.terminate().map_err(|error| {
-                        anyhow::anyhow!(
-                            "failed to kill timed-out script tool '{}': {error}",
-                            self.name
-                        )
-                    })?;
-
-                    child.child.wait().await.map_err(|error| {
-                        anyhow::anyhow!(
-                            "failed to reap timed-out script tool '{}': {error}",
-                            self.name
-                        )
-                    })?;
-
-                    let _ = stdout_task.await;
-                    let _ = stderr_task.await;
-
-                    return Ok(ToolResult::error(
-                        "",
-                        &self.name,
-                        format!("Command timed out after {}s", self.timeout),
-                    ));
-                },
-            };
-
-        let stdout = stdout_task
-            .await
-            .map_err(|error| anyhow::anyhow!("stdout capture task failed: {error}"))??;
-        let stderr = stderr_task
-            .await
-            .map_err(|error| anyhow::anyhow!("stderr capture task failed: {error}"))??;
-
-        child.finished();
-
-        let stdout = format_captured_stream("stdout", stdout);
-        let stderr = format_captured_stream("stderr", stderr);
-
-        let mut content = String::new();
-
-        match status.success() {
-            true => content.push_str(&stdout),
-            false => content.push_str(&stderr),
+        let command_output = match run_shell_command(
+            self.shell.as_deref(),
+            &command,
+            &execution_directory,
+            self.timeout,
+            self.limits.max_tool_result_bytes,
+            output,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(error) => return Ok(ToolResult::error("", &self.name, error.to_string())),
         };
 
-        if content.is_empty() {
-            content.push_str("Command exited successfully");
-        }
-
-        Ok(if status.success() {
-            ToolResult::success("", &self.name, content)
+        Ok(if command_output.success {
+            ToolResult::success("", &self.name, command_output.content)
         } else {
-            ToolResult::error("", &self.name, content)
+            ToolResult::error("", &self.name, command_output.content)
         })
     }
 }
@@ -414,63 +333,6 @@ impl Tool for ScriptTool {
     ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>> {
         Box::pin(self.execute_inner(arguments, cwd, output))
     }
-}
-
-/// Captured output from a script stream, including truncation status.
-#[derive(Debug)]
-struct CapturedStream {
-    /// Raw bytes retained from the stream.
-    bytes: Vec<u8>,
-
-    /// Whether the stream exceeded its configured output limit.
-    truncated: bool,
-}
-
-/// Capture a pipe while optionally sending each retained chunk to the TUI.
-async fn capture_pipe<R: AsyncRead + Unpin>(
-    mut reader: R,
-    limit: usize,
-    output: Option<ToolOutputSink>,
-) -> Result<CapturedStream, anyhow::Error> {
-    let mut bytes = Vec::with_capacity(limit);
-    let mut buffer = [0_u8; 8_192];
-    let mut truncated = false;
-
-    loop {
-        let read = reader.read(&mut buffer).await?;
-        if read == 0 {
-            break;
-        }
-
-        let remaining = limit.saturating_sub(bytes.len());
-        let retained = read.min(remaining);
-        bytes.extend_from_slice(&buffer[..retained]);
-
-        if let Some(output) = &output {
-            output.emit(String::from_utf8_lossy(&buffer[..retained]).to_string());
-        }
-
-        truncated |= retained < read;
-    }
-
-    Ok(CapturedStream { bytes, truncated })
-}
-
-/// Convert captured stream bytes to text and append a truncation notice.
-fn format_captured_stream(
-    name: &str,
-    captured: CapturedStream,
-) -> String {
-    let mut output = String::from_utf8_lossy(&captured.bytes).to_string();
-
-    if captured.truncated {
-        output.push_str(&format!(
-            "\n[{name} truncated after {} bytes]",
-            captured.bytes.len()
-        ));
-    }
-
-    output
 }
 
 /// Load global tools first and project-local tools second. Project definitions
@@ -667,57 +529,10 @@ fn value_matches_constraints(
         && constraints.maximum.is_none_or(|maximum| number <= maximum)
 }
 
-#[cfg(unix)]
-/// Build a `Command` that runs the given shell command string.
-fn shell_command(
-    command: &str,
-    shell: Option<&[String]>,
-) -> Command {
-    let shell = shell
-        .map(|shell| shell.to_vec())
-        .unwrap_or_else(|| vec![std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string())]);
-
-    let mut process = Command::new(&shell[0]);
-    process.args(&shell[1..]).arg("-c").arg(command);
-    process
-}
-
-#[cfg(windows)]
-/// Build a `Command` that runs the given shell command string.
-fn shell_command(
-    command: &str,
-    shell: Option<&[String]>,
-) -> Command {
-    let shell = shell.map(|shell| shell.to_vec()).unwrap_or_else(|| {
-        vec![std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())]
-    });
-
-    let is_cmd = Path::new(&shell[0])
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case("cmd"));
-
-    let mut process = Command::new(&shell[0]);
-    process
-        .args(&shell[1..])
-        .arg(if is_cmd { "/C" } else { "-c" })
-        .arg(command);
-    process
-}
-
-#[cfg(not(any(unix, windows)))]
-/// Build a `Command` that runs the given shell command string.
-fn shell_command(
-    command: &str,
-    _shell: Option<&[String]>,
-) -> Command {
-    let mut process = Command::new("sh");
-    process.arg("-c").arg(command);
-    process
-}
-
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[test]
