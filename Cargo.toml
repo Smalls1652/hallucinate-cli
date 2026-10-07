@@ -57,7 +57,7 @@ tokio-stream = "0.1.19"
 
 # TUI
 unicode-width = "0.2.2"
-comrak = "0.55.0"
+comrak = "0.56.0"
 
 # Config / paths
 directories = "6.0.0"
