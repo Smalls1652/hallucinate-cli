@@ -1,4 +1,5 @@
-//! Cancellation-safe cleanup for shell commands and their descendants.
+//! Shell command execution with cancellation-safe cleanup, timeout, and output
+//! capture.
 
 use std::{path::PathBuf, process::Stdio, time::Duration};
 
@@ -82,37 +83,52 @@ impl Drop for ShellChild {
 }
 
 #[derive(thiserror::Error, Debug)]
+/// Errors that can occur when executing a shell command.
 pub enum ShellCommandError {
+    /// The underlying process encountered an I/O error.
     #[error("{0:?}")]
     ProcessError(#[from] std::io::Error),
 
+    /// A pipe handle (stdout/stderr) was already taken before capture.
     #[error("{0} was explicitly piped")]
     ExplicitlyPipedHandle(String),
 
+    /// The command could not be waited on.
     #[error("failed to wait for command: {0}")]
     CommandFailedToWait(std::io::Error),
 
+    /// The timed-out command could not be killed.
     #[error("failed to kill timed out command: {0}")]
     FailedToKillTimedoutCommand(std::io::Error),
 
+    /// The timed-out command could not be reaped after killing.
     #[error("failed to reap timed out command: {0}")]
     FailedToReapTimedoutCommand(std::io::Error),
 
+    /// The command exceeded the configured timeout duration.
     #[error("command timed out after {0}s")]
     CommandTimedOut(u64),
 
+    /// The task responsible for capturing a stream's output failed.
     #[error("{0} capture task failed: {1:?}")]
     FailedToCaptureHandle(String, tokio::task::JoinError),
 
+    /// The stream capture task itself returned an error.
     #[error("{0} capture task failed: {1:?}")]
     CapturedStreamError(String, anyhow::Error),
 }
 
+/// Output from a successfully executed shell command.
 pub struct ShellCommandOutput {
+    /// The captured output text (stdout on success, stderr on failure).
     pub content: String,
+
+    /// Whether the command exited with a success status.
     pub success: bool,
 }
 
+/// Execute a shell command with cancellation-safe cleanup, timeout, and output
+/// capture, optionally streaming results to the TUI.
 pub async fn run_shell_command(
     shell: Option<&[String]>,
     command: &str,
@@ -265,7 +281,8 @@ struct CapturedStream {
     truncated: bool,
 }
 
-/// Capture a pipe while optionally sending each retained chunk to the TUI.
+/// Capture a pipe while optionally sending each retained chunk to the TUI,
+/// respecting the configured output limit.
 async fn capture_pipe<R: AsyncRead + Unpin>(
     mut reader: R,
     limit: usize,
@@ -295,7 +312,8 @@ async fn capture_pipe<R: AsyncRead + Unpin>(
     Ok(CapturedStream { bytes, truncated })
 }
 
-/// Convert captured stream bytes to text and append a truncation notice.
+/// Convert captured stream bytes to text and append a truncation notice
+/// if the output exceeded the configured limit.
 fn format_captured_stream(
     name: &str,
     captured: CapturedStream,
