@@ -792,6 +792,7 @@ impl InteractiveTui {
                     &title_content,
                 )
                 .await
+                .map_err(anyhow::Error::from)
             };
 
             if self.session_title_settings.generation_mode == SessionTitleGenerationMode::Before {

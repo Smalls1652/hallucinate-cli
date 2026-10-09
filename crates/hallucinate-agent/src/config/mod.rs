@@ -8,8 +8,10 @@ use crate::{
         provider::Provider,
         types::{Api, Model, ReasoningEffort},
     },
+    config::error::ConfigError,
 };
 
+pub mod error;
 pub mod paths;
 pub mod settings;
 
@@ -96,12 +98,12 @@ pub fn resolve_model(
     settings: &self::settings::Settings,
     model: Option<&String>,
     base_url: Option<&String>,
-) -> Result<Model, anyhow::Error> {
+) -> Result<Model, ConfigError> {
     settings.require_configured_providers()?;
 
     if let Some(model_str) = model {
         return resolve_model_selector(model_str, settings, base_url)
-            .ok_or_else(|| anyhow::anyhow!("No models available"));
+            .ok_or_else(|| ConfigError::NoModelsAvailable);
     }
 
     if let Some(default_model) = &settings.default_model
@@ -113,7 +115,7 @@ pub fn resolve_model(
     available_models(settings)
         .into_iter()
         .next()
-        .ok_or_else(|| anyhow::anyhow!("No models available"))
+        .ok_or_else(|| ConfigError::NoModelsAvailable)
 }
 
 /// Resolve the shell used by the bash tool. The explicit CLI option takes
@@ -169,7 +171,7 @@ pub fn create_provider(
     settings: &self::settings::Settings,
     overrides: &RuntimeOverrides,
     model: &Model,
-) -> Result<Box<dyn Provider>, anyhow::Error> {
+) -> Result<Box<dyn Provider>, ConfigError> {
     create_provider_for_model(
         settings,
         overrides.base_url.as_ref(),
@@ -213,7 +215,7 @@ pub fn create_provider_for_model(
     base_url: Option<&String>,
     api_key: Option<&String>,
     model: &Model,
-) -> Result<Box<dyn Provider>, anyhow::Error> {
+) -> Result<Box<dyn Provider>, ConfigError> {
     use crate::ai::providers::openai_compat::{OpenaiCompatConfig, OpenaiCompatProvider};
 
     let api_key = settings
@@ -228,7 +230,12 @@ pub fn create_provider_for_model(
                 .contains_key(&model.provider)
                 .then(String::new)
         })
-        .ok_or_else(|| anyhow::anyhow!("No API key configured for provider '{}'. Set HALLUCINATE_API_KEY, HALLUCINATE_{}_API_KEY, configure a credential, or use --api-key", model.provider, model.provider.to_ascii_uppercase()))?;
+        .ok_or_else(|| {
+            ConfigError::NoApiKeySetForProvider(
+                model.provider.clone(),
+                model.provider.to_ascii_uppercase(),
+            )
+        })?;
 
     let mut headers: HashMap<String, String> = if model.provider == settings.provider {
         settings.provider_headers.clone()

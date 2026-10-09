@@ -47,7 +47,7 @@ pub fn walk_matching_files<F>(
     pattern: Option<&glob::Pattern>,
     limits: &ToolLimits,
     mut visit: F,
-) -> Result<WalkStatus, anyhow::Error>
+) -> Result<WalkStatus, std::io::Error>
 where
     F: FnMut(PathBuf) -> WalkControl,
 {
@@ -83,7 +83,7 @@ pub fn walk_entries<F>(
     recursive: bool,
     limits: &ToolLimits,
     mut visit: F,
-) -> Result<WalkStatus, anyhow::Error>
+) -> Result<WalkStatus, std::io::Error>
 where
     F: FnMut(PathBuf, fs::FileType) -> WalkControl,
 {

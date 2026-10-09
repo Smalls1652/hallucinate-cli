@@ -2,9 +2,7 @@
 
 use std::{
     fs::File,
-    future::Future,
     io::{Read, Seek},
-    pin::Pin,
 };
 
 use serde_json::json;
@@ -14,6 +12,7 @@ use super::{
     paths::resolve_path,
     types::Tool,
 };
+use crate::agent::tools::{error::InternalToolError, types::AsyncToolExecutionResult};
 
 /// File reading tool.
 ///
@@ -86,13 +85,12 @@ impl Tool for ReadTool {
         &'a self,
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
-    {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(async move {
             let path_str = arguments
                 .get("path")
                 .and_then(|value| value.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing required field: path"))?;
+                .ok_or_else(|| InternalToolError::MissingRequiredField("path".to_string()))?;
 
             let max_size = parse_bounded_usize(
                 arguments,
@@ -121,13 +119,15 @@ impl Tool for ReadTool {
                     },
 
                     Err(error) => {
-                        return Err(anyhow::Error::new(error)
-                            .context(format!("failed to open {display_path}")));
+                        return Err(InternalToolError::FailedToReadFile(
+                            display_path.clone(),
+                            error,
+                        ));
                     },
                 };
 
                 let metadata = file.metadata().map_err(|error| {
-                    anyhow::Error::new(error).context(format!("failed to inspect {display_path}"))
+                    InternalToolError::FailedToInspect(display_path.clone(), error)
                 })?;
 
                 if metadata.is_dir() {
@@ -189,9 +189,8 @@ impl Tool for ReadTool {
                     .with_images(vec![image]));
                 }
 
-                let content = String::from_utf8(bytes).map_err(|_| {
-                    anyhow::anyhow!("file is not valid UTF-8 text or a supported image")
-                })?;
+                let content =
+                    String::from_utf8(bytes).map_err(|_| InternalToolError::InvalidFile)?;
                 let content = truncate_utf8(&content, max_size, "Content");
 
                 Ok(super::types::ToolResult::success(

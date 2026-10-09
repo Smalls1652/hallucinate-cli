@@ -13,7 +13,7 @@ use crate::ai::types::{AssistantContent, Message};
 pub fn split_messages_at_turn_boundary(
     messages: &[Message],
     retained_user_turns: usize,
-) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error> {
+) -> (Vec<Message>, Vec<Message>) {
     let mut retained_user_turns_found = 0;
     let mut cut_index = messages.len();
 
@@ -31,13 +31,13 @@ pub fn split_messages_at_turn_boundary(
     // A conversation with no older turn cannot be compacted without
     // splitting its only retained turn.
     if cut_index == 0 || cut_index == messages.len() {
-        return Ok((messages.to_vec(), Vec::new()));
+        return (messages.to_vec(), Vec::new());
     }
 
-    Ok((
+    (
         messages[..cut_index].to_vec(),
         messages[cut_index..].to_vec(),
-    ))
+    )
 }
 
 /// Render messages as data inside an LLM summarization request.
@@ -115,7 +115,7 @@ mod tests {
             Message::User(UserMessage::new("second")),
             Message::User(UserMessage::new("latest")),
         ];
-        let (omitted, retained) = split_messages_at_turn_boundary(&messages, 2).unwrap();
+        let (omitted, retained) = split_messages_at_turn_boundary(&messages, 2);
 
         assert_eq!(omitted.len(), 1);
         assert_eq!(retained.len(), 2);
@@ -140,7 +140,7 @@ mod tests {
             Message::ToolResult(ToolResultMessage::new("call-1", "read", "contents", false)),
             Message::User(UserMessage::new("second")),
         ];
-        let (omitted, retained) = split_messages_at_turn_boundary(&messages, 1).unwrap();
+        let (omitted, retained) = split_messages_at_turn_boundary(&messages, 1);
 
         assert_eq!(omitted.len(), 3);
         assert!(

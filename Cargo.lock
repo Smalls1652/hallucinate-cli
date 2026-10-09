@@ -1447,7 +1447,6 @@ dependencies = [
 name = "hallucinate-agent"
 version = "0.6.1"
 dependencies = [
- "anyhow",
  "apple-native-keyring-store",
  "base64 0.23.1",
  "chrono",

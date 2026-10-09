@@ -1,6 +1,6 @@
 //! Bash tool: bounded shell command execution.
 
-use std::{future::Future, path::PathBuf, pin::Pin};
+use std::path::PathBuf;
 
 use serde_json::json;
 
@@ -8,7 +8,12 @@ use super::{
     limits::{ToolLimits, truncate_utf8},
     types::{Tool, ToolOutputSink},
 };
-use crate::agent::tools::{ToolResult, shell_exec::run_shell_command};
+use crate::agent::tools::{
+    ToolResult,
+    error::InternalToolError,
+    shell_exec::run_shell_command,
+    types::{AsyncToolExecutionResult, ToolExecutionResult},
+};
 
 /// Shell command execution tool.
 #[derive(Debug, Clone)]
@@ -92,8 +97,7 @@ impl Tool for BashTool {
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
         output: Option<ToolOutputSink>,
-    ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
-    {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(self.execute_inner(arguments, cwd, output))
     }
 
@@ -101,8 +105,7 @@ impl Tool for BashTool {
         &'a self,
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
-    {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(self.execute_inner(arguments, cwd, None))
     }
 }
@@ -115,11 +118,11 @@ impl BashTool {
         arguments: &serde_json::Value,
         cwd: Option<&str>,
         output: Option<ToolOutputSink>,
-    ) -> Result<ToolResult, anyhow::Error> {
+    ) -> ToolExecutionResult {
         let command = arguments
             .get("command")
             .and_then(|value| value.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing required field: command"))?;
+            .ok_or_else(|| InternalToolError::MissingRequiredField("command".to_string()))?;
 
         if command.trim().is_empty() {
             return Ok(super::types::ToolResult::error(
@@ -138,9 +141,7 @@ impl BashTool {
             .map(PathBuf::from)
             .map(Ok)
             .unwrap_or_else(std::env::current_dir)
-            .map_err(|error| {
-                anyhow::anyhow!("failed to determine the current directory: {error}")
-            })?;
+            .map_err(|error| InternalToolError::FailedToGetCurrentDirectory(error))?;
 
         let command_output = match run_shell_command(
             self.shell.as_deref(),

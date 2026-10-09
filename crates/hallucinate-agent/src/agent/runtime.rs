@@ -18,6 +18,7 @@ use crate::{
         skills::Skill,
         tools::{
             ToolRegistry,
+            error::InternalToolError,
             types::{Tool as AgentTool, ToolOutput, ToolOutputSink},
         },
         types::{
@@ -40,6 +41,79 @@ const SUMMARY_SYSTEM_PROMPT: &str = "You create concise context checkpoints for 
 const SUMMARY_PROMPT: &str = "Summarize the archived conversation using exactly these headings:\n\n## Goal\n## Constraints & Preferences\n## Progress\n### Done\n### In Progress\n### Blocked\n## Key Decisions\n## Next Steps\n## Critical Context\n\nPreserve exact file paths, function names, commands, and error messages. Keep only information needed to continue the work.";
 
 const UPDATE_SUMMARY_PROMPT: &str = "Update the previous checkpoint with the newly archived conversation. Retain still-relevant facts from the previous checkpoint, remove superseded facts, and use exactly the required headings. Preserve exact file paths, function names, commands, and error messages.";
+
+#[derive(thiserror::Error, Debug)]
+pub enum AgentError {
+    /// A tool call failed during a turn.
+    #[error("tool call failed: {0}")]
+    ToolFailure(#[from] InternalToolError),
+
+    /// A tool name conflicts with an existing tool during registration.
+    #[error("tool name conflicts with an existing tool: {0}")]
+    ToolNameConflict(String),
+
+    /// The agent attempted to execute a tool that is not registered.
+    #[error("unknown tool: {0}")]
+    UnknownTool(String),
+
+    /// An MCP tool name conflicts with an existing tool during registration.
+    #[error("MCP tool name conflicts with an existing tool: {0}")]
+    McpToolNameConflict(String),
+
+    /// The persisted compaction checkpoint is empty.
+    #[error("persisted compaction checkpoint is empty")]
+    EmptyCompactionCheckpoint,
+
+    /// The persisted compaction checkpoint archives more messages than the
+    /// current history contains.
+    #[error("persisted compaction checkpoint archives {0} messages but history has only {1}")]
+    CompactionArchiveCountMismatch(usize, usize),
+
+    /// Persisted history contains a tool call without its matching following
+    /// tool result.
+    #[error("persisted history has tool call '{0}' without its matching following tool result")]
+    HistoryToolCallMismatch(String),
+
+    /// Agent generation was cancelled.
+    #[error("agent generation was cancelled")]
+    Cancelled,
+
+    /// The agent reached the maximum number of turns.
+    #[error("{0}")]
+    MaxTurnsReached(String),
+
+    /// The streaming response ended without producing an assistant message.
+    #[error("stream ended without a message")]
+    StreamWithoutMessage,
+
+    /// Context summarization stopped at its token limit.
+    #[error("context summarization stopped at its token limit")]
+    SummarizationTokenLimit,
+
+    /// Context summarization failed without a specific error.
+    #[error("context summarization failed")]
+    SummarizationFailed,
+
+    /// Context summarization attempted to call a tool.
+    #[error("context summarization attempted to call a tool")]
+    SummarizationToolCall,
+
+    /// Context summarization returned no text.
+    #[error("context summarization returned no text")]
+    SummarizationEmpty,
+
+    /// Context summarization failed with a specific error.
+    #[error("context summarization failed: {0}")]
+    SummarizationError(String),
+
+    /// Context summarization stream ended without producing a result.
+    #[error("context summarization stream ended without a result")]
+    SummarizationStreamEnded,
+
+    /// A skill file has failed to be read.
+    #[error("failed to read skill '{0}': {1}")]
+    FailedToReadSkill(String, #[source] std::io::Error),
+}
 
 /// Immutable request data shared by every turn until agent configuration
 /// changes. Keeping it separate prevents prompt-file reads and tool-schema
@@ -307,9 +381,9 @@ impl Agent {
     pub fn add_tool_checked(
         &mut self,
         tool: Arc<dyn AgentTool + Send + Sync>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), AgentError> {
         if self.tool_registry.get_tool(tool.name()).is_some() {
-            anyhow::bail!("tool name conflicts with an existing tool: {}", tool.name());
+            return Err(AgentError::ToolNameConflict(tool.name().to_string()));
         }
 
         self.add_tool(tool);
@@ -324,15 +398,14 @@ impl Agent {
     pub async fn add_mcp_servers(
         &mut self,
         servers: &std::collections::HashMap<String, crate::agent::tools::mcp::McpServerSettings>,
-    ) -> Result<(), anyhow::Error> {
-        let tools = crate::agent::tools::mcp::load_mcp_tools(servers).await?;
+    ) -> Result<(), AgentError> {
+        let tools = crate::agent::tools::mcp::load_mcp_tools(servers)
+            .await
+            .map_err(|e| AgentError::SummarizationError(e.to_string()))?;
 
         for tool in tools {
             if self.tool_registry.get_tool(tool.name()).is_some() {
-                anyhow::bail!(
-                    "MCP tool name conflicts with an existing tool: {}",
-                    tool.name()
-                );
+                return Err(AgentError::McpToolNameConflict(tool.name().to_string()));
             }
 
             self.tool_registry.add_tool(tool);
@@ -449,16 +522,15 @@ impl Agent {
         &mut self,
         summary: String,
         archived_message_count: usize,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), AgentError> {
         if summary.trim().is_empty() {
-            return Err(anyhow::anyhow!("persisted compaction checkpoint is empty"));
+            return Err(AgentError::EmptyCompactionCheckpoint);
         }
 
         if archived_message_count > self.messages.len() {
-            return Err(anyhow::anyhow!(
-                "persisted compaction checkpoint archives {} messages but history has only {}",
+            return Err(AgentError::CompactionArchiveCountMismatch(
                 archived_message_count,
-                self.messages.len()
+                self.messages.len(),
             ));
         }
 
@@ -479,7 +551,7 @@ impl Agent {
     pub fn load_history(
         &mut self,
         messages: Vec<Message>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), AgentError> {
         for (index, message) in messages.iter().enumerate() {
             let Message::Assistant(assistant) = message else {
                 continue;
@@ -502,9 +574,8 @@ impl Agent {
                 );
 
                 if !matches_call {
-                    return Err(anyhow::anyhow!(
-                        "persisted history has tool call '{}' without its matching following tool result",
-                        tool_call_id
+                    return Err(AgentError::HistoryToolCallMismatch(
+                        tool_call_id.to_string(),
                     ));
                 }
             }
@@ -704,7 +775,7 @@ impl Agent {
         &mut self,
         turn_number: u32,
         context: Context,
-    ) -> Result<StopReason, anyhow::Error> {
+    ) -> Result<StopReason, AgentError> {
         // Emit turn started event
         self.emit(AgentEvent::TurnStarted { turn_number });
         self.turn_context = Some(TurnContext::new(turn_number));
@@ -734,9 +805,10 @@ impl Agent {
         self.set_state(AgentState::Streaming);
 
         let mut stream = tokio::select! {
-            result = self.provider.stream(&self.model, &context, &options) => result?,
+            result = self.provider.stream(&self.model, &context, &options) => result
+                .map_err(|e| AgentError::SummarizationError(e.to_string()))?,
             _ = self.cancellation.cancelled() => {
-                return Err(anyhow::anyhow!("Agent generation was cancelled"));
+                return Err(AgentError::Cancelled);
             }
         };
 
@@ -746,7 +818,7 @@ impl Agent {
             let event = tokio::select! {
                 event = stream.next() => event,
                 _ = self.cancellation.cancelled() => {
-                    return Err(anyhow::anyhow!("Agent generation was cancelled"));
+                    return Err(AgentError::Cancelled);
                 }
             };
 
@@ -805,9 +877,12 @@ impl Agent {
                 },
 
                 crate::ai::streaming::AssistantMessageEvent::Error { error, .. } => {
-                    return Err(anyhow::anyhow!(
-                        "LLM error: {}",
-                        error.error_message.as_deref().unwrap_or("unknown error")
+                    return Err(AgentError::SummarizationError(
+                        error
+                            .error_message
+                            .as_deref()
+                            .unwrap_or("unknown error")
+                            .to_string(),
                     ));
                 },
 
@@ -823,8 +898,7 @@ impl Agent {
             }
         }
 
-        let message =
-            assistant_message.ok_or_else(|| anyhow::anyhow!("Stream ended without a message"))?;
+        let message = assistant_message.ok_or_else(|| AgentError::StreamWithoutMessage)?;
 
         // Add to history and notify subscribers after the complete message is
         // available. The UI uses the text-delta events above for incremental
@@ -898,11 +972,11 @@ impl Agent {
             tool_jobs.push(async move {
                 let started_at = Instant::now();
                 let result = match tool {
-                    Some(tool) => {
-                        tool.execute_with_output(&call.arguments, cwd.as_deref(), Some(output))
-                            .await
-                    },
-                    None => Err(anyhow::anyhow!("Unknown tool: {}", call.tool_name)),
+                    Some(tool) => tool
+                        .execute_with_output(&call.arguments, cwd.as_deref(), Some(output))
+                        .await
+                        .map_err(|error| AgentError::ToolFailure(error)),
+                    None => Err(AgentError::UnknownTool(call.tool_name.clone())),
                 };
 
                 let mut result = result.unwrap_or_else(|error| {
@@ -958,7 +1032,7 @@ impl Agent {
                 _ = self.cancellation.cancelled() => {
                     // Dropping the buffered futures prevents queued calls from
                     // starting and releases in-flight async tool work.
-                    return Err(anyhow::anyhow!("Agent generation was cancelled"));
+                    return Err(AgentError::Cancelled);
                 }
             }
         }
@@ -1017,13 +1091,13 @@ impl Agent {
     /// This processes turns until the assistant responds without tool calls,
     /// or until max_turns is reached. A fresh cancellation handle is installed
     /// after every run so the same agent can safely accept another prompt.
-    pub async fn run(&mut self) -> Result<StopReason, anyhow::Error> {
+    pub async fn run(&mut self) -> Result<StopReason, AgentError> {
         if self.cancellation.is_cancelled() {
             self.set_state(AgentState::Aborted);
             self.emit(AgentEvent::Aborted);
             self.cancellation = AgentCancellation::fresh();
 
-            return Err(anyhow::anyhow!("Agent generation was cancelled"));
+            return Err(AgentError::Cancelled);
         }
 
         let result = self.run_loop().await;
@@ -1034,7 +1108,7 @@ impl Agent {
 
     /// Run the agent loop, processing turns until the assistant responds
     /// without tool calls, max turns is reached, or an error occurs.
-    async fn run_loop(&mut self) -> Result<StopReason, anyhow::Error> {
+    async fn run_loop(&mut self) -> Result<StopReason, AgentError> {
         let mut turn_number = 1;
 
         loop {
@@ -1042,7 +1116,7 @@ impl Agent {
                 self.set_state(AgentState::Aborted);
                 self.emit(AgentEvent::Aborted);
 
-                return Err(anyhow::anyhow!("Agent generation was cancelled"));
+                return Err(AgentError::Cancelled);
             }
 
             // Check max turns
@@ -1057,7 +1131,7 @@ impl Agent {
                     message: message.clone(),
                 });
 
-                return Err(anyhow::anyhow!(message));
+                return Err(AgentError::MaxTurnsReached(message));
             }
 
             // Use the latest actual API usage as the context-pressure signal.
@@ -1112,7 +1186,7 @@ impl Agent {
     ///
     /// The original history is left untouched unless the summary request
     /// succeeds, so a provider failure cannot discard conversation context.
-    pub async fn compact(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn compact(&mut self) -> Result<(), AgentError> {
         if self.cancellation.is_cancelled() {
             self.cancellation = AgentCancellation::fresh();
         }
@@ -1123,7 +1197,7 @@ impl Agent {
             Ok(()) => self.set_state(AgentState::Idle),
             Err(error) if self.cancellation.is_cancelled() => {
                 self.set_state(AgentState::Aborted);
-                return Err(anyhow::anyhow!("Agent generation was cancelled"));
+                return Err(AgentError::Cancelled);
             },
             Err(error) => self.set_state(AgentState::Error(error.to_string())),
         }
@@ -1137,7 +1211,7 @@ impl Agent {
     async fn compact_context(
         &mut self,
         force: bool,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), AgentError> {
         const RETAINED_USER_TURNS: usize = 2;
 
         let (omitted, remaining) = if force {
@@ -1146,7 +1220,7 @@ impl Agent {
             crate::agent::compaction::split_messages_at_turn_boundary(
                 &self.messages,
                 RETAINED_USER_TURNS,
-            )?
+            )
         };
 
         if omitted.is_empty() {
@@ -1186,7 +1260,7 @@ impl Agent {
         messages: &[Message],
         previous_summary: Option<&str>,
         max_tokens: u32,
-    ) -> Result<String, anyhow::Error> {
+    ) -> Result<String, AgentError> {
         let conversation = crate::agent::compaction::serialize_messages(messages);
 
         let previous_summary = previous_summary
@@ -1209,9 +1283,10 @@ impl Agent {
             .with_cancellation(self.cancellation.request_cancellation());
 
         let mut stream = tokio::select! {
-            result = self.provider.stream(&self.model, &context, &options) => result?,
+            result = self.provider.stream(&self.model, &context, &options) => result
+                .map_err(|e| AgentError::SummarizationError(e.to_string()))?,
             _ = self.cancellation.cancelled() => {
-                return Err(anyhow::anyhow!("Agent generation was cancelled"));
+                return Err(AgentError::Cancelled);
             }
         };
 
@@ -1219,7 +1294,7 @@ impl Agent {
             let event = tokio::select! {
                 event = stream.next() => event,
                 _ = self.cancellation.cancelled() => {
-                    return Err(anyhow::anyhow!("Agent generation was cancelled"));
+                    return Err(AgentError::Cancelled);
                 }
             };
 
@@ -1230,13 +1305,11 @@ impl Agent {
             match event {
                 crate::ai::streaming::AssistantMessageEvent::Done { reason, message } => {
                     if reason == StopReason::Length {
-                        return Err(anyhow::anyhow!(
-                            "context summarization stopped at its token limit"
-                        ));
+                        return Err(AgentError::SummarizationTokenLimit);
                     }
 
                     if reason == StopReason::Error {
-                        return Err(anyhow::anyhow!("context summarization failed"));
+                        return Err(AgentError::SummarizationFailed);
                     }
 
                     if message
@@ -1244,9 +1317,7 @@ impl Agent {
                         .iter()
                         .any(|content| matches!(content, AssistantContent::ToolCall(_)))
                     {
-                        return Err(anyhow::anyhow!(
-                            "context summarization attempted to call a tool"
-                        ));
+                        return Err(AgentError::SummarizationToolCall);
                     }
 
                     let summary = message
@@ -1257,16 +1328,15 @@ impl Agent {
                         .join("\n");
 
                     if summary.trim().is_empty() {
-                        return Err(anyhow::anyhow!("context summarization returned no text"));
+                        return Err(AgentError::SummarizationEmpty);
                     }
 
                     return Ok(summary);
                 },
 
                 crate::ai::streaming::AssistantMessageEvent::Error { error, .. } => {
-                    return Err(anyhow::anyhow!(
-                        "context summarization failed: {}",
-                        error.error_message.unwrap_or_default()
+                    return Err(AgentError::SummarizationError(
+                        error.error_message.unwrap_or_default(),
                     ));
                 },
 
@@ -1274,9 +1344,7 @@ impl Agent {
             }
         }
 
-        Err(anyhow::anyhow!(
-            "context summarization stream ended without a result"
-        ))
+        Err(AgentError::SummarizationStreamEnded)
     }
 }
 
@@ -1284,7 +1352,6 @@ impl Agent {
 mod tests {
     use std::{
         path::PathBuf,
-        pin::Pin,
         sync::{
             Arc,
             atomic::{AtomicUsize, Ordering},
@@ -1292,12 +1359,14 @@ mod tests {
         time::Duration,
     };
 
-    use futures::Future;
     use tokio::sync::Barrier;
 
     use super::*;
     use crate::{
-        agent::tools::{ToolResult, types::Tool},
+        agent::tools::{
+            ToolResult,
+            types::{AsyncToolExecutionResult, Tool},
+        },
         ai::{
             providers::faux::{FauxProvider, FauxResponse},
             streaming::{AssistantMessageEvent, create_assistant_message_event_stream},
@@ -1331,7 +1400,7 @@ mod tests {
             &'a self,
             arguments: &'a serde_json::Value,
             _cwd: Option<&'a str>,
-        ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>> {
+        ) -> AsyncToolExecutionResult<'a> {
             Box::pin(async move {
                 let active = self.active_calls.fetch_add(1, Ordering::SeqCst) + 1;
                 self.peak_calls.fetch_max(active, Ordering::SeqCst);

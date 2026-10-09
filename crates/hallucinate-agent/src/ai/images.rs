@@ -2,12 +2,15 @@
 
 use std::io::Cursor;
 
-use anyhow::Context;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use image::{DynamicImage, GenericImageView, ImageFormat, imageops::FilterType};
 
 use crate::{
-    agent::tools::{ToolLimits, limits::run_blocking},
+    agent::tools::{
+        ToolLimits,
+        error::{ImageError, InternalToolError},
+        limits::run_blocking,
+    },
     ai::types::ImageContent,
 };
 
@@ -23,29 +26,32 @@ pub const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 pub async fn load_image_file(
     path: impl AsRef<std::path::Path>,
     auto_resize: bool,
-) -> Result<ImageContent, anyhow::Error> {
+) -> Result<ImageContent, InternalToolError> {
     let path = path.as_ref().to_path_buf();
     let display_path = crate::config::paths::display_path(&path, ".");
     let max_source_bytes = ToolLimits::default().max_image_source_bytes;
 
     run_blocking("image processing", move || {
         let metadata = std::fs::metadata(&path)
-            .with_context(|| format!("failed to inspect image file {display_path}"))?;
+            .map_err(|_| ImageError::FailedToInspect(display_path.clone()))?;
+
         if metadata.len() > max_source_bytes as u64 {
-            anyhow::bail!(
-                "image file {display_path} is {} bytes (maximum: {max_source_bytes} bytes)",
-                metadata.len()
-            );
+            return Err(ImageError::FileTooLarge {
+                display_path: display_path.clone(),
+                source_bytes: metadata.len(),
+                max_source_bytes,
+            })?;
         }
 
-        let bytes = std::fs::read(&path)
-            .with_context(|| format!("failed to read image file {display_path}"))?;
+        let bytes =
+            std::fs::read(&path).map_err(|_| ImageError::FailedToRead(display_path.clone()))?;
+
         if bytes.len() > max_source_bytes {
-            anyhow::bail!("image file {display_path} grew beyond its source-byte limit");
+            return Err(ImageError::ConvertedImageLarger(display_path.clone()))?;
         }
 
-        process_image_bytes(&bytes, auto_resize)
-            .with_context(|| format!("failed to process image file {display_path}"))
+        Ok(process_image_bytes(&bytes, auto_resize)
+            .map_err(|_| ImageError::FailedToProcess(display_path.clone()))?)
     })
     .await
 }
@@ -66,19 +72,19 @@ pub fn is_supported_image(bytes: &[u8]) -> bool {
 pub fn process_image_bytes(
     bytes: &[u8],
     auto_resize: bool,
-) -> Result<ImageContent, anyhow::Error> {
-    let format = image::guess_format(bytes).context("unsupported or invalid image data")?;
+) -> Result<ImageContent, ImageError> {
+    let format = image::guess_format(bytes).map_err(|_| ImageError::InvalidData)?;
 
     let original_mime_type =
-        mime_type_for_format(format).ok_or_else(|| anyhow::anyhow!("unsupported image format"))?;
+        mime_type_for_format(format).ok_or_else(|| ImageError::UnsupportedFormat)?;
 
-    let decoded =
-        image::load_from_memory_with_format(bytes, format).context("failed to decode image")?;
+    let decoded = image::load_from_memory_with_format(bytes, format)
+        .map_err(|_| ImageError::DecodeFailure)?;
 
     let (width, height) = decoded.dimensions();
 
     if width == 0 || height == 0 {
-        anyhow::bail!("image dimensions must be non-zero");
+        return Err(ImageError::NonZeroDimensions);
     }
 
     let requires_conversion = format == ImageFormat::Bmp;
@@ -111,10 +117,7 @@ pub fn process_image_bytes(
         }
 
         if encoded.len() > MAX_IMAGE_BYTES {
-            anyhow::bail!(
-                "image could not be resized below the {} byte limit",
-                MAX_IMAGE_BYTES
-            );
+            return Err(ImageError::StillAboveMaxBytes(MAX_IMAGE_BYTES));
         }
     }
 
@@ -135,12 +138,12 @@ fn resize_to_fit(
 }
 
 /// Encode a `DynamicImage` as a PNG byte buffer.
-fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, anyhow::Error> {
+fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, ImageError> {
     let mut output = Cursor::new(Vec::new());
 
     image
         .write_to(&mut output, ImageFormat::Png)
-        .context("failed to encode resized image as PNG")?;
+        .map_err(|_| ImageError::FailedToEncodeToPNG)?;
 
     Ok(output.into_inner())
 }

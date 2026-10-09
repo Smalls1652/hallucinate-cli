@@ -17,6 +17,7 @@ use crate::{
     ai::{
         auth::{
             get_stored_credential,
+            is_missing_keyring_entry,
             release_platform_keyring,
             remove_stored_credential,
             set_platform_keyring,
@@ -24,7 +25,10 @@ use crate::{
         },
         types::{Api, Model, ModelCostRates},
     },
-    config::paths,
+    config::{
+        error::{ApiKeyProperty, ConfigError},
+        paths,
+    },
 };
 
 /// A model defined under a user provider in `settings.toml`.
@@ -397,25 +401,18 @@ fn session_title_settings_is_default(settings: &SessionTitleSettings) -> bool {
 fn merge_settings_file(
     merged: &mut toml::Table,
     path: &Path,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), ConfigError> {
     if !path.exists() {
         return Ok(());
     }
 
     let content = fs::read_to_string(path)?;
 
-    let value: toml::Value = toml::from_str(&content).map_err(|error| {
-        anyhow::anyhow!(
-            "failed to parse settings file '{}': {error}",
-            path.display()
-        )
-    })?;
+    let value: toml::Value = toml::from_str(&content)
+        .map_err(|error| ConfigError::SettingsParseFailure(path.to_path_buf(), error))?;
 
     let toml::Value::Table(table) = value else {
-        anyhow::bail!(
-            "settings file '{}' must contain a TOML table",
-            path.display()
-        );
+        return Err(ConfigError::NoTomlTable(path.to_path_buf()));
     };
 
     merge_toml_tables(merged, table);
@@ -446,31 +443,23 @@ fn merge_toml_tables(
 ///
 /// An empty table returns the default settings rather than attempting
 /// deserialization.
-fn deserialize_settings(merged: toml::Table) -> Result<Settings, anyhow::Error> {
+fn deserialize_settings(merged: toml::Table) -> Result<Settings, ConfigError> {
     if merged.is_empty() {
         return Ok(Settings::default());
     }
 
     toml::Value::Table(merged)
         .try_into()
-        .map_err(|error| anyhow::anyhow!("failed to deserialize merged settings: {error}"))
+        .map_err(|error| ConfigError::MergedSettingsParseFailure(error))
 }
 
 /// Initialize the process-wide platform keyring when it has not been set.
-fn initialize_platform_keyring() -> Result<(), anyhow::Error> {
+fn initialize_platform_keyring() -> Result<(), ConfigError> {
     if keyring_core::get_default_store().is_none() {
         set_platform_keyring()?;
     }
 
     Ok(())
-}
-
-/// Return whether a keyring operation failed because no credential exists.
-fn is_missing_credential(error: &anyhow::Error) -> bool {
-    matches!(
-        error.downcast_ref::<keyring_core::Error>(),
-        Some(keyring_core::Error::NoEntry)
-    )
 }
 
 impl Default for Settings {
@@ -506,18 +495,16 @@ impl Settings {
     /// The application does not fall back to a built-in provider or model.
     /// Keeping this check on settings also makes all run modes enforce the
     /// same configuration requirement.
-    pub fn require_configured_providers(&self) -> Result<(), anyhow::Error> {
+    pub fn require_configured_providers(&self) -> Result<(), ConfigError> {
         if self.providers.is_empty() {
-            anyhow::bail!(
-                "No providers configured. Add a provider to settings.toml before starting hallucinate."
-            );
+            return Err(ConfigError::NoProvidersConfigured);
         }
 
         Ok(())
     }
 
     /// Load the global settings without applying a project override.
-    pub fn load_global() -> Result<Self, anyhow::Error> {
+    pub fn load_global() -> Result<Self, ConfigError> {
         let mut merged = toml::Table::new();
 
         if let Some(path) = paths::settings_file() {
@@ -535,14 +522,14 @@ impl Settings {
     /// or model field without having to repeat the rest of the global
     /// configuration. Scalar values and arrays in the project file replace
     /// their global counterparts.
-    pub fn load() -> Result<Self, anyhow::Error> {
+    pub fn load() -> Result<Self, ConfigError> {
         let cwd = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
 
         Self::load_from(cwd)
     }
 
     /// Load settings using an explicit project working directory.
-    pub fn load_from(cwd: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
+    pub fn load_from(cwd: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let mut merged = toml::Table::new();
 
         if let Some(path) = paths::settings_file() {
@@ -563,9 +550,9 @@ impl Settings {
     /// The file is written with owner-only permissions and replaced
     /// atomically. This is important because credentials are stored in the
     /// settings file alongside the other application settings.
-    pub fn save(&self) -> Result<(), anyhow::Error> {
-        let path = paths::settings_file()
-            .ok_or_else(|| anyhow::anyhow!("could not determine the settings file path"))?;
+    pub fn save(&self) -> Result<(), ConfigError> {
+        let path =
+            paths::settings_file().ok_or_else(|| ConfigError::SettingsFilePathResolutionFailure)?;
 
         self.save_to(&path)
     }
@@ -578,10 +565,10 @@ impl Settings {
     pub fn save_to(
         &self,
         path: &Path,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), ConfigError> {
         let parent = path
             .parent()
-            .ok_or_else(|| anyhow::anyhow!("settings path has no parent directory"))?;
+            .ok_or_else(|| ConfigError::SettingsFilePathHasNoParent)?;
         fs::create_dir_all(parent)?;
 
         let content = toml::to_string_pretty(self)?;
@@ -611,19 +598,21 @@ impl Settings {
         &self,
         provider: &str,
         api_key: &str,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), ConfigError> {
         let provider = provider.trim();
         if provider.is_empty() {
-            anyhow::bail!("provider ID cannot be empty");
+            return Err(ConfigError::MissingApiKeyProperty(
+                ApiKeyProperty::ProviderId,
+            ));
         }
 
         if api_key.trim().is_empty() {
-            anyhow::bail!("API key cannot be empty");
+            return Err(ConfigError::MissingApiKeyProperty(ApiKeyProperty::ApiKey));
         }
 
         initialize_platform_keyring()?;
         set_stored_credential(provider, api_key)?;
-        release_platform_keyring()?;
+        release_platform_keyring();
         Ok(())
     }
 
@@ -633,18 +622,20 @@ impl Settings {
     pub fn remove_api_key(
         &self,
         provider: &str,
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<bool, ConfigError> {
         let provider = provider.trim();
         if provider.is_empty() {
-            anyhow::bail!("provider ID cannot be empty");
+            return Err(ConfigError::MissingApiKeyProperty(
+                ApiKeyProperty::ProviderId,
+            ));
         }
 
         initialize_platform_keyring()?;
 
         match remove_stored_credential(provider) {
             Ok(()) => Ok(true),
-            Err(error) if is_missing_credential(&error) => Ok(false),
-            Err(error) => Err(error),
+            Err(error) if is_missing_keyring_entry(&error) => Ok(false),
+            Err(error) => return Err(error.into()),
         }
     }
 
@@ -653,7 +644,7 @@ impl Settings {
     ///
     /// Platform keyrings cannot enumerate credentials portably, so this only
     /// checks the default provider and providers declared in these settings.
-    pub fn providers_with_stored_api_keys(&self) -> Result<Vec<String>, anyhow::Error> {
+    pub fn providers_with_stored_api_keys(&self) -> Result<Vec<String>, ConfigError> {
         initialize_platform_keyring()?;
 
         let mut providers = self.providers.keys().cloned().collect::<Vec<_>>();
@@ -667,8 +658,8 @@ impl Settings {
             .into_iter()
             .filter_map(|provider| match get_stored_credential(&provider) {
                 Ok(_) => Some(Ok(provider)),
-                Err(error) if is_missing_credential(&error) => None,
-                Err(error) => Some(Err(error)),
+                Err(error) if is_missing_keyring_entry(&error) => None,
+                Err(error) => Some(Err(error.into())),
             })
             .collect()
     }

@@ -1,11 +1,23 @@
 //! LLM-assisted generation of concise session titles.
 
 use crate::ai::{
-    provider::Provider,
+    provider::{Provider, ProviderError},
     types::{Context, Message, Model, StreamOptions, ToolChoice, UserMessage},
 };
 
 const TITLE_PROMPT: &str = "Generate a concise title for the user's request. Return only the title, with no quotation marks, markdown, or explanation. Use at most 80 characters.\n\nUser request:\n";
+
+/// Errors that can occur during session title generation.
+#[derive(thiserror::Error, Debug)]
+pub enum TitleGenerationError {
+    /// The title generation returned no text.
+    #[error("title generation returned no text")]
+    EmptyGeneratedTitle,
+
+    /// A provider error occurred during title generation.
+    #[error(transparent)]
+    Other(#[from] ProviderError),
+}
 
 /// Generate a concise title for a session's first user message.
 ///
@@ -15,7 +27,7 @@ pub async fn generate_session_title(
     provider: &dyn Provider,
     model: &Model,
     user_message: &str,
-) -> Result<String, anyhow::Error> {
+) -> Result<String, TitleGenerationError> {
     let context = Context::new([Message::User(UserMessage::new(format!(
         "{TITLE_PROMPT}{user_message}"
     )))]);
@@ -37,7 +49,7 @@ pub async fn generate_session_title(
         })
         .collect::<String>();
 
-    normalize_title(&title).ok_or_else(|| anyhow::anyhow!("title generation returned no text"))
+    normalize_title(&title).ok_or_else(|| TitleGenerationError::EmptyGeneratedTitle)
 }
 
 /// Normalize a model-generated title by trimming whitespace, stripping

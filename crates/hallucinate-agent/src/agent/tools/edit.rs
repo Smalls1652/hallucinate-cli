@@ -1,10 +1,14 @@
 //! Edit tool: intelligent text editing with per-edit diff output.
 
-use std::{future::Future, io::Write, pin::Pin};
+use std::io::Write;
 
 use serde_json::json;
 
 use super::{limits::run_blocking, paths::resolve_path, types::Tool};
+use crate::agent::tools::{
+    error::{EditsField, InternalToolError},
+    types::AsyncToolExecutionResult,
+};
 
 /// A single exact-text replacement requested from the edit tool.
 #[derive(Debug, Clone)]
@@ -82,8 +86,7 @@ impl Tool for EditTool {
         &'a self,
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
-    {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(async move {
             let path_str = required_string(arguments, "path")?;
             let edits = parse_edits(arguments)?;
@@ -93,7 +96,7 @@ impl Tool for EditTool {
 
             run_blocking("edit", move || {
                 let content = std::fs::read_to_string(&path).map_err(|error| {
-                    anyhow::anyhow!("Failed to read file {display_path}: {error}")
+                    InternalToolError::FailedToReadFile(display_path.clone(), error)
                 })?;
 
                 let mut new_content = content;
@@ -177,16 +180,16 @@ fn diff_lines(
 fn required_string<'a>(
     arguments: &'a serde_json::Value,
     field: &str,
-) -> Result<&'a str, anyhow::Error> {
+) -> Result<&'a str, InternalToolError> {
     arguments
         .get(field)
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("Missing required field: {field}"))
+        .ok_or_else(|| InternalToolError::MissingRequiredField(field.to_string()))
 }
 
 /// Parse ordered edit requests, accepting the former single-edit shape during
 /// the transition to the `edits` array API.
-fn parse_edits(arguments: &serde_json::Value) -> Result<Vec<TextEdit>, anyhow::Error> {
+fn parse_edits(arguments: &serde_json::Value) -> Result<Vec<TextEdit>, InternalToolError> {
     let Some(edits_value) = arguments.get("edits") else {
         return Ok(vec![TextEdit {
             old_text: required_string(arguments, "old_text")?.to_string(),
@@ -196,10 +199,10 @@ fn parse_edits(arguments: &serde_json::Value) -> Result<Vec<TextEdit>, anyhow::E
 
     let edits = edits_value
         .as_array()
-        .ok_or_else(|| anyhow::anyhow!("Field edits must be an array"))?;
+        .ok_or_else(|| InternalToolError::FieldEditsNotAnArray)?;
 
     if edits.is_empty() {
-        anyhow::bail!("Field edits must contain at least one edit");
+        return Err(InternalToolError::FieldEditsMissingEdits);
     }
 
     edits
@@ -210,13 +213,13 @@ fn parse_edits(arguments: &serde_json::Value) -> Result<Vec<TextEdit>, anyhow::E
                 .get("old_text")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| {
-                    anyhow::anyhow!("Missing required field: edits[{index}].old_text")
+                    InternalToolError::EditsMissingRequiredField(index, EditsField::OldText)
                 })?;
             let new_text = edit
                 .get("new_text")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| {
-                    anyhow::anyhow!("Missing required field: edits[{index}].new_text")
+                    InternalToolError::EditsMissingRequiredField(index, EditsField::NewText)
                 })?;
 
             Ok(TextEdit {

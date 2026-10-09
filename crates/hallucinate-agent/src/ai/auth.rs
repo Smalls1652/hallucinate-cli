@@ -14,29 +14,46 @@ const KEYRING_ACCOUNT: &str = "hallucinate";
 /// API keys persisted together in the platform keyring.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct StoredCredentials {
+    /// API keys indexed by provider ID.
     #[serde(flatten)]
     api_keys: HashMap<String, String>,
 }
 
+/// Errors that can occur during keyring credential operations.
+#[derive(thiserror::Error, Debug)]
+pub enum KeyringAuthError {
+    /// Failed to parse stored keyring credentials from JSON.
+    #[error("failed to parse stored keyring credentials: {0}")]
+    StoredCredentialParseFailure(#[source] serde_json::Error),
+
+    /// Failed to serialize keyring credentials to JSON.
+    #[error("failed to serialize keyring credentials: {0}")]
+    StoredCredentialSerializationFailure(#[source] serde_json::Error),
+
+    /// A keyring core error occurred during the operation.
+    #[error(transparent)]
+    Other(#[from] keyring_core::Error),
+}
+
 /// Return the single credential entry used by hallucinate.
-fn credential_entry() -> Result<keyring_core::Entry, keyring_core::Error> {
-    keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+fn credential_entry() -> Result<keyring_core::Entry, KeyringAuthError> {
+    Ok(keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)?)
 }
 
 /// Load all provider API keys from the platform keyring.
-fn load_stored_credentials() -> anyhow::Result<StoredCredentials> {
+fn load_stored_credentials() -> Result<StoredCredentials, KeyringAuthError> {
     let entry = credential_entry()?;
     let credentials = entry.get_password()?;
 
     serde_json::from_str(&credentials)
-        .map_err(|error| anyhow::anyhow!("failed to parse stored keyring credentials: {error}"))
+        .map_err(|error| KeyringAuthError::StoredCredentialParseFailure(error))
 }
 
 /// Save all provider API keys to the platform keyring.
-fn save_stored_credentials(credentials: &StoredCredentials) -> anyhow::Result<()> {
+fn save_stored_credentials(credentials: &StoredCredentials) -> Result<(), KeyringAuthError> {
     let entry = credential_entry()?;
     let credentials = serde_json::to_string(credentials)
-        .map_err(|error| anyhow::anyhow!("failed to serialize keyring credentials: {error}"))?;
+        .map_err(|error| KeyringAuthError::StoredCredentialSerializationFailure(error))?;
 
     entry.set_password(&credentials)?;
 
@@ -48,7 +65,7 @@ fn save_stored_credentials(credentials: &StoredCredentials) -> anyhow::Result<()
 ///
 /// Returns an error if the keyring entry or the provider's credential cannot
 /// be retrieved.
-pub fn get_stored_credential(provider_id: &str) -> anyhow::Result<String> {
+pub fn get_stored_credential(provider_id: &str) -> Result<String, KeyringAuthError> {
     let credentials = load_stored_credentials()?;
 
     credentials
@@ -65,7 +82,7 @@ pub fn get_stored_credential(provider_id: &str) -> anyhow::Result<String> {
 pub fn set_stored_credential(
     provider_id: &str,
     api_key: &str,
-) -> anyhow::Result<()> {
+) -> Result<(), KeyringAuthError> {
     let mut credentials = match load_stored_credentials() {
         Ok(credentials) => credentials,
         Err(error) if is_missing_keyring_entry(&error) => StoredCredentials::default(),
@@ -84,7 +101,7 @@ pub fn set_stored_credential(
 ///
 /// The shared keyring entry is deleted when the removed credential was its last
 /// provider API key.
-pub fn remove_stored_credential(provider_id: &str) -> anyhow::Result<()> {
+pub fn remove_stored_credential(provider_id: &str) -> Result<(), KeyringAuthError> {
     let mut credentials = load_stored_credentials()?;
 
     if credentials.api_keys.remove(provider_id).is_none() {
@@ -102,18 +119,19 @@ pub fn remove_stored_credential(provider_id: &str) -> anyhow::Result<()> {
 
 /// Return whether a keyring operation failed because the shared entry is
 /// absent.
-fn is_missing_keyring_entry(error: &anyhow::Error) -> bool {
-    matches!(
-        error.downcast_ref::<keyring_core::Error>(),
-        Some(keyring_core::Error::NoEntry)
-    )
+pub fn is_missing_keyring_entry(error: &KeyringAuthError) -> bool {
+    if let KeyringAuthError::Other(inner_error) = error {
+        matches!(inner_error, keyring_core::Error::NoEntry)
+    } else {
+        false
+    }
 }
 
 /// Set the default keyring store to the platform-native implementation.
 ///
 /// On macOS this uses the keychain, on Linux the keyutils store, and on Windows
 /// the native Windows keyring. In tests a mock store is used.
-pub fn set_platform_keyring() -> anyhow::Result<()> {
+pub fn set_platform_keyring() -> Result<(), KeyringAuthError> {
     let store = cfg_select! {
         test => keyring_core::mock::Store::new()?,
         target_os = "macos" => apple_native_keyring_store::keychain::Store::new()?,
@@ -128,10 +146,8 @@ pub fn set_platform_keyring() -> anyhow::Result<()> {
 }
 
 /// Clear the default keyring store, releasing the platform-native keyring.
-pub fn release_platform_keyring() -> anyhow::Result<()> {
+pub fn release_platform_keyring() {
     keyring_core::unset_default_store();
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -173,6 +189,6 @@ mod tests {
                 .into()
         ));
 
-        release_platform_keyring().unwrap();
+        release_platform_keyring();
     }
 }

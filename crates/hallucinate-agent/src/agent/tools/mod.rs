@@ -11,6 +11,7 @@
 
 pub mod bash;
 pub mod edit;
+pub mod error;
 pub mod find;
 pub mod grep;
 pub mod limits;
@@ -29,7 +30,13 @@ use std::sync::Arc;
 pub use limits::ToolLimits;
 pub use types::ToolResult;
 
-use crate::{agent::tools::types::Tool, ai::types::Tool as AiTool};
+use crate::{
+    agent::tools::{
+        error::InternalToolError,
+        types::{Tool, ToolExecutionResult},
+    },
+    ai::types::Tool as AiTool,
+};
 
 /// Registry of available tools.
 #[derive(Debug, Clone)]
@@ -148,10 +155,10 @@ impl ToolRegistry {
         tool_name: &str,
         arguments: &serde_json::Value,
         cwd: Option<&str>,
-    ) -> Result<ToolResult, anyhow::Error> {
+    ) -> ToolExecutionResult {
         match self.get_tool(tool_name) {
             Some(tool) => tool.execute(arguments, cwd).await,
-            None => Err(anyhow::anyhow!("Unknown tool: {}", tool_name)),
+            None => Err(InternalToolError::UnknownTool(tool_name.to_string())),
         }
     }
 }

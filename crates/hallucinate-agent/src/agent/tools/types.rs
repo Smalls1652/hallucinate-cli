@@ -7,9 +7,16 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::{
-    agent::tools::limits::{ToolLimits, truncate_utf8},
+    agent::tools::{
+        error::InternalToolError,
+        limits::{ToolLimits, truncate_utf8},
+    },
     ai::types::{ImageContent, Tool as AiTool},
 };
+
+pub type ToolExecutionResult = Result<ToolResult, InternalToolError>;
+pub type AsyncToolExecutionResult<'a> =
+    Pin<Box<dyn Future<Output = ToolExecutionResult> + Send + 'a>>;
 
 /// A tool that can be called by the agent.
 ///
@@ -38,7 +45,7 @@ pub trait Tool: Send + Sync + std::fmt::Debug {
         &'a self,
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>>;
+    ) -> AsyncToolExecutionResult<'a>;
 
     /// Execute the tool and optionally stream display output while it runs.
     ///
@@ -49,7 +56,7 @@ pub trait Tool: Send + Sync + std::fmt::Debug {
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
         output: Option<ToolOutputSink>,
-    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>> {
+    ) -> AsyncToolExecutionResult<'a> {
         let _ = output;
         self.execute(arguments, cwd)
     }

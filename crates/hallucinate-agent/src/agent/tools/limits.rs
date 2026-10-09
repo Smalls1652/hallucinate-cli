@@ -3,8 +3,9 @@
 //! Tool calls are model-controlled input. These limits keep a single request
 //! from consuming unbounded memory, filesystem work, or Tokio blocking threads.
 
-use anyhow::Context;
 use tokio::sync::Semaphore;
+
+use crate::agent::tools::error::{InternalToolError, ToolLimitsError};
 
 /// Hard ceiling accepted for `max_results` and `max_entries` tool arguments.
 pub const MAX_REQUESTED_RESULTS: usize = 1_000;
@@ -65,10 +66,10 @@ static BLOCKING_JOBS: Semaphore = Semaphore::const_new(4);
 pub async fn run_blocking<T, F>(
     operation: &'static str,
     work: F,
-) -> Result<T, anyhow::Error>
+) -> Result<T, InternalToolError>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, anyhow::Error> + Send + 'static,
+    F: FnOnce() -> Result<T, InternalToolError> + Send + 'static,
 {
     let permit = BLOCKING_JOBS
         .acquire()
@@ -83,7 +84,7 @@ where
         work()
     })
     .await
-    .with_context(|| format!("{operation} blocking task failed"))?
+    .map_err(|error| InternalToolError::BlockingTaskFailed(operation.to_string(), error))?
 }
 
 /// Parse a bounded non-negative integer tool argument.
@@ -92,19 +93,22 @@ pub fn parse_bounded_usize(
     field: &str,
     default: usize,
     maximum: usize,
-) -> Result<usize, anyhow::Error> {
+) -> Result<usize, ToolLimitsError> {
     let Some(value) = arguments.get(field) else {
         return Ok(default);
     };
 
     let value = value
         .as_u64()
-        .ok_or_else(|| anyhow::anyhow!("{field} must be a non-negative integer"))?;
+        .ok_or_else(|| ToolLimitsError::NonNegativeInteger(field.to_string()))?;
     let value = usize::try_from(value)
-        .map_err(|_| anyhow::anyhow!("{field} is too large for this platform"))?;
+        .map_err(|_| ToolLimitsError::UnboundedIntegerTooLarge(field.to_string()))?;
 
     if value > maximum {
-        anyhow::bail!("{field} must not exceed {maximum}");
+        return Err(ToolLimitsError::UnboundedIntegerExceedsMax(
+            field.to_string(),
+            maximum,
+        ));
     }
 
     Ok(value)

@@ -6,7 +6,6 @@
 
 use std::{collections::HashMap, fmt, process::Stdio, sync::Arc};
 
-use futures::Future;
 use rmcp::{
     RoleClient,
     ServiceExt,
@@ -22,7 +21,10 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::agent::tools::types::{Tool, ToolResult};
+use crate::agent::tools::{
+    error::McpError,
+    types::{AsyncToolExecutionResult, Tool, ToolResult},
+};
 
 #[cfg_attr(
     not(feature = "schemas"),
@@ -127,12 +129,10 @@ impl fmt::Debug for McpClient {
 
 impl McpClient {
     /// Connect to and initialize the configured MCP server.
-    async fn start(settings: &McpServerSettings) -> Result<Self, anyhow::Error> {
+    async fn start(settings: &McpServerSettings) -> Result<Self, McpError> {
         match (&settings.command, &settings.url) {
-            (Some(_), Some(_)) => {
-                anyhow::bail!("MCP server must configure either command or url, not both")
-            },
-            (None, None) => anyhow::bail!("MCP server must configure command or url"),
+            (Some(_), Some(_)) => return Err(McpError::BothParamsProvided),
+            (None, None) => return Err(McpError::MissingParams),
             (Some(command), None) => Self::start_stdio(command, settings).await,
             (None, Some(url)) => Self::start_http(url, &settings.auth).await,
         }
@@ -142,9 +142,9 @@ impl McpClient {
     async fn start_stdio(
         command: &str,
         settings: &McpServerSettings,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, McpError> {
         if command.trim().is_empty() {
-            anyhow::bail!("MCP server command cannot be empty");
+            return Err(McpError::EmptyCommand);
         }
 
         let process_command = command.to_string();
@@ -157,8 +157,9 @@ impl McpClient {
             // be emitted into the application's terminal output.
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|error| {
-                anyhow::anyhow!("failed to start MCP server '{process_command}': {error}")
+            .map_err(|error| McpError::FailedToStartServer {
+                command: process_command.to_string(),
+                error: error.to_string(),
             })?
             .0;
 
@@ -171,12 +172,14 @@ impl McpClient {
     async fn start_http(
         url: &str,
         auth: &McpAuthSettings,
-    ) -> Result<Self, anyhow::Error> {
-        let url = reqwest::Url::parse(url)
-            .map_err(|error| anyhow::anyhow!("invalid MCP server URL '{url}': {error}"))?;
+    ) -> Result<Self, McpError> {
+        let url = reqwest::Url::parse(url).map_err(|error| McpError::InvalidUrl {
+            url: url.to_string(),
+            error: error.to_string(),
+        })?;
 
         if !matches!(url.scheme(), "http" | "https") {
-            anyhow::bail!("MCP server URL must use http or https");
+            return Err(McpError::InvalidHttpProtocol);
         }
 
         let mut config = StreamableHttpClientTransportConfig::with_uri(url.to_string());
@@ -188,15 +191,18 @@ impl McpClient {
         } = auth
         {
             if api_key.trim().is_empty() {
-                anyhow::bail!("MCP API key cannot be empty");
+                return Err(McpError::EmptyApiKey);
             }
 
             let value = reqwest::header::HeaderValue::from_str(&format!("{prefix}{api_key}"))
-                .map_err(|error| anyhow::anyhow!("invalid MCP API-key value: {error}"))?;
+                .map_err(|error| McpError::InvalidApiKeyValue(error))?;
 
             let name =
                 reqwest::header::HeaderName::from_bytes(header.as_bytes()).map_err(|error| {
-                    anyhow::anyhow!("invalid MCP API-key header '{header}': {error}")
+                    McpError::InvalidApiKeyHeader {
+                        header: header.clone(),
+                        error,
+                    }
                 })?;
 
             config.custom_headers.insert(name, value);
@@ -208,7 +214,7 @@ impl McpClient {
     }
 
     /// List the remote server's tools.
-    async fn list_tools(&self) -> Result<Vec<RmcpTool>, anyhow::Error> {
+    async fn list_tools(&self) -> Result<Vec<RmcpTool>, McpError> {
         match self {
             Self::Stdio(service) | Self::Http(service) => Ok(service.list_all_tools().await?),
         }
@@ -219,7 +225,7 @@ impl McpClient {
         &self,
         remote_name: String,
         arguments: JsonObject,
-    ) -> Result<rmcp::model::CallToolResult, anyhow::Error> {
+    ) -> Result<rmcp::model::CallToolResult, McpError> {
         let request = CallToolRequestParams::new(remote_name).with_arguments(arguments);
 
         match self {
@@ -280,15 +286,12 @@ impl Tool for McpTool {
         &'a self,
         arguments: &'a Value,
         _cwd: Option<&'a str>,
-    ) -> std::pin::Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>>
-    {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(async move {
-            let arguments = arguments.as_object().cloned().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "MCP tool arguments for '{}' must be a JSON object",
-                    self.name
-                )
-            })?;
+            let arguments = arguments
+                .as_object()
+                .cloned()
+                .ok_or_else(|| McpError::InvalidToolArgsType(self.server_name.clone()))?;
 
             let result = self
                 .client
@@ -309,29 +312,25 @@ impl Tool for McpTool {
 /// Start configured servers and discover their tools.
 pub async fn load_mcp_tools(
     servers: &HashMap<String, McpServerSettings>
-) -> Result<Vec<Arc<dyn Tool + Send + Sync>>, anyhow::Error> {
+) -> Result<Vec<Arc<dyn Tool + Send + Sync>>, McpError> {
     let mut servers = servers.iter().collect::<Vec<_>>();
     servers.sort_unstable_by(|left, right| left.0.cmp(right.0));
 
     let mut tools: Vec<Arc<dyn Tool + Send + Sync>> = Vec::new();
     for (server_name, settings) in servers {
-        let client = Arc::new(McpClient::start(settings).await.map_err(|error| {
-            anyhow::anyhow!("failed to initialize MCP server '{server_name}': {error}")
-        })?);
+        let client = Arc::new(McpClient::start(settings).await?);
 
-        let definitions = client.list_tools().await.map_err(|error| {
-            anyhow::anyhow!("failed to list tools from MCP server '{server_name}': {error}")
-        })?;
+        let definitions = client.list_tools().await?;
 
         for definition in definitions {
             if definition.name.trim().is_empty() {
-                anyhow::bail!("MCP server '{server_name}' returned a tool with an empty name");
+                return Err(McpError::EmptyToolName);
             }
 
             let name = qualified_tool_name(settings.tool_prefix.as_deref(), &definition.name);
 
             if tools.iter().any(|tool| tool.name() == name) {
-                anyhow::bail!("MCP server tool name collision: {name}");
+                return Err(McpError::ToolNameCollision(name));
             }
 
             tools.push(Arc::new(McpTool {

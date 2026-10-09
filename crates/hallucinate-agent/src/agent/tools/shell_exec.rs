@@ -115,7 +115,7 @@ pub enum ShellCommandError {
 
     /// The stream capture task itself returned an error.
     #[error("{0} capture task failed: {1:?}")]
-    CapturedStreamError(String, anyhow::Error),
+    CapturedStreamError(String, #[source] std::io::Error),
 }
 
 /// Output from a successfully executed shell command.
@@ -287,7 +287,7 @@ async fn capture_pipe<R: AsyncRead + Unpin>(
     mut reader: R,
     limit: usize,
     output: Option<ToolOutputSink>,
-) -> Result<CapturedStream, anyhow::Error> {
+) -> Result<CapturedStream, std::io::Error> {
     let mut bytes = Vec::with_capacity(limit);
     let mut buffer = [0_u8; 8_192];
     let mut truncated = false;

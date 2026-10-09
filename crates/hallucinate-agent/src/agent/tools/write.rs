@@ -1,6 +1,6 @@
 //! Write tool: write file contents atomically.
 
-use std::{future::Future, io::Write, pin::Pin};
+use std::io::Write;
 
 use serde_json::json;
 
@@ -8,6 +8,10 @@ use super::{
     limits::{ToolLimits, run_blocking, truncate_utf8},
     paths::resolve_path,
     types::{Tool, ToolOutputSink},
+};
+use crate::agent::tools::{
+    error::InternalToolError,
+    types::{AsyncToolExecutionResult, ToolExecutionResult},
 };
 
 /// File writing tool.
@@ -66,8 +70,7 @@ impl Tool for WriteTool {
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
         output: Option<ToolOutputSink>,
-    ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
-    {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(self.execute_inner(arguments, cwd, output))
     }
 
@@ -75,8 +78,7 @@ impl Tool for WriteTool {
         &'a self,
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
-    {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(self.execute_inner(arguments, cwd, None))
     }
 }
@@ -87,16 +89,16 @@ impl WriteTool {
         arguments: &serde_json::Value,
         cwd: Option<&str>,
         output: Option<ToolOutputSink>,
-    ) -> Result<super::types::ToolResult, anyhow::Error> {
+    ) -> ToolExecutionResult {
         let path_str = arguments
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing required field: path"))?;
+            .ok_or_else(|| InternalToolError::MissingRequiredField("path".to_string()))?;
 
         let content = arguments
             .get("content")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing required field: content"))?;
+            .ok_or_else(|| InternalToolError::MissingRequiredField("content".to_string()))?;
 
         if content.len() > self.limits.max_text_file_bytes {
             return Ok(super::types::ToolResult::error(

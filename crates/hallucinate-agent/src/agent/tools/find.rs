@@ -1,7 +1,5 @@
 //! Find tool: bounded deterministic glob-based file search.
 
-use std::{future::Future, pin::Pin};
-
 use serde_json::json;
 
 use super::{
@@ -10,6 +8,7 @@ use super::{
     types::Tool,
     walker::{WalkControl, walk_matching_files},
 };
+use crate::agent::tools::{error::InternalToolError, types::AsyncToolExecutionResult};
 
 /// Glob-based file search tool.
 #[derive(Debug, Clone)]
@@ -71,16 +70,16 @@ impl Tool for FindTool {
         &'a self,
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
-    {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(async move {
             let pattern = arguments
                 .get("pattern")
                 .and_then(|value| value.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing required field: pattern"))?;
+                .ok_or_else(|| InternalToolError::MissingRequiredField("pattern".to_string()))?;
 
-            let glob_pattern = glob::Pattern::new(pattern)
-                .map_err(|error| anyhow::anyhow!("Invalid glob pattern '{pattern}': {error}"))?;
+            let glob_pattern = glob::Pattern::new(pattern).map_err(|error| {
+                InternalToolError::GlobInvalidPattern(pattern.to_string(), error)
+            })?;
 
             let max_results = parse_bounded_usize(
                 arguments,

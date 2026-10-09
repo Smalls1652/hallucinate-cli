@@ -3,9 +3,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
-    future::Future,
     path::{Path, PathBuf},
-    pin::Pin,
 };
 
 use serde::{Deserialize, Serialize};
@@ -15,7 +13,14 @@ use super::{
     limits::ToolLimits,
     types::{Tool, ToolOutputSink, ToolResult},
 };
-use crate::{agent::tools::shell_exec::run_shell_command, config::paths};
+use crate::{
+    agent::tools::{
+        error::{InternalToolError, ScriptToolDefinitionError},
+        shell_exec::run_shell_command,
+        types::{AsyncToolExecutionResult, ToolExecutionResult},
+    },
+    config::paths,
+};
 
 /// A definition file which could not be loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,17 +138,17 @@ impl ScriptTool {
         definition: ScriptToolDefinition,
         _definition_path: &Path,
         timeout: u64,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, ScriptToolDefinitionError> {
         if !valid_name(&name, true) {
-            anyhow::bail!("tool ID must contain only letters, numbers, underscores, or hyphens");
+            return Err(ScriptToolDefinitionError::InvalidToolName);
         }
 
         if definition.command.trim().is_empty() {
-            anyhow::bail!("command must contain a non-empty executable");
+            return Err(ScriptToolDefinitionError::EmptyToolExecutable);
         }
 
         if definition.description.trim().is_empty() {
-            anyhow::bail!("description cannot be empty");
+            return Err(ScriptToolDefinitionError::EmptyDescription);
         }
 
         if definition
@@ -151,29 +156,31 @@ impl ScriptTool {
             .as_ref()
             .is_some_and(|shell| shell.first().is_none_or(|value| value.trim().is_empty()))
         {
-            anyhow::bail!("shell must contain a non-empty executable when configured");
+            return Err(ScriptToolDefinitionError::EmptyShell);
         }
 
         if definition.timeout.is_some_and(|timeout| timeout == 0) {
-            anyhow::bail!("timeout must be greater than zero when configured");
+            return Err(ScriptToolDefinitionError::InvalidTimeout);
         }
 
         for (name, parameter) in &definition.parameters {
             if !valid_name(name, false) {
-                anyhow::bail!(
-                    "parameter '{name}' must contain only letters, numbers, or underscores"
-                );
+                return Err(ScriptToolDefinitionError::InvalidParameterName(
+                    name.clone(),
+                ));
             }
 
             if parameter.description.trim().is_empty() {
-                anyhow::bail!("parameter '{name}' has an empty description");
+                return Err(ScriptToolDefinitionError::EmptyParameterDescription(
+                    name.clone(),
+                ));
             }
 
             if json_schema_type(&parameter.input_type).is_none() {
-                anyhow::bail!(
-                    "parameter '{name}' has unsupported input_type '{}'",
-                    parameter.input_type
-                );
+                return Err(ScriptToolDefinitionError::InvalidParameterInputType(
+                    name.clone(),
+                    parameter.input_type.clone(),
+                ));
             }
 
             validate_parameter_constraints(name, parameter)?;
@@ -194,18 +201,27 @@ impl ScriptTool {
     fn render_command(
         &self,
         arguments: &Map<String, Value>,
-    ) -> Result<String, anyhow::Error> {
+    ) -> Result<String, InternalToolError> {
         for (name, parameter) in &self.parameters {
             match arguments.get(name) {
                 Some(value) if value_matches_type(value, &parameter.input_type) => {
                     if !value_matches_constraints(value, parameter.constraints.as_ref()) {
-                        anyhow::bail!("parameter '{name}' does not satisfy its constraints");
+                        return Err(InternalToolError::InvalidScriptToolParamConstraint(
+                            name.clone(),
+                        ));
                     }
                 },
 
-                Some(_) => anyhow::bail!("parameter '{name}' must be a {}", parameter.input_type),
+                Some(_) => {
+                    return Err(InternalToolError::InvalidScriptToolParamType(
+                        name.clone(),
+                        parameter.input_type.clone(),
+                    ));
+                },
 
-                None if parameter.required => anyhow::bail!("Missing required field: {name}"),
+                None if parameter.required => {
+                    return Err(InternalToolError::MissingRequiredField(name.clone()));
+                },
 
                 None => {},
             }
@@ -220,10 +236,10 @@ impl ScriptTool {
         arguments: &Value,
         cwd: Option<&str>,
         output: Option<ToolOutputSink>,
-    ) -> Result<ToolResult, anyhow::Error> {
+    ) -> ToolExecutionResult {
         let arguments = arguments
             .as_object()
-            .ok_or_else(|| anyhow::anyhow!("tool arguments must be an object"))?;
+            .ok_or_else(|| InternalToolError::InvalidScriptToolArgsType)?;
 
         let command = self.render_command(arguments)?;
 
@@ -231,9 +247,7 @@ impl ScriptTool {
             .map(PathBuf::from)
             .map(Ok)
             .unwrap_or_else(std::env::current_dir)
-            .map_err(|error| {
-                anyhow::anyhow!("failed to determine the current directory: {error}")
-            })?;
+            .map_err(|error| InternalToolError::FailedToGetCurrentDirectory(error))?;
 
         let command_output = match run_shell_command(
             self.shell.as_deref(),
@@ -321,7 +335,7 @@ impl Tool for ScriptTool {
         &'a self,
         arguments: &'a Value,
         cwd: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>> {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(self.execute_inner(arguments, cwd, None))
     }
 
@@ -330,7 +344,7 @@ impl Tool for ScriptTool {
         arguments: &'a Value,
         cwd: Option<&'a str>,
         output: Option<ToolOutputSink>,
-    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, anyhow::Error>> + Send + 'a>> {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(self.execute_inner(arguments, cwd, output))
     }
 }
@@ -378,8 +392,10 @@ pub fn load_script_tools(
             };
 
             let loaded = fs::read_to_string(&path)
-                .map_err(anyhow::Error::from)
-                .and_then(|content| toml::from_str(&content).map_err(anyhow::Error::from))
+                .map_err(ScriptToolDefinitionError::from)
+                .and_then(|content| {
+                    toml::from_str(&content).map_err(ScriptToolDefinitionError::from)
+                })
                 .and_then(|definition| {
                     ScriptTool::from_definition(name.clone(), definition, &path, timeout)
                 });
@@ -456,13 +472,15 @@ fn value_matches_type(
 fn validate_parameter_constraints(
     name: &str,
     parameter: &ScriptToolParameter,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), ScriptToolDefinitionError> {
     let Some(constraints) = &parameter.constraints else {
         return Ok(());
     };
 
     if constraints.enum_values.as_ref().is_some_and(Vec::is_empty) {
-        anyhow::bail!("parameter '{name}' constraint enum cannot be empty");
+        return Err(ScriptToolDefinitionError::EmptyParameterConstraintEnum(
+            name.to_string(),
+        ));
     }
 
     if let Some(enum_values) = &constraints.enum_values {
@@ -470,9 +488,11 @@ fn validate_parameter_constraints(
             .iter()
             .any(|value| !value_matches_type(value, &parameter.input_type))
         {
-            anyhow::bail!(
-                "parameter '{name}' constraint enum values must match input_type '{}'",
-                parameter.input_type
+            return Err(
+                ScriptToolDefinitionError::InvalidParameterConstraintEnumInputType(
+                    name.to_string(),
+                    parameter.input_type.clone(),
+                ),
             );
         }
     }
@@ -484,13 +504,17 @@ fn validate_parameter_constraints(
             Some("integer" | "number")
         )
     {
-        anyhow::bail!("parameter '{name}' minimum and maximum require a numeric input_type");
+        return Err(
+            ScriptToolDefinitionError::InvalidParameterConstraintNumericUse(name.to_string()),
+        );
     }
 
     if constraints.minimum.is_some_and(|value| !value.is_finite())
         || constraints.maximum.is_some_and(|value| !value.is_finite())
     {
-        anyhow::bail!("parameter '{name}' minimum and maximum must be finite numbers");
+        return Err(
+            ScriptToolDefinitionError::InvalidParameterConstraintNumericValue(name.to_string()),
+        );
     }
 
     if constraints
@@ -498,7 +522,11 @@ fn validate_parameter_constraints(
         .zip(constraints.maximum)
         .is_some_and(|(minimum, maximum)| minimum > maximum)
     {
-        anyhow::bail!("parameter '{name}' minimum cannot exceed maximum");
+        return Err(
+            ScriptToolDefinitionError::ParameterConstraintMinNumericValueExceedsMax(
+                name.to_string(),
+            ),
+        );
     }
 
     Ok(())

@@ -13,7 +13,7 @@ use std::{
 
 use serde::Deserialize;
 
-use crate::config::paths;
+use crate::{config::paths, error::AgentError};
 
 const MAX_NAME_LENGTH: usize = 64;
 const MAX_DESCRIPTION_LENGTH: usize = 1024;
@@ -160,7 +160,7 @@ pub fn load_skills(options: &SkillLoadOptions) -> SkillLoadResult {
 pub fn expand_skill_command(
     text: &str,
     skills: &[Skill],
-) -> Result<String, anyhow::Error> {
+) -> Result<String, AgentError> {
     let input = text.trim_start();
 
     let Some(command) = input.strip_prefix("/skill:") else {
@@ -175,7 +175,7 @@ pub fn expand_skill_command(
     };
 
     let content = fs::read_to_string(&skill.file_path)
-        .map_err(|error| anyhow::anyhow!("failed to read skill '{}': {error}", name))?;
+        .map_err(|error| AgentError::FailedToReadSkill(name.to_string(), error))?;
 
     let body = skill_body(&content).trim();
 

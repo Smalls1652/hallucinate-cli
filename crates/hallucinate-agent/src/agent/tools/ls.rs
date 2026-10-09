@@ -1,7 +1,5 @@
 //! Ls tool: bounded deterministic directory listing.
 
-use std::{future::Future, pin::Pin};
-
 use serde_json::json;
 
 use super::{
@@ -10,6 +8,7 @@ use super::{
     types::Tool,
     walker::{WalkControl, walk_entries},
 };
+use crate::agent::tools::types::AsyncToolExecutionResult;
 
 /// Directory listing tool.
 #[derive(Debug, Clone)]
@@ -71,8 +70,7 @@ impl Tool for LsTool {
         &'a self,
         arguments: &'a serde_json::Value,
         cwd: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<super::types::ToolResult, anyhow::Error>> + Send + 'a>>
-    {
+    ) -> AsyncToolExecutionResult<'a> {
         Box::pin(async move {
             let path = resolve_path(
                 arguments
@@ -155,7 +153,7 @@ impl Tool for LsTool {
 fn format_entry(
     path: &std::path::Path,
     cwd: &str,
-) -> Result<String, anyhow::Error> {
+) -> Result<String, std::io::Error> {
     let metadata = std::fs::symlink_metadata(path)?;
 
     let entry_type = if metadata.is_dir() {
