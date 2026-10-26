@@ -17,6 +17,7 @@ use crate::{
     agent::{
         skills::Skill,
         tools::{
+            BuiltInTool,
             ToolRegistry,
             error::InternalToolError,
             types::{Tool as AgentTool, ToolOutput, ToolOutputSink},
@@ -219,104 +220,6 @@ impl Agent {
         }
     }
 
-    /// Create a new agent with no tools.
-    pub fn with_no_tools(
-        provider: Box<dyn Provider>,
-        model: Model,
-        config: AgentConfig,
-    ) -> Self {
-        let mut agent = Self::new(provider, model, config);
-        agent.invalidate_context_base();
-
-        agent
-    }
-
-    /// Create a new agent with built-in tools and an image resize policy.
-    pub fn with_all_tools_and_image_resize(
-        provider: Box<dyn Provider>,
-        model: Model,
-        config: AgentConfig,
-        auto_resize_images: bool,
-    ) -> Self {
-        Self::with_all_tools_and_image_resize_with_timeout(
-            provider,
-            model,
-            config,
-            auto_resize_images,
-            60,
-        )
-    }
-
-    /// Create a new agent with built-in tools, an image resize policy, and
-    /// an explicit bash tool timeout (in seconds).
-    pub fn with_all_tools_and_image_resize_with_timeout(
-        provider: Box<dyn Provider>,
-        model: Model,
-        config: AgentConfig,
-        auto_resize_images: bool,
-        timeout: u64,
-    ) -> Self {
-        let mut agent = Self::new(provider, model, config);
-        agent.tool_registry = ToolRegistry::with_all_builtins_and_image_resize_with_timeout(
-            auto_resize_images,
-            timeout,
-        );
-        agent.invalidate_context_base();
-
-        agent
-    }
-
-    /// Create a new agent with built-in tools and a configured shell
-    /// executable.
-    pub fn with_all_tools_and_image_resize_and_shell(
-        provider: Box<dyn Provider>,
-        model: Model,
-        config: AgentConfig,
-        auto_resize_images: bool,
-        shell: Option<&[String]>,
-    ) -> Self {
-        Self::with_all_tools_and_image_resize_and_shell_with_timeout(
-            provider,
-            model,
-            config,
-            auto_resize_images,
-            shell,
-            60,
-        )
-    }
-
-    /// Create a new agent with built-in tools, a configured shell executable,
-    /// and an explicit bash tool timeout (in seconds).
-    pub fn with_all_tools_and_image_resize_and_shell_with_timeout(
-        provider: Box<dyn Provider>,
-        model: Model,
-        config: AgentConfig,
-        auto_resize_images: bool,
-        shell: Option<&[String]>,
-        timeout: u64,
-    ) -> Self {
-        if shell.is_none() {
-            return Self::with_all_tools_and_image_resize_with_timeout(
-                provider,
-                model,
-                config,
-                auto_resize_images,
-                timeout,
-            );
-        }
-
-        let mut agent = Self::new(provider, model, config);
-        agent.tool_registry =
-            ToolRegistry::with_all_builtins_and_image_resize_and_shell_with_timeout(
-                auto_resize_images,
-                shell,
-                timeout,
-            );
-        agent.invalidate_context_base();
-
-        agent
-    }
-
     /// Set the system prompt.
     pub fn with_system_prompt(
         mut self,
@@ -368,12 +271,12 @@ impl Agent {
         self.invalidate_context_base();
     }
 
-    /// Add a model-invocable tool and invalidate cached tool schemas.
-    pub fn add_tool(
+    /// Add built-in model-invocable tools and invalidate cached tool schemas.
+    pub fn add_builtin_tools(
         &mut self,
-        tool: Arc<dyn AgentTool + Send + Sync>,
+        tools: Vec<BuiltInTool>,
     ) {
-        self.tool_registry.add_tool(tool);
+        self.tool_registry.add_builtin_tools(tools);
         self.invalidate_context_base();
     }
 
@@ -386,7 +289,7 @@ impl Agent {
             return Err(AgentError::ToolNameConflict(tool.name().to_string()));
         }
 
-        self.add_tool(tool);
+        self.tool_registry.add_external_tool(tool);
 
         Ok(())
     }
@@ -408,7 +311,7 @@ impl Agent {
                 return Err(AgentError::McpToolNameConflict(tool.name().to_string()));
             }
 
-            self.tool_registry.add_tool(tool);
+            self.tool_registry.add_external_tool(tool);
         }
 
         self.invalidate_context_base();
@@ -433,6 +336,10 @@ impl Agent {
     pub fn reload_system_prompt(&mut self) {
         self.invalidate_context_base();
         self.refresh_context_base();
+    }
+
+    pub fn list_tools(&self) -> Vec<String> {
+        self.tool_registry.list_tools()
     }
 
     /// Return the working directory used for project-local context files.
@@ -1365,6 +1272,7 @@ mod tests {
     use crate::{
         agent::tools::{
             ToolResult,
+            all_built_in_tools_with_defaults,
             types::{AsyncToolExecutionResult, Tool},
         },
         ai::{
@@ -1554,12 +1462,8 @@ mod tests {
 
         let model = test_model();
 
-        let mut agent = Agent::with_all_tools_and_image_resize(
-            Box::new(provider),
-            model,
-            AgentConfig::default(),
-            true,
-        );
+        let mut agent = Agent::new(Box::new(provider), model, AgentConfig::default());
+        agent.add_builtin_tools(all_built_in_tools_with_defaults());
 
         let mut events = agent.subscribe();
 
@@ -1667,8 +1571,9 @@ mod tests {
             ..AgentConfig::default()
         };
 
-        let mut agent =
-            Agent::with_all_tools_and_image_resize(Box::new(provider), model, config, true);
+        let mut agent = Agent::new(Box::new(provider), model, config);
+        agent.add_builtin_tools(all_built_in_tools_with_defaults());
+
         agent.add_user_message("keep going");
 
         let result = agent.run().await;
@@ -1692,12 +1597,9 @@ mod tests {
 
         let model = test_model();
 
-        let mut agent = Agent::with_all_tools_and_image_resize(
-            Box::new(provider),
-            model,
-            AgentConfig::default(),
-            true,
-        );
+        let mut agent = Agent::new(Box::new(provider), model, AgentConfig::default());
+        agent.add_builtin_tools(all_built_in_tools_with_defaults());
+
         agent.add_user_message("Run the command and report back");
 
         assert_eq!(agent.run().await.unwrap(), StopReason::Stop);
@@ -1729,7 +1631,7 @@ mod tests {
             test_model(),
             config,
         );
-        agent.add_tool(Arc::new(tool));
+        agent.tool_registry.add_external_tool(Arc::new(tool));
 
         let mut events = agent.subscribe();
 
@@ -1782,7 +1684,8 @@ mod tests {
             test_model(),
             config,
         );
-        agent.add_tool(Arc::new(tool));
+        agent.tool_registry.add_external_tool(Arc::new(tool));
+
         agent.add_user_message("run both calls");
 
         let cancellation = agent.cancellation();
@@ -2052,23 +1955,18 @@ mod tests {
             ..AgentConfig::default()
         };
 
-        let mut agent = Agent::with_all_tools_and_image_resize(
-            Box::new(FauxProvider::new()),
-            test_model(),
-            config,
-            true,
-        );
+        let mut agent = Agent::new(Box::new(FauxProvider::new()), test_model(), config);
+        agent.add_builtin_tools(all_built_in_tools_with_defaults());
 
         assert!(agent.build_context().tools.is_none());
     }
 
     #[test]
     fn advertises_skills_when_the_read_tool_is_enabled() {
-        let mut agent = Agent::with_all_tools_and_image_resize(
+        let mut agent = Agent::new(
             Box::new(FauxProvider::new()),
             test_model(),
             AgentConfig::default(),
-            true,
         )
         .with_skills(vec![Skill {
             name: "release-helper".to_string(),
@@ -2077,6 +1975,7 @@ mod tests {
             base_dir: PathBuf::from("/tmp/release"),
             disable_model_invocation: false,
         }]);
+        agent.add_builtin_tools(all_built_in_tools_with_defaults());
 
         let prompt = agent.build_context().system_prompt.unwrap();
 

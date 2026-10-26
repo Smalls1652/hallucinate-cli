@@ -78,17 +78,12 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
     // Create agent with all built-in tools.
     let loaded_skills = skills.skills;
 
-    let mut agent = Agent::with_all_tools_and_image_resize_and_shell_with_timeout(
-        provider,
-        model.clone(),
-        agent_config,
-        settings.auto_resize_images,
-        hallucinate_agent::config::resolve_shell(settings, runtime_overrides.shell.clone())
-            .as_deref(),
-        hallucinate_agent::config::resolve_shell_timeout(settings, None),
-    )
-    .with_cwd(cwd.to_string_lossy().into_owned())
-    .with_skills(loaded_skills.clone());
+    let mut agent = Agent::new(provider, model.clone(), agent_config)
+        .with_cwd(cwd.to_string_lossy().into_owned())
+        .with_skills(loaded_skills.clone());
+
+    // Load built-in tools.
+    agent.add_builtin_tools(settings.builtin_tools.to_tool_list());
 
     // Load MCP servers.
     agent.add_mcp_servers(&settings.mcp_servers).await?;
@@ -114,6 +109,8 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
             );
         }
     }
+
+    let loaded_tools = agent.list_tools();
 
     // Apply prompt overrides. Provider credentials and endpoint are resolved
     // when `create_provider` constructs the provider.
@@ -180,6 +177,7 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
         prompt_templates.templates,
         prompt_template_options,
         loaded_skills,
+        loaded_tools,
         runtime_overrides,
         cli.thinking,
         settings.clone(),

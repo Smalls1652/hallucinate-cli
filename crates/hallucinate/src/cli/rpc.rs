@@ -390,16 +390,15 @@ async fn chat(
         },
     };
 
-    let mut agent = Agent::with_all_tools_and_image_resize_and_shell_with_timeout(
+    let mut agent = Agent::new(
         provider,
         model.clone(),
         hallucinate_agent::config::agent_config(settings, &model, &runtime_overrides),
-        settings.auto_resize_images,
-        hallucinate_agent::config::resolve_shell(settings, runtime_overrides.shell.clone())
-            .as_deref(),
-        hallucinate_agent::config::resolve_shell_timeout(settings, None),
     )
     .with_cwd(session.cwd.clone());
+
+    // Load built-in tools.
+    agent.add_builtin_tools(settings.builtin_tools.to_tool_list());
 
     // Load MCP servers.
     if let Err(error) = agent.add_mcp_servers(&settings.mcp_servers).await {

@@ -13,13 +13,14 @@ use tokio::sync::watch;
 /// Known APIs supported by providers.
 #[cfg_attr(
     not(feature = "schemas"),
-    derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)
+    derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)
 )]
 #[cfg_attr(
     feature = "schemas",
     derive(
         Debug,
         Clone,
+        Default,
         PartialEq,
         Eq,
         Serialize,
@@ -30,6 +31,7 @@ use tokio::sync::watch;
 #[serde(rename_all = "kebab-case")]
 pub enum Api {
     /// OpenAI Chat Completions-compatible API.
+    #[default]
     OpenaiCompletions,
 
     /// OpenAI Responses-compatible API.

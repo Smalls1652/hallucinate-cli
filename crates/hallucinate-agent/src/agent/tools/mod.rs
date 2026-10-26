@@ -38,6 +38,297 @@ use crate::{
     ai::types::Tool as AiTool,
 };
 
+/// Built-in tools available to the agent.
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(
+        Debug,
+        Clone,
+        serde::Serialize,
+        serde::Deserialize,
+        schemars::JsonSchema
+    )
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum BuiltInTool {
+    /// Shell command execution tool.
+    Bash(BashToolConfig),
+    /// Intelligent text editing tool with diff verification.
+    Edit(EditToolConfig),
+    /// Glob-based file search tool.
+    Find(FindToolConfig),
+    /// Pattern-based file content search tool.
+    Grep(GrepToolConfig),
+    /// Directory listing tool.
+    Ls(LsToolConfig),
+    /// File reading tool with size limits and optional image resizing.
+    Read(ReadToolConfig),
+    /// Atomic file writing tool.
+    Write(WriteToolConfig),
+}
+
+impl Into<Arc<dyn Tool + Send + Sync>> for BuiltInTool {
+    fn into(self) -> Arc<dyn Tool + Send + Sync> {
+        match self {
+            BuiltInTool::Bash(config) => {
+                let mut tool = bash::BashTool::new().with_shell(config.shell);
+
+                if let Some(timeout) = config.timeout {
+                    tool = tool.with_timeout(timeout);
+                }
+
+                Arc::new(tool)
+            },
+
+            BuiltInTool::Edit(_) => Arc::new(edit::EditTool::new()),
+
+            BuiltInTool::Find(_) => Arc::new(find::FindTool::new()),
+
+            BuiltInTool::Grep(_) => Arc::new(grep::GrepTool::new()),
+
+            BuiltInTool::Ls(_) => Arc::new(ls::LsTool::new()),
+
+            BuiltInTool::Read(config) => {
+                Arc::new(read::ReadTool::new().with_auto_resize_images(config.auto_resize_images))
+            },
+
+            BuiltInTool::Write(_) => Arc::new(write::WriteTool::new()),
+        }
+    }
+}
+
+impl std::fmt::Display for BuiltInTool {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        let value = match self {
+            BuiltInTool::Bash(_) => "bash",
+            BuiltInTool::Edit(_) => "edit",
+            BuiltInTool::Find(_) => "find",
+            BuiltInTool::Grep(_) => "grep",
+            BuiltInTool::Ls(_) => "ls",
+            BuiltInTool::Read(_) => "read",
+            BuiltInTool::Write(_) => "write",
+        };
+
+        write!(f, "{value}")
+    }
+}
+
+/// Configuration for the built-in bash tool.
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(
+        Debug,
+        Clone,
+        serde::Serialize,
+        serde::Deserialize,
+        schemars::JsonSchema
+    )
+)]
+pub struct BashToolConfig {
+    /// Whether the tool is enabled.
+    pub enabled: bool,
+    /// The shell executable and arguments to use (e.g., `["/bin/bash", "-c"]`).
+    pub shell: Option<Vec<String>>,
+    /// Maximum execution timeout in seconds.
+    pub timeout: Option<u64>,
+}
+
+impl Default for BashToolConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            shell: None,
+            timeout: None,
+        }
+    }
+}
+
+/// Configuration for the built-in edit tool.
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(
+        Debug,
+        Clone,
+        serde::Serialize,
+        serde::Deserialize,
+        schemars::JsonSchema
+    )
+)]
+pub struct EditToolConfig {
+    /// Whether the tool is enabled.
+    pub enabled: bool,
+}
+
+impl Default for EditToolConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// Configuration for the built-in find tool.
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(
+        Debug,
+        Clone,
+        serde::Serialize,
+        serde::Deserialize,
+        schemars::JsonSchema
+    )
+)]
+pub struct FindToolConfig {
+    /// Whether the tool is enabled.
+    pub enabled: bool,
+}
+
+impl Default for FindToolConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// Configuration for the built-in grep tool.
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(
+        Debug,
+        Clone,
+        serde::Serialize,
+        serde::Deserialize,
+        schemars::JsonSchema
+    )
+)]
+pub struct GrepToolConfig {
+    /// Whether the tool is enabled.
+    pub enabled: bool,
+}
+
+impl Default for GrepToolConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// Configuration for the built-in ls tool.
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(
+        Debug,
+        Clone,
+        serde::Serialize,
+        serde::Deserialize,
+        schemars::JsonSchema
+    )
+)]
+pub struct LsToolConfig {
+    /// Whether the tool is enabled.
+    pub enabled: bool,
+}
+
+impl Default for LsToolConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// Configuration for the built-in read tool.
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(
+        Debug,
+        Clone,
+        serde::Serialize,
+        serde::Deserialize,
+        schemars::JsonSchema
+    )
+)]
+pub struct ReadToolConfig {
+    /// Whether the tool is enabled.
+    pub enabled: bool,
+    /// Whether to automatically resize images when reading files.
+    pub auto_resize_images: bool,
+}
+
+impl Default for ReadToolConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_resize_images: true,
+        }
+    }
+}
+
+/// Configuration for the built-in write tool.
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(
+        Debug,
+        Clone,
+        serde::Serialize,
+        serde::Deserialize,
+        schemars::JsonSchema
+    )
+)]
+pub struct WriteToolConfig {
+    /// Whether the tool is enabled.
+    pub enabled: bool,
+}
+
+impl Default for WriteToolConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// Return a list of all built-in tools with their default configurations.
+#[cfg(test)]
+pub fn all_built_in_tools_with_defaults() -> Vec<BuiltInTool> {
+    vec![
+        BuiltInTool::Bash(BashToolConfig::default()),
+        BuiltInTool::Edit(EditToolConfig::default()),
+        BuiltInTool::Find(FindToolConfig::default()),
+        BuiltInTool::Grep(GrepToolConfig::default()),
+        BuiltInTool::Ls(LsToolConfig::default()),
+        BuiltInTool::Read(ReadToolConfig::default()),
+        BuiltInTool::Write(WriteToolConfig::default()),
+    ]
+}
+
 /// Registry of available tools.
 #[derive(Debug, Clone)]
 pub struct ToolRegistry {
@@ -56,84 +347,36 @@ impl ToolRegistry {
         Self { tools: Vec::new() }
     }
 
-    /// Create all built-in tools with the requested image processing policy.
-    pub fn with_all_builtins_and_image_resize(auto_resize_images: bool) -> Self {
-        Self::with_all_builtins_and_image_resize_with_timeout(auto_resize_images, 60)
-    }
-
-    /// Create all built-in tools with the requested image processing policy
-    /// and an explicit bash tool timeout (in seconds).
-    pub fn with_all_builtins_and_image_resize_with_timeout(
-        auto_resize_images: bool,
-        timeout: u64,
-    ) -> Self {
-        let mut registry = Self::new();
-        registry.add_tool(Arc::new(bash::BashTool::new().with_timeout(timeout)));
-        registry.add_tool(Arc::new(
-            read::ReadTool::new().with_auto_resize_images(auto_resize_images),
-        ));
-        registry.add_tool(Arc::new(write::WriteTool::new()));
-        registry.add_tool(Arc::new(edit::EditTool::new()));
-        registry.add_tool(Arc::new(find::FindTool::new()));
-        registry.add_tool(Arc::new(grep::GrepTool::new()));
-        registry.add_tool(Arc::new(ls::LsTool::new()));
-        registry
-    }
-
-    /// Create all built-in tools with an optional configured shell executable.
-    pub fn with_all_builtins_and_image_resize_and_shell(
-        auto_resize_images: bool,
-        shell: Option<&[String]>,
-    ) -> Self {
-        Self::with_all_builtins_and_image_resize_and_shell_with_timeout(
-            auto_resize_images,
-            shell,
-            60,
-        )
-    }
-
-    /// Create all built-in tools with an optional configured shell executable
-    /// and an explicit bash tool timeout (in seconds).
-    pub fn with_all_builtins_and_image_resize_and_shell_with_timeout(
-        auto_resize_images: bool,
-        shell: Option<&[String]>,
-        timeout: u64,
-    ) -> Self {
-        if shell.is_none() {
-            return Self::with_all_builtins_and_image_resize_with_timeout(
-                auto_resize_images,
-                timeout,
-            );
+    /// Add all built-in tools to the registry.
+    pub fn add_builtin_tools(
+        &mut self,
+        tools: Vec<BuiltInTool>,
+    ) {
+        for tool in tools {
+            tracing::debug!("added built-in tool '{}' to registry", tool);
+            self.tools.push(tool.into());
         }
-
-        let mut registry = Self::new();
-        registry.add_tool(Arc::new(
-            bash::BashTool::new()
-                .with_timeout(timeout)
-                .with_shell(shell.map(|value| value.iter().map(|item| item.to_owned()).collect())),
-        ));
-        registry.add_tool(Arc::new(
-            read::ReadTool::new().with_auto_resize_images(auto_resize_images),
-        ));
-        registry.add_tool(Arc::new(write::WriteTool::new()));
-        registry.add_tool(Arc::new(edit::EditTool::new()));
-        registry.add_tool(Arc::new(find::FindTool::new()));
-        registry.add_tool(Arc::new(grep::GrepTool::new()));
-        registry.add_tool(Arc::new(ls::LsTool::new()));
-        registry
     }
 
-    /// Add a tool to the registry.
-    pub fn add_tool(
+    /// Add an external tool to the registry.
+    pub fn add_external_tool(
         &mut self,
         tool: Arc<dyn Tool + Send + Sync>,
     ) {
+        tracing::debug!("added external tool '{}' to registry", tool.name());
         self.tools.push(tool);
     }
 
     /// Get the list of available tools in AI format.
     pub fn to_ai_tools(&self) -> Vec<AiTool> {
         self.tools.iter().map(|t| t.to_ai_tool()).collect()
+    }
+
+    pub fn list_tools(&self) -> Vec<String> {
+        self.to_ai_tools()
+            .iter()
+            .map(|item| item.name.clone())
+            .collect()
     }
 
     /// Find a tool by name.
@@ -175,8 +418,10 @@ mod tests {
     }
 
     #[test]
-    fn test_registry_with_builtins() {
-        let registry = ToolRegistry::with_all_builtins_and_image_resize(true);
+    fn test_registry_with_all_builtins() {
+        let mut registry = ToolRegistry::new();
+        registry.add_builtin_tools(all_built_in_tools_with_defaults());
+
         assert!(!registry.is_empty());
         assert!(registry.to_ai_tools().len() >= 7);
         assert!(registry.get_tool("bash").is_some());
@@ -186,10 +431,33 @@ mod tests {
 
     #[test]
     fn test_registry_to_ai_tools() {
-        let registry = ToolRegistry::with_all_builtins_and_image_resize(true);
+        let mut registry = ToolRegistry::new();
+        registry.add_builtin_tools(all_built_in_tools_with_defaults());
+
         let ai_tools = registry.to_ai_tools();
         assert!(!ai_tools.is_empty());
         assert!(ai_tools.iter().any(|t| t.name == "bash"));
         assert!(ai_tools.iter().any(|t| t.name == "read"));
+    }
+
+    #[test]
+    fn test_registry_with_nondefault_configs() {
+        let tools = vec![
+            BuiltInTool::Bash(BashToolConfig {
+                enabled: true,
+                shell: Some(vec!["/bin/bash".to_string(), "-c".to_string()]),
+                timeout: Some(67),
+            }),
+            BuiltInTool::Read(ReadToolConfig {
+                enabled: true,
+                auto_resize_images: false,
+            }),
+        ];
+
+        let mut registry = ToolRegistry::new();
+        registry.add_builtin_tools(tools);
+
+        assert!(registry.get_tool("bash").is_some());
+        assert!(registry.get_tool("read").is_some());
     }
 }

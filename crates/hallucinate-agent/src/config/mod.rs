@@ -125,7 +125,7 @@ pub fn resolve_shell(
     settings: &self::settings::Settings,
     shell: Option<Vec<String>>,
 ) -> Option<Vec<String>> {
-    shell.or_else(|| settings.shell.clone())
+    shell.or_else(|| settings.builtin_tools.bash.shell.clone())
 }
 
 /// Resolve the bash tool timeout. The explicit CLI option takes precedence
@@ -135,7 +135,7 @@ pub fn resolve_shell_timeout(
     settings: &self::settings::Settings,
     cli_timeout: Option<u64>,
 ) -> u64 {
-    cli_timeout.unwrap_or(settings.shell_timeout)
+    cli_timeout.unwrap_or(settings.builtin_tools.bash.timeout.unwrap_or(60))
 }
 
 /// Derive agent request configuration from persisted settings, a selected

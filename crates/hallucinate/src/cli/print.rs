@@ -86,7 +86,10 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
 
     // Build context
     let images = futures::future::try_join_all(args.images.iter().map(|path| {
-        hallucinate_agent::ai::images::load_image_file(path, settings.auto_resize_images)
+        hallucinate_agent::ai::images::load_image_file(
+            path,
+            settings.builtin_tools.read.auto_resize_images,
+        )
     }))
     .await?;
 

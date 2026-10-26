@@ -166,6 +166,8 @@ pub struct InteractiveTui {
 
     skills: Vec<hallucinate_agent::agent::skills::Skill>,
 
+    loaded_tools: Vec<String>,
+
     /// Runtime overrides are retained so switching providers uses the same
     /// endpoint/key precedence as the initial model.
     runtime_overrides: RuntimeOverrides,
@@ -303,6 +305,7 @@ impl InteractiveTui {
         prompt_templates: Vec<hallucinate_agent::agent::prompt_templates::PromptTemplate>,
         prompt_template_options: hallucinate_agent::agent::prompt_templates::PromptTemplateLoadOptions,
         skills: Vec<hallucinate_agent::agent::skills::Skill>,
+        loaded_tools: Vec<String>,
         runtime_overrides: RuntimeOverrides,
         show_thinking_override: bool,
         settings: Settings,
@@ -400,6 +403,7 @@ impl InteractiveTui {
             prompt_templates,
             prompt_template_options,
             skills,
+            loaded_tools,
             runtime_overrides,
             settings,
             model,
@@ -600,6 +604,12 @@ impl InteractiveTui {
                 .join(", ");
 
             push_loaded_system_items_string(&mut message, "Prompts", &prompt_template_names);
+        }
+
+        if !self.loaded_tools.is_empty() {
+            let loaded_tools = self.loaded_tools.join(", ");
+
+            push_loaded_system_items_string(&mut message, "Tools", &loaded_tools);
         }
 
         if !message.is_empty() {

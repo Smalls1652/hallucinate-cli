@@ -14,6 +14,16 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    agent::tools::{
+        BashToolConfig,
+        BuiltInTool,
+        EditToolConfig,
+        FindToolConfig,
+        GrepToolConfig,
+        LsToolConfig,
+        ReadToolConfig,
+        WriteToolConfig,
+    },
     ai::{
         auth::{
             get_stored_credential,
@@ -48,7 +58,7 @@ pub struct ModelSettings {
 
     /// API variant used by the provider (e.g., OpenAI Chat Completions or
     /// Responses).
-    #[serde(default = "default_api")]
+    #[serde(default)]
     pub api: Api,
 
     /// Override the base URL for this specific model.
@@ -68,15 +78,15 @@ pub struct ModelSettings {
     pub hidden: bool,
 
     /// Supported input modalities (e.g., "text", "image").
-    #[serde(default = "default_input")]
+    #[serde(default)]
     pub input: Vec<String>,
 
     /// Maximum context window size in tokens.
-    #[serde(default = "default_context_window")]
+    #[serde(default)]
     pub context_window: u32,
 
     /// Maximum number of tokens the model can output.
-    #[serde(default = "default_model_max_tokens")]
+    #[serde(default)]
     pub max_tokens: u32,
 
     /// Optional cost rates per million tokens.
@@ -90,14 +100,14 @@ impl Default for ModelSettings {
     fn default() -> Self {
         Self {
             name: None,
-            api: default_api(),
+            api: Api::OpenaiCompletions,
             base_url: None,
             reasoning: false,
             supports_reasoning_effort: false,
             hidden: false,
-            input: default_input(),
-            context_window: default_context_window(),
-            max_tokens: default_model_max_tokens(),
+            input: vec!["text".to_string()],
+            context_window: 128_000,
+            max_tokens: 16_384,
             cost: None,
         }
     }
@@ -175,7 +185,7 @@ pub enum SessionTitleGenerationMode {
 )]
 pub struct SessionTitleSettings {
     /// Whether new sessions receive an LLM-generated title.
-    #[serde(default = "default_enable_session_titles")]
+    #[serde(default)]
     pub enabled: bool,
 
     /// Model selector used for title generation. When omitted, the active
@@ -191,10 +201,81 @@ pub struct SessionTitleSettings {
 impl Default for SessionTitleSettings {
     fn default() -> Self {
         Self {
-            enabled: default_enable_session_titles(),
+            enabled: true,
             model: None,
             generation_mode: SessionTitleGenerationMode::default(),
         }
+    }
+}
+
+/// Settings for the built-in tools.
+#[cfg_attr(
+    not(feature = "schemas"),
+    derive(Debug, Clone, Default, Serialize, Deserialize)
+)]
+#[cfg_attr(
+    feature = "schemas",
+    derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)
+)]
+pub struct BuiltInToolSettings {
+    /// Settings for the bash tool.
+    #[serde(default)]
+    pub bash: BashToolConfig,
+    /// Settings for the edit tool.
+    #[serde(default)]
+    pub edit: EditToolConfig,
+    /// Settings for the find tool.
+    #[serde(default)]
+    pub find: FindToolConfig,
+    /// Settings for the grep tool.
+    #[serde(default)]
+    pub grep: GrepToolConfig,
+    /// Settings for the ls tool.
+    #[serde(default)]
+    pub ls: LsToolConfig,
+    /// Settings for the read tool.
+    #[serde(default)]
+    pub read: ReadToolConfig,
+    /// Settings for the write tool.
+    #[serde(default)]
+    pub write: WriteToolConfig,
+}
+
+impl BuiltInToolSettings {
+    /// Create a [`Vec<BuiltInTool>`] based on whether a specific tool is
+    /// enabled.
+    pub fn to_tool_list(&self) -> Vec<BuiltInTool> {
+        let mut tool_list = vec![];
+
+        if self.bash.enabled {
+            tool_list.push(BuiltInTool::Bash(self.bash.clone()));
+        }
+
+        if self.edit.enabled {
+            tool_list.push(BuiltInTool::Edit(self.edit.clone()));
+        }
+
+        if self.find.enabled {
+            tool_list.push(BuiltInTool::Find(self.find.clone()));
+        }
+
+        if self.grep.enabled {
+            tool_list.push(BuiltInTool::Grep(self.grep.clone()));
+        }
+
+        if self.ls.enabled {
+            tool_list.push(BuiltInTool::Ls(self.ls.clone()));
+        }
+
+        if self.read.enabled {
+            tool_list.push(BuiltInTool::Read(self.read.clone()));
+        }
+
+        if self.write.enabled {
+            tool_list.push(BuiltInTool::Write(self.write.clone()));
+        }
+
+        tool_list
     }
 }
 
@@ -211,22 +292,12 @@ pub struct Settings {
 
     /// Credential namespace for the OpenAI-compatible provider (usually
     /// "openai"). Defaults to `"openai"`.
-    #[serde(default = "default_provider")]
+    #[serde(default)]
     pub provider: String,
 
     /// Default base URL for the provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
-
-    /// Shell executable used by the bash tool. When unset, the user's SHELL
-    /// environment variable (or the platform fallback) is used.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shell: Option<Vec<String>>,
-
-    /// Default timeout in seconds for the bash tool. Commands that exceed
-    /// this duration are killed. Defaults to 60 seconds.
-    #[serde(default = "default_shell_timeout")]
-    pub shell_timeout: u64,
 
     /// Provider-specific headers for the legacy/default provider.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -237,37 +308,37 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub providers: HashMap<String, ProviderSettings>,
 
+    /// Config settings for built-in tools.
+    #[serde(default)]
+    pub builtin_tools: BuiltInToolSettings,
+
     /// MCP servers whose stdio tools are exposed to the agent. Each map key
     /// identifies a server and becomes part of its qualified tool names.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub mcp_servers: HashMap<String, crate::agent::tools::mcp::McpServerSettings>,
 
     /// Request timeout in milliseconds.
-    #[serde(default = "default_timeout_ms")]
+    #[serde(default)]
     pub timeout_ms: u64,
 
     /// Number of retries for transient LLM API failures.
-    #[serde(default = "default_max_retries")]
+    #[serde(default)]
     pub max_retries: u32,
 
-    /// Automatically resize image attachments to provider-friendly limits.
-    #[serde(default = "default_auto_resize_images")]
-    pub auto_resize_images: bool,
-
     /// Maximum number of turns.
-    #[serde(default = "default_max_turns")]
+    #[serde(default)]
     pub max_turns: u32,
 
     /// Enable tool use by default.
-    #[serde(default = "default_enable_tools")]
+    #[serde(default)]
     pub enable_tools: bool,
 
     /// Enable context compaction.
-    #[serde(default = "default_enable_compaction")]
+    #[serde(default)]
     pub enable_compaction: bool,
 
     /// Maximum number of independent tool calls to execute at once.
-    #[serde(default = "default_max_concurrent_tool_calls")]
+    #[serde(default)]
     pub max_concurrent_tool_calls: usize,
 
     /// Show model thinking/reasoning in user-facing output.
@@ -293,6 +364,31 @@ pub struct Settings {
     project_override_loaded: bool,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            default_model: None,
+            provider: "openai".to_string(),
+            base_url: None,
+            provider_headers: HashMap::new(),
+            providers: HashMap::new(),
+            builtin_tools: BuiltInToolSettings::default(),
+            mcp_servers: HashMap::new(),
+            timeout_ms: 600_000,
+            max_retries: 3,
+            max_turns: 120,
+            enable_tools: true,
+            enable_compaction: true,
+            max_concurrent_tool_calls: 4,
+            show_thinking: false,
+            temperature: None,
+            max_tokens: None,
+            session_title: SessionTitleSettings::default(),
+            project_override_loaded: false,
+        }
+    }
+}
+
 /// Generate a unique temporary file suffix using PID and nanosecond timestamp.
 fn temporary_suffix() -> String {
     let timestamp = SystemTime::now()
@@ -315,84 +411,9 @@ fn set_owner_only_permissions(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Default credential provider namespace.
-fn default_provider() -> String {
-    "openai".to_string()
-}
-
-/// Default API variant for models.
-fn default_api() -> Api {
-    Api::OpenaiCompletions
-}
-
-/// Default input modalities for a model.
-fn default_input() -> Vec<String> {
-    vec!["text".to_string()]
-}
-
-/// Default context window size in tokens.
-fn default_context_window() -> u32 {
-    128_000
-}
-
-/// Default OpenAI-compatible base URL.
-fn default_base_url() -> String {
-    "https://api.openai.com/v1".to_string()
-}
-
-/// Default maximum output tokens for a model.
-fn default_model_max_tokens() -> u32 {
-    16_384
-}
-
-/// Default request timeout in milliseconds.
-fn default_timeout_ms() -> u64 {
-    600_000
-}
-
-/// Default number of retries for transient LLM API failures.
-fn default_max_retries() -> u32 {
-    3
-}
-
-/// Whether to automatically resize image attachments by default.
-fn default_auto_resize_images() -> bool {
-    true
-}
-
-/// Default maximum number of conversation turns.
-fn default_max_turns() -> u32 {
-    120
-}
-
-/// Whether to enable tool use by default.
-fn default_enable_tools() -> bool {
-    true
-}
-
-/// Whether to enable context compaction by default.
-fn default_enable_compaction() -> bool {
-    true
-}
-
-/// Default maximum number of independent tool calls executed at once.
-fn default_max_concurrent_tool_calls() -> usize {
-    4
-}
-
-/// Whether LLM-generated session titles are enabled by default.
-fn default_enable_session_titles() -> bool {
-    true
-}
-
-/// Default timeout in seconds for the bash tool.
-fn default_shell_timeout() -> u64 {
-    60
-}
-
 /// Return whether session-title settings are their default values.
 fn session_title_settings_is_default(settings: &SessionTitleSettings) -> bool {
-    settings.enabled == default_enable_session_titles()
+    settings.enabled == true
         && settings.model.is_none()
         && settings.generation_mode == SessionTitleGenerationMode::default()
 }
@@ -460,33 +481,6 @@ fn initialize_platform_keyring() -> Result<(), ConfigError> {
     }
 
     Ok(())
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            default_model: None,
-            provider: default_provider(),
-            base_url: None,
-            shell: None,
-            shell_timeout: default_shell_timeout(),
-            provider_headers: HashMap::new(),
-            providers: HashMap::new(),
-            mcp_servers: HashMap::new(),
-            timeout_ms: default_timeout_ms(),
-            max_retries: default_max_retries(),
-            auto_resize_images: default_auto_resize_images(),
-            max_turns: default_max_turns(),
-            enable_tools: default_enable_tools(),
-            enable_compaction: default_enable_compaction(),
-            max_concurrent_tool_calls: default_max_concurrent_tool_calls(),
-            show_thinking: false,
-            temperature: None,
-            max_tokens: None,
-            session_title: SessionTitleSettings::default(),
-            project_override_loaded: false,
-        }
-    }
 }
 
 impl Settings {
@@ -674,9 +668,9 @@ impl Settings {
             .flat_map(|(provider_id, provider)| {
                 let provider_url = provider.base_url.clone().unwrap_or_else(|| {
                     if provider_id == &self.provider {
-                        self.base_url.clone().unwrap_or_else(default_base_url)
+                        self.base_url.clone().unwrap_or_else(String::new)
                     } else {
-                        default_base_url()
+                        String::new()
                     }
                 });
 
@@ -809,7 +803,7 @@ impl Settings {
                     .flatten()
             })
             .or_else(|| model_url.map(str::to_owned))
-            .unwrap_or_else(default_base_url)
+            .unwrap_or_else(String::new)
     }
 
     /// Resolve a configured model by either `provider/model` or (when
@@ -873,14 +867,8 @@ mod tests {
             settings.base_url.as_deref(),
             Some("https://example.test/v1")
         );
-        assert_eq!(
-            settings.shell.clone().unwrap(),
-            vec!["/bin/bash".to_string()]
-        );
-        assert_eq!(settings.shell_timeout, 60);
         assert!(settings.mcp_servers.is_empty());
         assert_eq!(settings.timeout_ms, 30_000);
-        assert!(!settings.auto_resize_images);
         assert_eq!(settings.temperature, Some(0.2));
         assert!(settings.show_thinking);
         assert_eq!(settings.max_concurrent_tool_calls, 2);
