@@ -137,10 +137,15 @@ impl std::fmt::Display for BuiltInTool {
 )]
 pub struct BashToolConfig {
     /// Whether the tool is enabled.
+    #[serde(default)]
     pub enabled: bool,
+
     /// The shell executable and arguments to use (e.g., `["/bin/bash", "-c"]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shell: Option<Vec<String>>,
+
     /// Maximum execution timeout in seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
 }
 
@@ -171,6 +176,7 @@ impl Default for BashToolConfig {
 )]
 pub struct EditToolConfig {
     /// Whether the tool is enabled.
+    #[serde(default)]
     pub enabled: bool,
 }
 
@@ -197,6 +203,7 @@ impl Default for EditToolConfig {
 )]
 pub struct FindToolConfig {
     /// Whether the tool is enabled.
+    #[serde(default)]
     pub enabled: bool,
 }
 
@@ -223,6 +230,7 @@ impl Default for FindToolConfig {
 )]
 pub struct GrepToolConfig {
     /// Whether the tool is enabled.
+    #[serde(default)]
     pub enabled: bool,
 }
 
@@ -249,6 +257,7 @@ impl Default for GrepToolConfig {
 )]
 pub struct LsToolConfig {
     /// Whether the tool is enabled.
+    #[serde(default)]
     pub enabled: bool,
 }
 
@@ -275,8 +284,11 @@ impl Default for LsToolConfig {
 )]
 pub struct ReadToolConfig {
     /// Whether the tool is enabled.
+    #[serde(default)]
     pub enabled: bool,
+
     /// Whether to automatically resize images when reading files.
+    #[serde(default)]
     pub auto_resize_images: bool,
 }
 
@@ -306,6 +318,7 @@ impl Default for ReadToolConfig {
 )]
 pub struct WriteToolConfig {
     /// Whether the tool is enabled.
+    #[serde(default)]
     pub enabled: bool,
 }
 

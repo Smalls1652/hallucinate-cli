@@ -53,7 +53,7 @@ use crate::{
 )]
 pub struct ModelSettings {
     /// Human-readable name for the model.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 
     /// API variant used by the provider (e.g., OpenAI Chat Completions or
@@ -62,7 +62,7 @@ pub struct ModelSettings {
     pub api: Api,
 
     /// Override the base URL for this specific model.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
 
     /// Whether this model supports reasoning/thinking output.
@@ -125,7 +125,7 @@ impl Default for ModelSettings {
 pub struct ProviderSettings {
     /// OpenAI-compatible endpoint. The model's `api` selects Chat
     /// Completions or Responses wire format.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
 
     /// Optional inline key. Prefer the platform keyring or environment

@@ -16,9 +16,7 @@
       "$ref": "#/$defs/BuiltInToolSettings",
       "default": {
         "bash": {
-          "enabled": true,
-          "shell": null,
-          "timeout": null
+          "enabled": true
         },
         "edit": {
           "enabled": true
@@ -50,22 +48,26 @@
     },
     "enable_compaction": {
       "description": "Enable context compaction.",
-      "type": "boolean"
+      "type": "boolean",
+      "default": false
     },
     "enable_tools": {
       "description": "Enable tool use by default.",
-      "type": "boolean"
+      "type": "boolean",
+      "default": false
     },
     "max_concurrent_tool_calls": {
       "description": "Maximum number of independent tool calls to execute at once.",
       "type": "integer",
       "format": "uint",
+      "default": 0,
       "minimum": 0
     },
     "max_retries": {
       "description": "Number of retries for transient LLM API failures.",
       "type": "integer",
       "format": "uint32",
+      "default": 0,
       "minimum": 0
     },
     "max_tokens": {
@@ -81,6 +83,7 @@
       "description": "Maximum number of turns.",
       "type": "integer",
       "format": "uint32",
+      "default": 0,
       "minimum": 0
     },
     "mcp_servers": {
@@ -92,7 +95,8 @@
     },
     "provider": {
       "description": "Credential namespace for the OpenAI-compatible provider (usually\n\"openai\"). Defaults to `\"openai\"`.",
-      "type": "string"
+      "type": "string",
+      "default": ""
     },
     "provider_headers": {
       "description": "Provider-specific headers for the legacy/default provider.",
@@ -129,18 +133,10 @@
       "description": "Request timeout in milliseconds.",
       "type": "integer",
       "format": "uint64",
+      "default": 0,
       "minimum": 0
     }
   },
-  "required": [
-    "provider",
-    "timeout_ms",
-    "max_retries",
-    "max_turns",
-    "enable_tools",
-    "enable_compaction",
-    "max_concurrent_tool_calls"
-  ],
   "$defs": {
     "Api": {
       "description": "Known APIs supported by providers.",
@@ -163,7 +159,8 @@
       "properties": {
         "enabled": {
           "description": "Whether the tool is enabled.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "shell": {
           "description": "The shell executable and arguments to use (e.g., `[\"/bin/bash\", \"-c\"]`).",
@@ -184,10 +181,7 @@
           "format": "uint64",
           "minimum": 0
         }
-      },
-      "required": [
-        "enabled"
-      ]
+      }
     },
     "BuiltInToolSettings": {
       "description": "Settings for the built-in tools.",
@@ -195,42 +189,55 @@
       "properties": {
         "bash": {
           "description": "Settings for the bash tool.",
-          "$ref": "#/$defs/BashToolConfig"
+          "$ref": "#/$defs/BashToolConfig",
+          "default": {
+            "enabled": true
+          }
         },
         "edit": {
           "description": "Settings for the edit tool.",
-          "$ref": "#/$defs/EditToolConfig"
+          "$ref": "#/$defs/EditToolConfig",
+          "default": {
+            "enabled": true
+          }
         },
         "find": {
           "description": "Settings for the find tool.",
-          "$ref": "#/$defs/FindToolConfig"
+          "$ref": "#/$defs/FindToolConfig",
+          "default": {
+            "enabled": true
+          }
         },
         "grep": {
           "description": "Settings for the grep tool.",
-          "$ref": "#/$defs/GrepToolConfig"
+          "$ref": "#/$defs/GrepToolConfig",
+          "default": {
+            "enabled": true
+          }
         },
         "ls": {
           "description": "Settings for the ls tool.",
-          "$ref": "#/$defs/LsToolConfig"
+          "$ref": "#/$defs/LsToolConfig",
+          "default": {
+            "enabled": true
+          }
         },
         "read": {
           "description": "Settings for the read tool.",
-          "$ref": "#/$defs/ReadToolConfig"
+          "$ref": "#/$defs/ReadToolConfig",
+          "default": {
+            "auto_resize_images": true,
+            "enabled": true
+          }
         },
         "write": {
           "description": "Settings for the write tool.",
-          "$ref": "#/$defs/WriteToolConfig"
+          "$ref": "#/$defs/WriteToolConfig",
+          "default": {
+            "enabled": true
+          }
         }
-      },
-      "required": [
-        "bash",
-        "edit",
-        "find",
-        "grep",
-        "ls",
-        "read",
-        "write"
-      ]
+      }
     },
     "EditToolConfig": {
       "description": "Configuration for the built-in edit tool.",
@@ -238,12 +245,10 @@
       "properties": {
         "enabled": {
           "description": "Whether the tool is enabled.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         }
-      },
-      "required": [
-        "enabled"
-      ]
+      }
     },
     "FindToolConfig": {
       "description": "Configuration for the built-in find tool.",
@@ -251,12 +256,10 @@
       "properties": {
         "enabled": {
           "description": "Whether the tool is enabled.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         }
-      },
-      "required": [
-        "enabled"
-      ]
+      }
     },
     "GrepToolConfig": {
       "description": "Configuration for the built-in grep tool.",
@@ -264,12 +267,10 @@
       "properties": {
         "enabled": {
           "description": "Whether the tool is enabled.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         }
-      },
-      "required": [
-        "enabled"
-      ]
+      }
     },
     "LsToolConfig": {
       "description": "Configuration for the built-in ls tool.",
@@ -277,12 +278,10 @@
       "properties": {
         "enabled": {
           "description": "Whether the tool is enabled.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         }
-      },
-      "required": [
-        "enabled"
-      ]
+      }
     },
     "McpAuthSettings": {
       "description": "Authentication for a remote MCP server.",
@@ -411,20 +410,21 @@
       "properties": {
         "api": {
           "description": "API variant used by the provider (e.g., OpenAI Chat Completions or\nResponses).",
-          "$ref": "#/$defs/Api"
+          "$ref": "#/$defs/Api",
+          "default": "openai-completions"
         },
         "base_url": {
           "description": "Override the base URL for this specific model.",
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "context_window": {
           "description": "Maximum context window size in tokens.",
           "type": "integer",
           "format": "uint32",
+          "default": 0,
           "minimum": 0
         },
         "cost": {
@@ -446,6 +446,7 @@
         "input": {
           "description": "Supported input modalities (e.g., \"text\", \"image\").",
           "type": "array",
+          "default": [],
           "items": {
             "type": "string"
           }
@@ -454,6 +455,7 @@
           "description": "Maximum number of tokens the model can output.",
           "type": "integer",
           "format": "uint32",
+          "default": 0,
           "minimum": 0
         },
         "name": {
@@ -461,8 +463,7 @@
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "reasoning": {
           "description": "Whether this model supports reasoning/thinking output.",
@@ -474,13 +475,7 @@
           "type": "boolean",
           "default": false
         }
-      },
-      "required": [
-        "api",
-        "input",
-        "context_window",
-        "max_tokens"
-      ]
+      }
     },
     "ProviderSettings": {
       "description": "A user-defined provider and the models belonging to it.",
@@ -498,8 +493,7 @@
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "headers": {
           "description": "Additional HTTP headers to send with every request.",
@@ -531,17 +525,15 @@
       "properties": {
         "auto_resize_images": {
           "description": "Whether to automatically resize images when reading files.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "enabled": {
           "description": "Whether the tool is enabled.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         }
-      },
-      "required": [
-        "enabled",
-        "auto_resize_images"
-      ]
+      }
     },
     "SessionTitleGenerationMode": {
       "description": "Select when a generated session title is requested.",
@@ -564,7 +556,8 @@
       "properties": {
         "enabled": {
           "description": "Whether new sessions receive an LLM-generated title.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "generation_mode": {
           "description": "Whether title generation runs alongside or before the first response.",
@@ -578,10 +571,7 @@
             "null"
           ]
         }
-      },
-      "required": [
-        "enabled"
-      ]
+      }
     },
     "WriteToolConfig": {
       "description": "Configuration for the built-in write tool.",
@@ -589,12 +579,10 @@
       "properties": {
         "enabled": {
           "description": "Whether the tool is enabled.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         }
-      },
-      "required": [
-        "enabled"
-      ]
+      }
     }
   }
 }
