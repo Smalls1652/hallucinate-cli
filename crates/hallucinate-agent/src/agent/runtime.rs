@@ -1454,7 +1454,7 @@ mod tests {
             FauxResponse::Text("done".to_string(), StopReason::Stop),
             FauxResponse::ToolCall(
                 "call-1".to_string(),
-                "bash".to_string(),
+                "shell".to_string(),
                 serde_json::json!({ "command": "printf hello" }),
                 StopReason::ToolUse,
             ),
@@ -1476,7 +1476,7 @@ mod tests {
         let tool_call_start = events.iter().position(|event| {
             matches!(event, AgentEvent::ToolCallStarted { tool_call, .. }
                 if tool_call.id == "call-1"
-                    && tool_call.name == "bash"
+                    && tool_call.name == "shell"
                     && tool_call.arguments == serde_json::json!({ "command": "printf hello" }))
         });
 
@@ -1560,7 +1560,7 @@ mod tests {
         let provider = FauxProvider::new();
         provider.set_responses(vec![FauxResponse::ToolCall(
             "call-1".to_string(),
-            "bash".to_string(),
+            "shell".to_string(),
             serde_json::json!({ "command": "printf hello" }),
             StopReason::ToolUse,
         )]);
@@ -1589,7 +1589,7 @@ mod tests {
             FauxResponse::Text("The command succeeded.".to_string(), StopReason::Stop),
             FauxResponse::ToolCall(
                 "call-1".to_string(),
-                "bash".to_string(),
+                "shell".to_string(),
                 serde_json::json!({ "command": "printf hello" }),
                 StopReason::ToolUse,
             ),
@@ -1723,12 +1723,12 @@ mod tests {
             vec![
                 AssistantContent::ToolCall(crate::ai::types::ToolCall::new(
                     "call-1",
-                    "bash",
+                    "shell",
                     serde_json::json!({}),
                 )),
                 AssistantContent::ToolCall(crate::ai::types::ToolCall::new(
                     "call-2",
-                    "bash",
+                    "shell",
                     serde_json::json!({}),
                 )),
             ],
@@ -1741,7 +1741,7 @@ mod tests {
         let result = agent.load_history(vec![
             Message::Assistant(assistant),
             Message::ToolResult(crate::ai::types::ToolResultMessage::new(
-                "call-1", "bash", "ok", false,
+                "call-1", "shell", "ok", false,
             )),
         ]);
 

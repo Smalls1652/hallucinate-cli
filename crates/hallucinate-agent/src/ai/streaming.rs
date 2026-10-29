@@ -663,7 +663,7 @@ mod tests {
             AssistantMessageBuilder::new(stream.clone(), Api::OpenaiCompletions, "test-model");
 
         builder
-            .append_tool_call(0, Some("call-1"), Some("bash"), Some(r#"{"command":"#))
+            .append_tool_call(0, Some("call-1"), Some("shell"), Some(r#"{"command":"#))
             .await;
 
         assert_eq!(
@@ -671,7 +671,7 @@ mod tests {
             AssistantContent::ToolCall(ToolCall {
                 type_: "toolCall".to_string(),
                 id: "call-1".to_string(),
-                name: "bash".to_string(),
+                name: "shell".to_string(),
                 arguments: serde_json::Value::String(r#"{"command":"#.to_string()),
                 thought_signature: None,
                 namespace: None
@@ -688,7 +688,7 @@ mod tests {
         assert!(events.iter().any(|event| {
             matches!(event, AssistantMessageEvent::ToolcallStart { tool_call, .. }
                 if tool_call.id == "call-1"
-                    && tool_call.name == "bash"
+                    && tool_call.name == "shell"
                     && tool_call.arguments == serde_json::Value::String(String::new()))
         }));
         assert!(events.iter().any(|event| {

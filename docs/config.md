@@ -11,7 +11,7 @@ Complete reference for all configuration options in `hallucinate`.
 | `default_model` | `string` | — | Default model selector (`provider/model`). |
 | `provider` | `string` | `"openai"` | Credential namespace for the default provider. |
 | `base_url` | `string` | — | Global API endpoint for the default provider. |
-| `shell` | `string` | `$SHELL` | Shell executable used by the bash tool. |
+| `shell` | `string` | `$SHELL` | Shell executable used by the shell tool. |
 | `timeout_ms` | `number` | `600000` | Request timeout in milliseconds. |
 | `max_retries` | `number` | `3` | Retries for transient LLM API failures. |
 | `auto_resize_images` | `bool` | `true` | Automatically resize image attachments. |
@@ -125,7 +125,7 @@ base_url = "https://api.openai.com/v1"
 
 ### `shell`
 
-Shell executable used by the bash tool. When unset, the `SHELL` environment variable (or the platform fallback) is used.
+Shell executable used by the shell tool. When unset, the `SHELL` environment variable (or the platform fallback) is used.
 
 ```toml
 shell = "/bin/bash"
@@ -303,7 +303,7 @@ x-custom-header = "value"
 | `HALLUCINATE_API_KEY` | API key fallback (overridden by `--api-key`). |
 | `OPENAI_API_KEY` | Fallback when the default provider is `"openai"`. |
 | `HALLUCINATE_<PROVIDER>_API_KEY` | Provider-specific key (e.g., `HALLUCINATE_OPENROUTER_API_KEY`). |
-| `SHELL` | Shell executable for the bash tool (overridden by `shell` setting). |
+| `SHELL` | Shell executable for the shell tool (overridden by `shell` setting). |
 
 Key resolution order: `--api-key` flag → `HALLUCINATE_API_KEY` → `OPENAI_API_KEY` (for default provider) → `HALLUCINATE_<PROVIDER>_API_KEY` → inline `api_key` in provider settings → stored credential in the platform keyring.
 

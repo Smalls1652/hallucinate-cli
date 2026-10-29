@@ -1,7 +1,7 @@
 //! Tool system for the agent.
 //!
 //! Provides a trait-based tool system with built-in tools:
-//! - `bash` - Shell command execution
+//! - `shell` - Shell command execution
 //! - `read` - File reading with size limits
 //! - `write` - Atomic file writing
 //! - `edit` - Intelligent text editing with diff verification
@@ -9,7 +9,6 @@
 //! - `grep` - Pattern-based file content search
 //! - `ls` - Directory listing
 
-pub mod bash;
 pub mod edit;
 pub mod error;
 pub mod find;
@@ -20,6 +19,7 @@ pub mod mcp;
 mod paths;
 pub mod read;
 pub mod script_tool;
+pub mod shell;
 mod shell_exec;
 pub mod types;
 mod walker;
@@ -87,7 +87,7 @@ pub const DEFAULT_MAX_TOOL_RESULT_BYTES: usize = 100_000;
 #[serde(rename_all = "kebab-case")]
 pub enum BuiltInTool {
     /// Shell command execution tool.
-    Bash(BashToolConfig),
+    Shell(ShellToolConfig),
     /// Intelligent text editing tool with diff verification.
     Edit(EditToolConfig),
     /// Glob-based file search tool.
@@ -105,7 +105,7 @@ pub enum BuiltInTool {
 impl Into<Arc<dyn Tool + Send + Sync>> for BuiltInTool {
     fn into(self) -> Arc<dyn Tool + Send + Sync> {
         match self {
-            BuiltInTool::Bash(config) => Arc::new(bash::BashTool::new(Some(config))),
+            BuiltInTool::Shell(config) => Arc::new(shell::ShellTool::new(Some(config))),
 
             BuiltInTool::Edit(_) => Arc::new(edit::EditTool::new()),
 
@@ -128,7 +128,7 @@ impl std::fmt::Display for BuiltInTool {
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         let value = match self {
-            BuiltInTool::Bash(_) => "bash",
+            BuiltInTool::Shell(_) => "shell",
             BuiltInTool::Edit(_) => "edit",
             BuiltInTool::Find(_) => "find",
             BuiltInTool::Grep(_) => "grep",
@@ -141,7 +141,7 @@ impl std::fmt::Display for BuiltInTool {
     }
 }
 
-/// Configuration for the built-in bash tool.
+/// Configuration for the built-in shell tool.
 #[cfg_attr(
     not(feature = "schemas"),
     derive(Debug, Clone, serde::Serialize, serde::Deserialize)
@@ -156,7 +156,7 @@ impl std::fmt::Display for BuiltInTool {
         schemars::JsonSchema
     )
 )]
-pub struct BashToolConfig {
+pub struct ShellToolConfig {
     /// Whether the tool is enabled.
     #[serde(default)]
     pub enabled: bool,
@@ -174,7 +174,7 @@ pub struct BashToolConfig {
     pub max_tool_result_bytes: usize,
 }
 
-impl Default for BashToolConfig {
+impl Default for ShellToolConfig {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -451,7 +451,7 @@ impl Default for WriteToolConfig {
 #[cfg(test)]
 pub fn all_built_in_tools_with_defaults() -> Vec<BuiltInTool> {
     vec![
-        BuiltInTool::Bash(BashToolConfig::default()),
+        BuiltInTool::Shell(ShellToolConfig::default()),
         BuiltInTool::Edit(EditToolConfig::default()),
         BuiltInTool::Find(FindToolConfig::default()),
         BuiltInTool::Grep(GrepToolConfig::default()),
@@ -546,7 +546,7 @@ mod tests {
     fn test_registry_empty() {
         let registry = ToolRegistry::new();
         assert!(registry.is_empty());
-        assert!(registry.get_tool("bash").is_none());
+        assert!(registry.get_tool("shell").is_none());
     }
 
     #[test]
@@ -556,7 +556,7 @@ mod tests {
 
         assert!(!registry.is_empty());
         assert!(registry.to_ai_tools().len() >= 7);
-        assert!(registry.get_tool("bash").is_some());
+        assert!(registry.get_tool("shell").is_some());
         assert!(registry.get_tool("read").is_some());
         assert!(registry.get_tool("write").is_some());
     }
@@ -568,14 +568,14 @@ mod tests {
 
         let ai_tools = registry.to_ai_tools();
         assert!(!ai_tools.is_empty());
-        assert!(ai_tools.iter().any(|t| t.name == "bash"));
+        assert!(ai_tools.iter().any(|t| t.name == "shell"));
         assert!(ai_tools.iter().any(|t| t.name == "read"));
     }
 
     #[test]
     fn test_registry_with_nondefault_configs() {
         let tools = vec![
-            BuiltInTool::Bash(BashToolConfig {
+            BuiltInTool::Shell(ShellToolConfig {
                 enabled: true,
                 shell: Some(vec!["/bin/bash".to_string(), "-c".to_string()]),
                 timeout: 67,
@@ -591,7 +591,7 @@ mod tests {
         let mut registry = ToolRegistry::new();
         registry.add_builtin_tools(tools);
 
-        assert!(registry.get_tool("bash").is_some());
+        assert!(registry.get_tool("shell").is_some());
         assert!(registry.get_tool("read").is_some());
     }
 }

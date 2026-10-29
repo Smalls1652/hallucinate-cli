@@ -385,7 +385,7 @@ mod tests {
 
         provider.set_responses(vec![FauxResponse::ToolCall(
             "call_123".to_string(),
-            "bash".to_string(),
+            "shell".to_string(),
             serde_json::json!({"command": "echo hello"}),
             StopReason::ToolUse,
         )]);

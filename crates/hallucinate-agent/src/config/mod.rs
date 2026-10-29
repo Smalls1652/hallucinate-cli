@@ -30,7 +30,7 @@ pub struct RuntimeOverrides {
     /// Explicit OpenAI-compatible provider endpoint.
     pub base_url: Option<String>,
 
-    /// Shell executable for the bash tool.
+    /// Shell executable for the shell tool.
     pub shell: Option<Vec<String>>,
 
     /// Maximum response tokens.
@@ -118,24 +118,24 @@ pub fn resolve_model(
         .ok_or_else(|| ConfigError::NoModelsAvailable)
 }
 
-/// Resolve the shell used by the bash tool. The explicit CLI option takes
+/// Resolve the shell used by the shell tool. The explicit CLI option takes
 /// precedence over the persisted setting; the tool falls back to the process
 /// environment when both are unset.
 pub fn resolve_shell(
     settings: &self::settings::Settings,
     shell: Option<Vec<String>>,
 ) -> Option<Vec<String>> {
-    shell.or_else(|| settings.builtin_tools.bash.shell.clone())
+    shell.or_else(|| settings.builtin_tools.shell.shell.clone())
 }
 
-/// Resolve the bash tool timeout. The explicit CLI option takes precedence
+/// Resolve the shell tool timeout. The explicit CLI option takes precedence
 /// over the persisted setting; the tool falls back to the default (60 s)
 /// when both are unset.
 pub fn resolve_shell_timeout(
     settings: &self::settings::Settings,
     cli_timeout: Option<u64>,
 ) -> u64 {
-    cli_timeout.unwrap_or(settings.builtin_tools.bash.timeout)
+    cli_timeout.unwrap_or(settings.builtin_tools.shell.timeout)
 }
 
 /// Derive agent request configuration from persisted settings, a selected

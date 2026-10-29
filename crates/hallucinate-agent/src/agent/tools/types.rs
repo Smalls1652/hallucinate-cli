@@ -50,7 +50,7 @@ pub trait Tool: Send + Sync + std::fmt::Debug {
     /// Execute the tool and optionally stream display output while it runs.
     ///
     /// The default preserves the behavior of tools that only produce a final
-    /// result. Tools with incremental output, such as `bash`, override this.
+    /// result. Tools with incremental output, such as `shell`, override this.
     fn execute_with_output<'a>(
         &'a self,
         arguments: &'a serde_json::Value,

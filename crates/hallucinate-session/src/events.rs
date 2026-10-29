@@ -122,16 +122,16 @@ mod tests {
             AgentEvent::TurnStarted { turn_number: 1 },
             AgentEvent::ToolCallDetected {
                 tool_call_id: "call-1".to_string(),
-                tool_name: "bash".to_string(),
+                tool_name: "shell".to_string(),
                 arguments: serde_json::json!({ "command": "true" }),
             },
             AgentEvent::ToolExecutionStarted {
                 tool_call_id: "call-1".to_string(),
-                tool_name: "bash".to_string(),
+                tool_name: "shell".to_string(),
             },
             AgentEvent::ToolExecutionCompleted {
                 tool_call_id: "call-1".to_string(),
-                tool_name: "bash".to_string(),
+                tool_name: "shell".to_string(),
                 result: "ok".to_string(),
                 is_error: false,
             },

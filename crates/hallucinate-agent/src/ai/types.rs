@@ -218,10 +218,10 @@ pub fn format_tool_call_summary(
         .unwrap_or_else(|| arguments.to_string());
 
     match name {
-        "bash" => arguments
+        "shell" => arguments
             .get("command")
             .and_then(serde_json::Value::as_str)
-            .map(|command| format!("bash {command}"))
+            .map(|command| format!("shell {command}"))
             .unwrap_or(fallback),
 
         "read" | "write" | "edit" => arguments
@@ -955,23 +955,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bash_tool_shows_command_readable() {
+    fn shell_tool_shows_command_readable() {
         let call = ToolCall::new(
             "call-1",
-            "bash",
+            "shell",
             serde_json::json!({"command": "echo hello world"}),
         );
-        assert_eq!(call.human_readable(), "bash echo hello world");
+        assert_eq!(call.human_readable(), "shell echo hello world");
     }
 
     #[test]
-    fn bash_tool_with_complex_command() {
+    fn shell_tool_with_complex_command() {
         let call = ToolCall::new(
             "call-1",
-            "bash",
+            "shell",
             serde_json::json!({"command": "grep -r 'foo' src/ | wc -l"}),
         );
-        assert_eq!(call.human_readable(), "bash grep -r 'foo' src/ | wc -l");
+        assert_eq!(call.human_readable(), "shell grep -r 'foo' src/ | wc -l");
     }
 
     #[test]
@@ -1083,8 +1083,8 @@ mod tests {
     }
 
     #[test]
-    fn bash_tool_missing_command_falls_back() {
-        let call = ToolCall::new("call-1", "bash", serde_json::json!({"timeout": 5000}));
+    fn shell_tool_missing_command_falls_back() {
+        let call = ToolCall::new("call-1", "shell", serde_json::json!({"timeout": 5000}));
 
         assert_eq!(call.human_readable(), r#"{"timeout":5000}"#);
     }

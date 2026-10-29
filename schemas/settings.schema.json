@@ -15,11 +15,6 @@
       "description": "Config settings for built-in tools.",
       "$ref": "#/$defs/BuiltInToolSettings",
       "default": {
-        "bash": {
-          "enabled": true,
-          "max_tool_result_bytes": 100000,
-          "timeout": 60
-        },
         "edit": {
           "enabled": true
         },
@@ -50,6 +45,11 @@
           "enabled": true,
           "max_image_source_bytes": 20971520,
           "max_text_file_bytes": 1000000
+        },
+        "shell": {
+          "enabled": true,
+          "max_tool_result_bytes": 100000,
+          "timeout": 60
         },
         "write": {
           "enabled": true,
@@ -172,54 +172,10 @@
         }
       ]
     },
-    "BashToolConfig": {
-      "description": "Configuration for the built-in bash tool.",
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "description": "Whether the tool is enabled.",
-          "type": "boolean",
-          "default": false
-        },
-        "max_tool_result_bytes": {
-          "description": "Maximum bytes included in a returned tool result.",
-          "type": "integer",
-          "format": "uint",
-          "default": 0,
-          "minimum": 0
-        },
-        "shell": {
-          "description": "The shell executable and arguments to use (e.g., `[\"/bin/bash\", \"-c\"]`).",
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
-        "timeout": {
-          "description": "Maximum execution timeout in seconds.",
-          "type": "integer",
-          "format": "uint64",
-          "default": 0,
-          "minimum": 0
-        }
-      }
-    },
     "BuiltInToolSettings": {
       "description": "Settings for the built-in tools.",
       "type": "object",
       "properties": {
-        "bash": {
-          "description": "Settings for the bash tool.",
-          "$ref": "#/$defs/BashToolConfig",
-          "default": {
-            "enabled": true,
-            "max_tool_result_bytes": 100000,
-            "timeout": 60
-          }
-        },
         "edit": {
           "description": "Settings for the edit tool.",
           "$ref": "#/$defs/EditToolConfig",
@@ -269,6 +225,15 @@
             "enabled": true,
             "max_image_source_bytes": 20971520,
             "max_text_file_bytes": 1000000
+          }
+        },
+        "shell": {
+          "description": "Settings for the shell tool.",
+          "$ref": "#/$defs/ShellToolConfig",
+          "default": {
+            "enabled": true,
+            "max_tool_result_bytes": 100000,
+            "timeout": 60
           }
         },
         "write": {
@@ -718,6 +683,41 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "ShellToolConfig": {
+      "description": "Configuration for the built-in shell tool.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether the tool is enabled.",
+          "type": "boolean",
+          "default": false
+        },
+        "max_tool_result_bytes": {
+          "description": "Maximum bytes included in a returned tool result.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "shell": {
+          "description": "The shell executable and arguments to use (e.g., `[\"/bin/bash\", \"-c\"]`).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeout": {
+          "description": "Maximum execution timeout in seconds.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 0,
+          "minimum": 0
         }
       }
     },

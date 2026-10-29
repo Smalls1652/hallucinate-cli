@@ -12,7 +12,7 @@ const DEFAULT_SYSTEM_PROMPT: &str = r#"You are an expert assistant operating ins
 
 ## Guidelines
 
-- Use `bash` for command line operations.
+- Use `shell` for command line operations.
 - Use `find` to search for files.
 - Use `grep` for pattern-based content searches.
 - Use `ls` to list directories and/or files for a directory.
@@ -32,7 +32,7 @@ If the user's request matches one of skills in the `<available_skills>` section,
 
 - Skills are specialized prompt-based instruction files that help guide you to perform tasks.
 - When necessary, read the skill file to load the instructions.
-- They may include scripts within the skill directory that they reside in that can be called with the `bash` tool.
+- They may include scripts within the skill directory that they reside in that can be called with the `shell` tool.
 - **Do not attempt to run skills as if they were tools or scripts.**"#;
 
 /// Default system prompt template for agents without configured tools.
@@ -180,7 +180,7 @@ mod tests {
         if paths::system_prompt_file().is_none_or(|path| !path.is_file()) {
             let prompt = build_system_prompt(None, None, false);
             assert_eq!(prompt, LIGHTWEIGHT_DEFAULT_SYSTEM_PROMPT);
-            assert!(!prompt.contains("Use `bash`"));
+            assert!(!prompt.contains("Use `shell`"));
         }
     }
 

@@ -26,7 +26,7 @@ These flags work with any subcommand (including the default interactive mode).
 | `-m, --model <MODEL>` | Model selector — a configured model ID or `provider/model` pair. |
 | `--api-key <KEY>` | API key override. Falls back to `HALLUCINATE_API_KEY` or `OPENAI_API_KEY`. |
 | `--base-url <URL>` | Base URL for the API (OpenAI-compatible providers). |
-| `--shell <PATH>` | Shell executable for the bash tool. Overrides the settings file and `$SHELL`. |
+| `--shell <PATH>` | Shell executable for the shell tool. Overrides the settings file and `$SHELL`. |
 | `--session <ID>` | Resume a persisted session (interactive mode). |
 | `--max-tokens <N>` | Maximum number of tokens in the response. |
 | `--thinking` | Show model thinking/reasoning output. Overrides the settings file. |
@@ -424,7 +424,7 @@ hallucinate --debug print "Hello"
 
 ### Shell Configuration
 
-Override the shell used by the bash tool:
+Override the shell used by the shell tool:
 
 ```bash
 hallucinate print --shell /bin/zsh "What shell am I using?"

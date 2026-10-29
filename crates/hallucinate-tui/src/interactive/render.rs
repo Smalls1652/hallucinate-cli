@@ -933,8 +933,8 @@ fn streamed_tool_call_summary(
     };
 
     let summary = match tool_name {
-        "bash" => partial_json_string_value(arguments, "command")
-            .map(|command| format!("bash {}", truncate_one_line(&command, 100))),
+        "shell" => partial_json_string_value(arguments, "command")
+            .map(|command| format!("shell {}", truncate_one_line(&command, 100))),
 
         "read" | "write" | "edit" | "ls" => {
             partial_json_string_value(arguments, "path").map(|path| {

@@ -41,7 +41,7 @@ pub struct Cli {
     #[arg(long = "base-url")]
     pub base_url: Option<String>,
 
-    /// Shell executable for the bash tool. Overrides the settings file and
+    /// Shell executable for the shell tool. Overrides the settings file and
     /// SHELL environment variable.
     #[arg(long = "shell")]
     pub shell: Option<String>,

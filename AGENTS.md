@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**hallucinate** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (bash, file operations, search, user-defined script tools), session management, skills, prompt templates, and multiple run modes (interactive, print, RPC).
+**hallucinate** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (shell, file operations, search, user-defined script tools), session management, skills, prompt templates, and multiple run modes (interactive, print, RPC).
 
 This is a **Cargo workspace** with five crates:
 
@@ -29,7 +29,7 @@ Key features:
 - **Prompt Templates**: Markdown files with YAML frontmatter that expand slash commands with argument substitution; discovered from user config and project-local directories
 - **Image Support**: Base64 image content and auto-resize via `image` crate
 - **Auth CLI**: `auth set/remove/list` subcommands for provider API key management; keys are stored in the platform-native keyring (macOS keychain, Linux keyutils, Windows keyring), not in the settings file
-- **Configurable Shell**: Bash tool supports explicit shell executable and full shell syntax (pipes, redirects, `&&`, `||`)
+- **Configurable Shell**: Shell tool supports explicit shell executable and full shell syntax (pipes, redirects, `&&`, `||`)
 - **Script Tools**: User-defined tools backed by shell commands — define TOML files in `script_tools/` directories to expose any executable as an LLM-invocable tool with typed parameters and `{{parameter}}` template substitution. Loaded from user config and project-local `.hallucinate/script_tools` (project overrides user by tool ID). See `docs/script_tools.md` for the full reference.
 - **MCP (Model Context Protocol)**: MCP client support via the `rmcp` crate, enabling the agent to interact with MCP servers for extended tool capabilities.
 - **System Prompt Override**: Place a `SYSTEM.md` in the config directory to replace the built-in system prompt; `AGENTS.md` at project root is appended under `## Project Instructions`
@@ -131,7 +131,7 @@ crates/
 │   │   │   └── tools/
 │   │   │       ├── mod.rs
 │   │   │       ├── types.rs     # Tool trait, results
-│   │   │       ├── bash.rs      # Shell execution (configurable shell, full syntax)
+│   │   │       ├── shell.rs     # Shell execution (configurable shell, full syntax)
 │   │   │       ├── edit.rs      # Intelligent edit
 │   │   │       ├── find.rs      # File search (glob)
 │   │   │       ├── grep.rs      # Pattern-based search
@@ -230,7 +230,7 @@ cargo +nightly fmt -- --emit files
 - **HTTP mocking**: Use `mockito::Server` for provider tests
 - **Async tests**: Use `#[tokio::test]`
 - **Test utilities**: `tokio-test` for async stream testing
-- **Bash tool tests**: Verify shell syntax support (pipes, redirects, `&&`, `||`) and configurable shell execution
+- **Shell tool tests**: Verify shell syntax support (pipes, redirects, `&&`, `||`) and configurable shell execution
 - **Editor tests**: Multi-line input, Shift+Enter/Ctrl+J for newlines, vertical cursor movement, bracketed paste normalization
 
 ### Running Tests

@@ -414,27 +414,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bash_tool_shows_command_readable() {
+    fn shell_tool_shows_command_readable() {
         let call = ToolCall {
             id: "call-1".to_string(),
-            name: "bash".to_string(),
+            name: "shell".to_string(),
             arguments: serde_json::json!({ "command": "echo hello world" }),
             result: None,
         };
 
-        assert_eq!(call.human_readable(), "bash echo hello world");
+        assert_eq!(call.human_readable(), "shell echo hello world");
     }
 
     #[test]
-    fn bash_tool_with_complex_command() {
+    fn shell_tool_with_complex_command() {
         let call = ToolCall {
             id: "call-1".to_string(),
-            name: "bash".to_string(),
+            name: "shell".to_string(),
             arguments: serde_json::json!({ "command": "grep -r 'foo' src/ | wc -l" }),
             result: None,
         };
 
-        assert_eq!(call.human_readable(), "bash grep -r 'foo' src/ | wc -l");
+        assert_eq!(call.human_readable(), "shell grep -r 'foo' src/ | wc -l");
     }
 
     #[test]
@@ -568,7 +568,7 @@ mod tests {
     fn invalid_json_falls_back_to_raw_string() {
         let call = ToolCall {
             id: "call-1".to_string(),
-            name: "bash".to_string(),
+            name: "shell".to_string(),
             arguments: serde_json::Value::String("not valid json".to_string()),
             result: None,
         };
@@ -577,10 +577,10 @@ mod tests {
     }
 
     #[test]
-    fn bash_tool_missing_command_falls_back() {
+    fn shell_tool_missing_command_falls_back() {
         let call = ToolCall {
             id: "call-1".to_string(),
-            name: "bash".to_string(),
+            name: "shell".to_string(),
             arguments: serde_json::json!({ "timeout": 5000 }),
             result: None,
         };
@@ -643,7 +643,7 @@ mod tests {
             thinking: String::new(),
             tool_calls: vec![ToolCall {
                 id: "call-1".to_string(),
-                name: "bash".to_string(),
+                name: "shell".to_string(),
                 arguments: serde_json::json!({}),
                 result: None,
             }],

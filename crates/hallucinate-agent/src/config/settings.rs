@@ -15,13 +15,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     agent::tools::{
-        BashToolConfig,
         BuiltInTool,
         EditToolConfig,
         FindToolConfig,
         GrepToolConfig,
         LsToolConfig,
         ReadToolConfig,
+        ShellToolConfig,
         WriteToolConfig,
     },
     ai::{
@@ -218,9 +218,9 @@ impl Default for SessionTitleSettings {
     derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)
 )]
 pub struct BuiltInToolSettings {
-    /// Settings for the bash tool.
+    /// Settings for the shell tool.
     #[serde(default)]
-    pub bash: BashToolConfig,
+    pub shell: ShellToolConfig,
     /// Settings for the edit tool.
     #[serde(default)]
     pub edit: EditToolConfig,
@@ -247,8 +247,8 @@ impl BuiltInToolSettings {
     pub fn to_tool_list(&self) -> Vec<BuiltInTool> {
         let mut tool_list = vec![];
 
-        if self.bash.enabled {
-            tool_list.push(BuiltInTool::Bash(self.bash.clone()));
+        if self.shell.enabled {
+            tool_list.push(BuiltInTool::Shell(self.shell.clone()));
         }
 
         if self.edit.enabled {

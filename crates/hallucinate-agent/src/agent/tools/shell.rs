@@ -1,4 +1,4 @@
-//! Bash tool: bounded shell command execution.
+//! Shell tool: bounded shell command execution.
 
 use std::path::PathBuf;
 
@@ -9,7 +9,7 @@ use super::{
     types::{Tool, ToolOutputSink},
 };
 use crate::agent::tools::{
-    BashToolConfig,
+    ShellToolConfig,
     ToolResult,
     error::InternalToolError,
     shell_exec::run_shell_command,
@@ -18,34 +18,34 @@ use crate::agent::tools::{
 
 /// Shell command execution tool.
 #[derive(Debug, Clone)]
-pub struct BashTool {
+pub struct ShellTool {
     /// Config for the tool.
-    config: BashToolConfig,
+    config: ShellToolConfig,
 }
 
-impl Default for BashTool {
+impl Default for ShellTool {
     fn default() -> Self {
         Self {
-            config: BashToolConfig::default(),
+            config: ShellToolConfig::default(),
         }
     }
 }
 
-impl BashTool {
-    /// Create a new [`BashTool`].
-    pub fn new(config: Option<BashToolConfig>) -> Self {
+impl ShellTool {
+    /// Create a new [`ShellTool`].
+    pub fn new(config: Option<ShellToolConfig>) -> Self {
         let config = match config {
             Some(value) => value,
-            None => BashToolConfig::default(),
+            None => ShellToolConfig::default(),
         };
 
         Self { config }
     }
 }
 
-impl Tool for BashTool {
+impl Tool for ShellTool {
     fn name(&self) -> &str {
-        "bash"
+        "shell"
     }
 
     fn description(&self) -> &str {
@@ -81,7 +81,7 @@ impl Tool for BashTool {
     }
 }
 
-impl BashTool {
+impl ShellTool {
     /// Execute a shell command, returning the result with captured stdout and
     /// stderr.
     async fn execute_inner(
@@ -97,8 +97,8 @@ impl BashTool {
 
         if command.trim().is_empty() {
             return Ok(super::types::ToolResult::error(
-                "bash",
-                "bash",
+                "shell",
+                "shell",
                 "Empty command",
             ));
         }
@@ -125,12 +125,12 @@ impl BashTool {
         .await
         {
             Ok(value) => value,
-            Err(error) => return Ok(ToolResult::error("bash", "bash", error.to_string())),
+            Err(error) => return Ok(ToolResult::error("shell", "shell", error.to_string())),
         };
 
         Ok(ToolResult::success(
-            "bash",
-            "bash",
+            "shell",
+            "shell",
             truncate_utf8(
                 &command_output.content,
                 self.config.max_tool_result_bytes,
@@ -149,7 +149,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn captures_both_pipes_without_unbounded_returned_output() {
-        let result = BashTool::new(Some(BashToolConfig { max_tool_result_bytes: 32, ..Default::default() })).execute(&json!({ "command": "i=0; while [ $i -lt 100 ]; do printf x; printf y >&2; i=$((i+1)); done" }), None).await.unwrap();
+        let result = ShellTool::new(Some(ShellToolConfig { max_tool_result_bytes: 32, ..Default::default() })).execute(&json!({ "command": "i=0; while [ $i -lt 100 ]; do printf x; printf y >&2; i=$((i+1)); done" }), None).await.unwrap();
 
         assert!(!result.is_error, "{}", result.content);
         assert!(result.content.contains("truncated"));
@@ -159,8 +159,8 @@ mod tests {
     #[tokio::test]
     async fn streams_output_before_the_command_finishes() {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let output = ToolOutputSink::new(sender, "call-1", "bash");
-        let tool = BashTool::default();
+        let output = ToolOutputSink::new(sender, "call-1", "shell");
+        let tool = ShellTool::default();
         let command = json!({ "command": "printf first; sleep 1; printf second" });
 
         let execution = tool.execute_with_output(&command, None, Some(output));
@@ -188,7 +188,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn kills_a_timed_out_direct_child() {
-        let result = BashTool::default()
+        let result = ShellTool::default()
             .execute(&json!({ "command": "sleep 2", "timeout": 1 }), None)
             .await
             .unwrap();
@@ -199,14 +199,14 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn timeout_kills_spawned_commands() {
-        let marker = std::env::temp_dir().join(format!("bash-timeout-{}", uuid::Uuid::new_v4()));
+        let marker = std::env::temp_dir().join(format!("shell-timeout-{}", uuid::Uuid::new_v4()));
 
         let command = json!({
             "command": format!("(sleep 2; printf orphan > '{}') & wait", marker.display()),
             "timeout": 1
         });
 
-        let result = BashTool::default().execute(&command, None).await.unwrap();
+        let result = ShellTool::default().execute(&command, None).await.unwrap();
         assert!(result.content.contains("timed out"));
 
         tokio::time::sleep(Duration::from_millis(1300)).await;
@@ -216,7 +216,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn dropping_execution_kills_spawned_commands() {
-        let marker = std::env::temp_dir().join(format!("bash-cancel-{}", uuid::Uuid::new_v4()));
+        let marker = std::env::temp_dir().join(format!("shell-cancel-{}", uuid::Uuid::new_v4()));
 
         let command = json!({ "command": format!(
             "(sleep 1; printf orphan > '{}') & printf ready; wait",
@@ -224,9 +224,9 @@ mod tests {
         ) });
 
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let output = ToolOutputSink::new(sender, "call-1", "bash");
+        let output = ToolOutputSink::new(sender, "call-1", "shell");
 
-        let tool = BashTool::default();
+        let tool = ShellTool::default();
 
         let mut execution = Box::pin(tool.execute_with_output(&command, None, Some(output)));
 

@@ -489,7 +489,7 @@ mod tests {
             Message::Assistant(AssistantMessage::new(
                 vec![AssistantContent::ToolCall(ToolCall::new(
                     "call-1",
-                    "bash",
+                    "shell",
                     serde_json::json!({ "command": "printf ok" }),
                 ))],
                 Api::OpenaiCompletions,
@@ -497,7 +497,7 @@ mod tests {
                 "test",
                 StopReason::ToolUse,
             )),
-            Message::ToolResult(ToolResultMessage::new("call-1", "bash", "ok", false)),
+            Message::ToolResult(ToolResultMessage::new("call-1", "shell", "ok", false)),
         ];
 
         let transcript = transcript_from_messages(&messages);
