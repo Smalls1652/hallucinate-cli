@@ -8,11 +8,15 @@ use std::{
 use serde_json::json;
 
 use super::{
-    limits::{ToolLimits, parse_bounded_usize, run_blocking, truncate_utf8},
+    limits::{parse_bounded_usize, run_blocking, truncate_utf8},
     paths::resolve_path,
     types::Tool,
 };
-use crate::agent::tools::{error::InternalToolError, types::AsyncToolExecutionResult};
+use crate::agent::tools::{
+    ReadToolConfig,
+    error::InternalToolError,
+    types::AsyncToolExecutionResult,
+};
 
 /// File reading tool.
 ///
@@ -20,44 +24,27 @@ use crate::agent::tools::{error::InternalToolError, types::AsyncToolExecutionRes
 /// its size has been validated.
 #[derive(Debug, Clone)]
 pub struct ReadTool {
-    /// Resource limits for output truncation and streaming.
-    limits: ToolLimits,
-
-    /// Whether image files should be resized before attachment.
-    auto_resize_images: bool,
+    /// Config for the tool.
+    config: ReadToolConfig,
 }
 
 impl Default for ReadTool {
     fn default() -> Self {
         Self {
-            limits: ToolLimits::default(),
-            auto_resize_images: true,
+            config: ReadToolConfig::default(),
         }
     }
 }
 
 impl ReadTool {
-    /// Create a new `ReadTool` with default settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
+    /// Create a new [`ReadTool`].
+    pub fn new(config: Option<ReadToolConfig>) -> Self {
+        let config = match config {
+            Some(value) => value,
+            None => ReadToolConfig::default(),
+        };
 
-    /// Configure resource limits for this tool.
-    pub fn with_limits(
-        mut self,
-        limits: ToolLimits,
-    ) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    /// Configure whether returned image attachments are automatically resized.
-    pub fn with_auto_resize_images(
-        mut self,
-        enabled: bool,
-    ) -> Self {
-        self.auto_resize_images = enabled;
-        self
+        Self { config }
     }
 }
 
@@ -95,16 +82,14 @@ impl Tool for ReadTool {
             let max_size = parse_bounded_usize(
                 arguments,
                 "max_size",
-                self.limits.max_text_file_bytes,
-                self.limits.max_text_file_bytes,
+                self.config.max_text_file_bytes,
+                self.config.max_text_file_bytes,
             )?;
 
             let path = resolve_path(path_str, cwd);
             let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
 
-            let limits = self.limits.clone();
-
-            let auto_resize_images = self.auto_resize_images;
+            let config = self.config.clone();
 
             run_blocking("read", move || {
                 let mut file = match File::open(&path) {
@@ -145,7 +130,7 @@ impl Tool for ReadTool {
                 let is_image = crate::ai::images::is_supported_image(&magic[..magic_len]);
 
                 let byte_limit = if is_image {
-                    limits.max_image_source_bytes
+                    config.max_image_source_bytes
                 } else {
                     max_size
                 };
@@ -179,7 +164,8 @@ impl Tool for ReadTool {
                 }
 
                 if is_image {
-                    let image = crate::ai::images::process_image_bytes(&bytes, auto_resize_images)?;
+                    let image =
+                        crate::ai::images::process_image_bytes(&bytes, config.auto_resize_images)?;
 
                     return Ok(super::types::ToolResult::success(
                         "read",
@@ -216,7 +202,7 @@ mod tests {
         let file = File::create(&path).unwrap();
         file.set_len(2_000_000).unwrap();
 
-        let result = ReadTool::new()
+        let result = ReadTool::default()
             .execute(&json!({ "path": path }), None)
             .await
             .unwrap();
@@ -242,7 +228,7 @@ mod tests {
         DynamicImage::new_rgba8(1, 1)
             .save_with_format(&path, ImageFormat::Png)
             .unwrap();
-        let result = ReadTool::new()
+        let result = ReadTool::default()
             .execute(&json!({ "path": path }), None)
             .await
             .unwrap();

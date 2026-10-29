@@ -9,45 +9,41 @@ use std::{
 use serde_json::json;
 
 use super::{
-    limits::{MAX_REQUESTED_RESULTS, ToolLimits, parse_bounded_usize, run_blocking},
+    limits::{MAX_REQUESTED_RESULTS, parse_bounded_usize, run_blocking},
     paths::resolve_path,
     types::Tool,
     walker::{WalkControl, walk_matching_files},
 };
-use crate::agent::tools::{error::InternalToolError, types::AsyncToolExecutionResult};
+use crate::agent::tools::{
+    GrepToolConfig,
+    error::InternalToolError,
+    types::AsyncToolExecutionResult,
+};
 
 /// Pattern-based file content search tool.
 #[derive(Debug, Clone)]
 pub struct GrepTool {
-    /// Resource limits for output truncation and streaming.
-    limits: ToolLimits,
-
-    /// Default maximum number of matches to return.
-    max_results: usize,
+    /// Config for the tool.
+    config: GrepToolConfig,
 }
 
 impl Default for GrepTool {
     fn default() -> Self {
         Self {
-            limits: ToolLimits::default(),
-            max_results: 50,
+            config: GrepToolConfig::default(),
         }
     }
 }
 
 impl GrepTool {
-    /// Create a new `GrepTool` with default settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
+    /// Create a new [`GrepTool`] with default settings.
+    pub fn new(config: Option<GrepToolConfig>) -> Self {
+        let config = match config {
+            Some(value) => value,
+            None => GrepToolConfig::default(),
+        };
 
-    /// Configure resource limits for this tool.
-    pub fn with_limits(
-        mut self,
-        limits: ToolLimits,
-    ) -> Self {
-        self.limits = limits;
-        self
+        Self { config }
     }
 }
 
@@ -98,7 +94,7 @@ impl Tool for GrepTool {
             let max_results = parse_bounded_usize(
                 arguments,
                 "max_results",
-                self.max_results,
+                self.config.max_results,
                 MAX_REQUESTED_RESULTS,
             )?;
 
@@ -112,7 +108,7 @@ impl Tool for GrepTool {
                 Some(&project_dir),
             );
 
-            let limits = self.limits.clone();
+            let config = self.config.clone();
 
             let pattern = pattern.to_string();
 
@@ -122,13 +118,20 @@ impl Tool for GrepTool {
                 let mut result_bytes = 0_usize;
                 let mut scan_truncated = false;
 
-                let walk_status =
-                    walk_matching_files(&search_path, file_pattern.as_ref(), &limits, |path| {
+                let walk_status = walk_matching_files(
+                    &search_path,
+                    file_pattern.as_ref(),
+                    &config.max_files,
+                    &config.max_directory_entries,
+                    |path| {
                         let scan_status = scan_file(
                             &path,
                             &regex,
                             &project_dir,
-                            &limits,
+                            &config.max_file_scan_bytes,
+                            &config.max_search_bytes,
+                            &config.max_line_bytes,
+                            &config.max_tool_result_bytes,
                             &mut scanned_bytes,
                             &mut result_bytes,
                             &mut matches,
@@ -141,7 +144,8 @@ impl Tool for GrepTool {
                         } else {
                             WalkControl::Continue
                         }
-                    })?;
+                    },
+                )?;
 
                 if matches.is_empty() {
                     let mut content = format!("No matches found for pattern: {pattern}");
@@ -187,7 +191,10 @@ fn scan_file(
     path: &Path,
     regex: &regex::Regex,
     project_dir: &str,
-    limits: &ToolLimits,
+    max_file_scan_bytes: &usize,
+    max_search_bytes: &usize,
+    max_line_bytes: &usize,
+    max_tool_result_bytes: &usize,
     scanned_bytes: &mut usize,
     result_bytes: &mut usize,
     matches: &mut Vec<String>,
@@ -218,18 +225,17 @@ fn scan_file(
             break;
         }
 
-        let remaining_file = limits.max_file_scan_bytes.saturating_sub(file_bytes);
-        let remaining_search = limits.max_search_bytes.saturating_sub(*scanned_bytes);
+        let remaining_file = max_file_scan_bytes.saturating_sub(file_bytes);
+        let remaining_search = max_search_bytes.saturating_sub(*scanned_bytes);
         let remaining = remaining_file.min(remaining_search);
 
         if remaining == 0 {
             status.truncated = true;
-            status.stop_walk = *scanned_bytes >= limits.max_search_bytes;
+            status.stop_walk = *scanned_bytes >= *max_search_bytes;
             break;
         }
 
-        let Some(line) = read_bounded_line(&mut reader, remaining, limits.max_grep_line_bytes)
-        else {
+        let Some(line) = read_bounded_line(&mut reader, remaining, *max_line_bytes) else {
             break;
         };
 
@@ -237,7 +243,7 @@ fn scan_file(
         file_bytes += line.len();
         *scanned_bytes += line.len();
 
-        if line.len() == limits.max_grep_line_bytes && !line.ends_with(b"\n") {
+        if line.len() == *max_line_bytes && !line.ends_with(b"\n") {
             status.truncated = true;
             break;
         }
@@ -257,7 +263,7 @@ fn scan_file(
                 .saturating_add(matched_line.len())
                 .saturating_add(1);
 
-            if next_size > limits.max_tool_result_bytes {
+            if next_size > *max_tool_result_bytes {
                 status.truncated = true;
                 status.stop_walk = true;
                 break;
@@ -321,7 +327,7 @@ mod tests {
         fs::write(root.join("binary.txt"), b"needle\0").unwrap();
         fs::write(root.join("target/ignored.txt"), "needle\n").unwrap();
 
-        let result = GrepTool::new()
+        let result = GrepTool::default()
             .execute(
                 &json!({ "pattern": "needle", "path": root, "max_results": 1 }),
                 None,
@@ -337,7 +343,7 @@ mod tests {
 
     #[test]
     fn rejects_an_invalid_regex() {
-        let tool = GrepTool::new();
+        let tool = GrepTool::default();
         let arguments = json!({ "pattern": "[invalid" });
         let result = tool.execute(&arguments, None);
         assert!(futures::executor::block_on(result).is_err());

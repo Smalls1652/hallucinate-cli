@@ -3,45 +3,37 @@
 use serde_json::json;
 
 use super::{
-    limits::{MAX_REQUESTED_RESULTS, ToolLimits, parse_bounded_usize, run_blocking},
+    limits::{MAX_REQUESTED_RESULTS, parse_bounded_usize, run_blocking},
     paths::resolve_path,
     types::Tool,
     walker::{WalkControl, walk_entries},
 };
-use crate::agent::tools::types::AsyncToolExecutionResult;
+use crate::agent::tools::{LsToolConfig, types::AsyncToolExecutionResult};
 
 /// Directory listing tool.
 #[derive(Debug, Clone)]
 pub struct LsTool {
-    /// Resource limits for output truncation and streaming.
-    limits: ToolLimits,
-
-    /// Default maximum entries to return.
-    max_entries: usize,
+    /// Config for the tool.
+    config: LsToolConfig,
 }
 
 impl Default for LsTool {
     fn default() -> Self {
         Self {
-            limits: ToolLimits::default(),
-            max_entries: 100,
+            config: LsToolConfig::default(),
         }
     }
 }
 
 impl LsTool {
-    /// Create a new `LsTool` with default settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
+    /// Create a new [`LsTool`].
+    pub fn new(config: Option<LsToolConfig>) -> Self {
+        let config = match config {
+            Some(value) => value,
+            None => LsToolConfig::default(),
+        };
 
-    /// Configure resource limits for this tool.
-    pub fn with_limits(
-        mut self,
-        limits: ToolLimits,
-    ) -> Self {
-        self.limits = limits;
-        self
+        Self { config }
     }
 }
 
@@ -90,11 +82,11 @@ impl Tool for LsTool {
             let max_entries = parse_bounded_usize(
                 arguments,
                 "max_entries",
-                self.max_entries,
+                self.config.max_results,
                 MAX_REQUESTED_RESULTS,
             )?;
 
-            let limits = self.limits.clone();
+            let config = self.config.clone();
 
             let display_cwd = cwd.unwrap_or(".").to_string();
 
@@ -117,21 +109,26 @@ impl Tool for LsTool {
 
                 let mut entries = Vec::new();
 
-                let status = walk_entries(&path, recursive, &limits, |entry_path, _| {
-                    if entries.len() >= max_entries {
-                        return WalkControl::Stop;
-                    }
+                let status = walk_entries(
+                    &path,
+                    recursive,
+                    &config.max_directory_entries,
+                    |entry_path, _| {
+                        if entries.len() >= max_entries {
+                            return WalkControl::Stop;
+                        }
 
-                    if let Ok(entry) = format_entry(&entry_path, &display_cwd) {
-                        entries.push(entry);
-                    }
+                        if let Ok(entry) = format_entry(&entry_path, &display_cwd) {
+                            entries.push(entry);
+                        }
 
-                    if entries.len() >= max_entries {
-                        WalkControl::Stop
-                    } else {
-                        WalkControl::Continue
-                    }
-                })?;
+                        if entries.len() >= max_entries {
+                            WalkControl::Stop
+                        } else {
+                            WalkControl::Continue
+                        }
+                    },
+                )?;
 
                 let mut content = if entries.is_empty() {
                     format!("Directory is empty: {display_path}")
@@ -198,7 +195,7 @@ mod tests {
         fs::create_dir_all(root.join("target")).unwrap();
         fs::write(root.join("a.txt"), "a").unwrap();
         fs::write(root.join("target/ignored.txt"), "ignored").unwrap();
-        let result = LsTool::new()
+        let result = LsTool::default()
             .execute(
                 &json!({ "path": root, "recursive": true, "max_entries": 1 }),
                 None,

@@ -38,6 +38,37 @@ use crate::{
     ai::types::Tool as AiTool,
 };
 
+/// The default time, in seconds, that a shell command can run.
+pub const DEFAULT_SHELL_COMMAND_TIMEOUT: u64 = 60;
+
+/// The default maximum amount of results to return.
+pub const DEFAULT_MAX_RESULTS: usize = 100;
+
+/// The default maximum amount of files to consider.
+pub const DEFAULT_MAX_FILES: usize = 10_000;
+
+/// The default maximum amount of directory entries to walk.
+pub const DEFAULT_MAX_DIRECTORY_ENTRIES: usize = 20_000;
+
+/// The default maximum bytes scanned from one grep candidate.
+pub const DEFAULT_MAX_FILE_SCAN_BYTES: usize = 1_000_000;
+
+/// The default maximum bytes scanned by one grep request.
+pub const DEFAULT_MAX_SEARCH_BYTES: usize = 20 * (1024 * 1024);
+
+/// The default maximum accepted line length while scanning grep candidates.
+pub const DEFAULT_MAX_LINE_BYTES: usize = 64 * 1024;
+
+/// The default maximum number of bytes read from/written to an ordinary text
+/// file.
+pub const DEFAULT_MAX_TEXT_FILE_BYTES: usize = 1_000_000;
+
+/// The default maximum source-image bytes accepted before decoding.
+pub const DEFAULT_MAX_IMAGE_SOURCE_BYTES: usize = 20 * (1024 * 1024);
+
+/// The default maximum bytes included in a returned tool result.
+pub const DEFAULT_MAX_TOOL_RESULT_BYTES: usize = 100_000;
+
 /// Built-in tools available to the agent.
 #[cfg_attr(
     not(feature = "schemas"),
@@ -74,29 +105,19 @@ pub enum BuiltInTool {
 impl Into<Arc<dyn Tool + Send + Sync>> for BuiltInTool {
     fn into(self) -> Arc<dyn Tool + Send + Sync> {
         match self {
-            BuiltInTool::Bash(config) => {
-                let mut tool = bash::BashTool::new().with_shell(config.shell);
-
-                if let Some(timeout) = config.timeout {
-                    tool = tool.with_timeout(timeout);
-                }
-
-                Arc::new(tool)
-            },
+            BuiltInTool::Bash(config) => Arc::new(bash::BashTool::new(Some(config))),
 
             BuiltInTool::Edit(_) => Arc::new(edit::EditTool::new()),
 
-            BuiltInTool::Find(_) => Arc::new(find::FindTool::new()),
+            BuiltInTool::Find(config) => Arc::new(find::FindTool::new(Some(config))),
 
-            BuiltInTool::Grep(_) => Arc::new(grep::GrepTool::new()),
+            BuiltInTool::Grep(config) => Arc::new(grep::GrepTool::new(Some(config))),
 
-            BuiltInTool::Ls(_) => Arc::new(ls::LsTool::new()),
+            BuiltInTool::Ls(config) => Arc::new(ls::LsTool::new(Some(config))),
 
-            BuiltInTool::Read(config) => {
-                Arc::new(read::ReadTool::new().with_auto_resize_images(config.auto_resize_images))
-            },
+            BuiltInTool::Read(config) => Arc::new(read::ReadTool::new(Some(config))),
 
-            BuiltInTool::Write(_) => Arc::new(write::WriteTool::new()),
+            BuiltInTool::Write(config) => Arc::new(write::WriteTool::new(Some(config))),
         }
     }
 }
@@ -145,8 +166,12 @@ pub struct BashToolConfig {
     pub shell: Option<Vec<String>>,
 
     /// Maximum execution timeout in seconds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<u64>,
+    #[serde(default)]
+    pub timeout: u64,
+
+    /// Maximum bytes included in a returned tool result.
+    #[serde(default)]
+    pub max_tool_result_bytes: usize,
 }
 
 impl Default for BashToolConfig {
@@ -154,7 +179,8 @@ impl Default for BashToolConfig {
         Self {
             enabled: true,
             shell: None,
-            timeout: None,
+            timeout: DEFAULT_SHELL_COMMAND_TIMEOUT,
+            max_tool_result_bytes: DEFAULT_MAX_TOOL_RESULT_BYTES,
         }
     }
 }
@@ -205,11 +231,28 @@ pub struct FindToolConfig {
     /// Whether the tool is enabled.
     #[serde(default)]
     pub enabled: bool,
+
+    /// The maximum amount of results to return.
+    #[serde(default)]
+    pub max_results: usize,
+
+    /// The maximum amount of files to consider.
+    #[serde(default)]
+    pub max_files: usize,
+
+    /// The maximum amount of directory entries to walk.
+    #[serde(default)]
+    pub max_directory_entries: usize,
 }
 
 impl Default for FindToolConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            max_results: DEFAULT_MAX_RESULTS,
+            max_files: DEFAULT_MAX_FILES,
+            max_directory_entries: DEFAULT_MAX_DIRECTORY_ENTRIES,
+        }
     }
 }
 
@@ -232,11 +275,48 @@ pub struct GrepToolConfig {
     /// Whether the tool is enabled.
     #[serde(default)]
     pub enabled: bool,
+
+    /// The maximum amount of results to return.
+    #[serde(default)]
+    pub max_results: usize,
+
+    /// The maximum amount of files to consider.
+    #[serde(default)]
+    pub max_files: usize,
+
+    /// The maximum amount of directory entries to walk.
+    #[serde(default)]
+    pub max_directory_entries: usize,
+
+    /// Maximum bytes scanned from one grep candidate.
+    #[serde(default)]
+    pub max_file_scan_bytes: usize,
+
+    /// Maximum bytes scanned by one grep request.
+    #[serde(default)]
+    pub max_search_bytes: usize,
+
+    /// Maximum accepted line length while scanning grep candidates.
+    #[serde(default)]
+    pub max_line_bytes: usize,
+
+    /// Maximum bytes included in a returned tool result.
+    #[serde(default)]
+    pub max_tool_result_bytes: usize,
 }
 
 impl Default for GrepToolConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            max_results: DEFAULT_MAX_RESULTS,
+            max_files: DEFAULT_MAX_FILES,
+            max_directory_entries: DEFAULT_MAX_DIRECTORY_ENTRIES,
+            max_file_scan_bytes: DEFAULT_MAX_FILE_SCAN_BYTES,
+            max_search_bytes: DEFAULT_MAX_SEARCH_BYTES,
+            max_line_bytes: DEFAULT_MAX_LINE_BYTES,
+            max_tool_result_bytes: DEFAULT_MAX_TOOL_RESULT_BYTES,
+        }
     }
 }
 
@@ -259,11 +339,28 @@ pub struct LsToolConfig {
     /// Whether the tool is enabled.
     #[serde(default)]
     pub enabled: bool,
+
+    /// The maximum amount of results to return.
+    #[serde(default)]
+    pub max_results: usize,
+
+    /// The maximum amount of files to consider.
+    #[serde(default)]
+    pub max_files: usize,
+
+    /// The maximum amount of directory entries to walk.
+    #[serde(default)]
+    pub max_directory_entries: usize,
 }
 
 impl Default for LsToolConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            max_results: DEFAULT_MAX_RESULTS,
+            max_files: DEFAULT_MAX_FILES,
+            max_directory_entries: DEFAULT_MAX_DIRECTORY_ENTRIES,
+        }
     }
 }
 
@@ -290,6 +387,14 @@ pub struct ReadToolConfig {
     /// Whether to automatically resize images when reading files.
     #[serde(default)]
     pub auto_resize_images: bool,
+
+    /// Maximum number of bytes read from an ordinary text file.
+    #[serde(default)]
+    pub max_text_file_bytes: usize,
+
+    /// Maximum source-image bytes accepted before decoding.
+    #[serde(default)]
+    pub max_image_source_bytes: usize,
 }
 
 impl Default for ReadToolConfig {
@@ -297,6 +402,8 @@ impl Default for ReadToolConfig {
         Self {
             enabled: true,
             auto_resize_images: true,
+            max_text_file_bytes: DEFAULT_MAX_TEXT_FILE_BYTES,
+            max_image_source_bytes: DEFAULT_MAX_IMAGE_SOURCE_BYTES,
         }
     }
 }
@@ -320,11 +427,23 @@ pub struct WriteToolConfig {
     /// Whether the tool is enabled.
     #[serde(default)]
     pub enabled: bool,
+
+    /// Maximum number of bytes written to an ordinary text file.
+    #[serde(default)]
+    pub max_text_file_bytes: usize,
+
+    /// Maximum bytes included in a returned tool result.
+    #[serde(default)]
+    pub max_tool_result_bytes: usize,
 }
 
 impl Default for WriteToolConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            max_text_file_bytes: DEFAULT_MAX_TEXT_FILE_BYTES,
+            max_tool_result_bytes: DEFAULT_MAX_TOOL_RESULT_BYTES,
+        }
     }
 }
 
@@ -459,11 +578,13 @@ mod tests {
             BuiltInTool::Bash(BashToolConfig {
                 enabled: true,
                 shell: Some(vec!["/bin/bash".to_string(), "-c".to_string()]),
-                timeout: Some(67),
+                timeout: 67,
+                ..Default::default()
             }),
             BuiltInTool::Read(ReadToolConfig {
                 enabled: true,
                 auto_resize_images: false,
+                ..Default::default()
             }),
         ];
 

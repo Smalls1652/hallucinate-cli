@@ -68,8 +68,7 @@
         },
         "input_type": {
           "description": "JSON schema type for the parameter (e.g. \"string\", \"int\", \"bool\").",
-          "type": "string",
-          "default": "string"
+          "$ref": "#/$defs/ScriptToolParameterInputType"
         },
         "required": {
           "description": "Whether this parameter is required.",
@@ -113,6 +112,41 @@
           "default": null
         }
       }
+    },
+    "ScriptToolParameterInputType": {
+      "description": "JSON schema types for a script tool parameter.",
+      "oneOf": [
+        {
+          "description": "A string type.",
+          "type": "string",
+          "const": "string"
+        },
+        {
+          "description": "An integer type.",
+          "type": "string",
+          "const": "int"
+        },
+        {
+          "description": "A floating-point number type.",
+          "type": "string",
+          "const": "float"
+        },
+        {
+          "description": "A boolean type.",
+          "type": "string",
+          "const": "bool"
+        },
+        {
+          "description": "An array type.",
+          "type": "string",
+          "const": "array"
+        },
+        {
+          "description": "An object type.",
+          "type": "string",
+          "const": "object"
+        }
+      ]
     }
   }
 }

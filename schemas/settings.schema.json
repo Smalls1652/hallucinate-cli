@@ -16,26 +16,45 @@
       "$ref": "#/$defs/BuiltInToolSettings",
       "default": {
         "bash": {
-          "enabled": true
+          "enabled": true,
+          "max_tool_result_bytes": 100000,
+          "timeout": 60
         },
         "edit": {
           "enabled": true
         },
         "find": {
-          "enabled": true
+          "enabled": true,
+          "max_directory_entries": 20000,
+          "max_files": 10000,
+          "max_results": 100
         },
         "grep": {
-          "enabled": true
+          "enabled": true,
+          "max_directory_entries": 20000,
+          "max_file_scan_bytes": 1000000,
+          "max_files": 10000,
+          "max_line_bytes": 65536,
+          "max_results": 100,
+          "max_search_bytes": 20971520,
+          "max_tool_result_bytes": 100000
         },
         "ls": {
-          "enabled": true
+          "enabled": true,
+          "max_directory_entries": 20000,
+          "max_files": 10000,
+          "max_results": 100
         },
         "read": {
           "auto_resize_images": true,
-          "enabled": true
+          "enabled": true,
+          "max_image_source_bytes": 20971520,
+          "max_text_file_bytes": 1000000
         },
         "write": {
-          "enabled": true
+          "enabled": true,
+          "max_text_file_bytes": 1000000,
+          "max_tool_result_bytes": 100000
         }
       }
     },
@@ -162,6 +181,13 @@
           "type": "boolean",
           "default": false
         },
+        "max_tool_result_bytes": {
+          "description": "Maximum bytes included in a returned tool result.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
         "shell": {
           "description": "The shell executable and arguments to use (e.g., `[\"/bin/bash\", \"-c\"]`).",
           "type": [
@@ -174,11 +200,9 @@
         },
         "timeout": {
           "description": "Maximum execution timeout in seconds.",
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": "integer",
           "format": "uint64",
+          "default": 0,
           "minimum": 0
         }
       }
@@ -191,7 +215,9 @@
           "description": "Settings for the bash tool.",
           "$ref": "#/$defs/BashToolConfig",
           "default": {
-            "enabled": true
+            "enabled": true,
+            "max_tool_result_bytes": 100000,
+            "timeout": 60
           }
         },
         "edit": {
@@ -205,21 +231,34 @@
           "description": "Settings for the find tool.",
           "$ref": "#/$defs/FindToolConfig",
           "default": {
-            "enabled": true
+            "enabled": true,
+            "max_directory_entries": 20000,
+            "max_files": 10000,
+            "max_results": 100
           }
         },
         "grep": {
           "description": "Settings for the grep tool.",
           "$ref": "#/$defs/GrepToolConfig",
           "default": {
-            "enabled": true
+            "enabled": true,
+            "max_directory_entries": 20000,
+            "max_file_scan_bytes": 1000000,
+            "max_files": 10000,
+            "max_line_bytes": 65536,
+            "max_results": 100,
+            "max_search_bytes": 20971520,
+            "max_tool_result_bytes": 100000
           }
         },
         "ls": {
           "description": "Settings for the ls tool.",
           "$ref": "#/$defs/LsToolConfig",
           "default": {
-            "enabled": true
+            "enabled": true,
+            "max_directory_entries": 20000,
+            "max_files": 10000,
+            "max_results": 100
           }
         },
         "read": {
@@ -227,14 +266,18 @@
           "$ref": "#/$defs/ReadToolConfig",
           "default": {
             "auto_resize_images": true,
-            "enabled": true
+            "enabled": true,
+            "max_image_source_bytes": 20971520,
+            "max_text_file_bytes": 1000000
           }
         },
         "write": {
           "description": "Settings for the write tool.",
           "$ref": "#/$defs/WriteToolConfig",
           "default": {
-            "enabled": true
+            "enabled": true,
+            "max_text_file_bytes": 1000000,
+            "max_tool_result_bytes": 100000
           }
         }
       }
@@ -258,6 +301,27 @@
           "description": "Whether the tool is enabled.",
           "type": "boolean",
           "default": false
+        },
+        "max_directory_entries": {
+          "description": "The maximum amount of directory entries to walk.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_files": {
+          "description": "The maximum amount of files to consider.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_results": {
+          "description": "The maximum amount of results to return.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
         }
       }
     },
@@ -269,6 +333,55 @@
           "description": "Whether the tool is enabled.",
           "type": "boolean",
           "default": false
+        },
+        "max_directory_entries": {
+          "description": "The maximum amount of directory entries to walk.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_file_scan_bytes": {
+          "description": "Maximum bytes scanned from one grep candidate.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_files": {
+          "description": "The maximum amount of files to consider.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_line_bytes": {
+          "description": "Maximum accepted line length while scanning grep candidates.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_results": {
+          "description": "The maximum amount of results to return.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_search_bytes": {
+          "description": "Maximum bytes scanned by one grep request.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_tool_result_bytes": {
+          "description": "Maximum bytes included in a returned tool result.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
         }
       }
     },
@@ -280,6 +393,27 @@
           "description": "Whether the tool is enabled.",
           "type": "boolean",
           "default": false
+        },
+        "max_directory_entries": {
+          "description": "The maximum amount of directory entries to walk.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_files": {
+          "description": "The maximum amount of files to consider.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_results": {
+          "description": "The maximum amount of results to return.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
         }
       }
     },
@@ -532,6 +666,20 @@
           "description": "Whether the tool is enabled.",
           "type": "boolean",
           "default": false
+        },
+        "max_image_source_bytes": {
+          "description": "Maximum source-image bytes accepted before decoding.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_text_file_bytes": {
+          "description": "Maximum number of bytes read from an ordinary text file.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
         }
       }
     },
@@ -581,6 +729,20 @@
           "description": "Whether the tool is enabled.",
           "type": "boolean",
           "default": false
+        },
+        "max_text_file_bytes": {
+          "description": "Maximum number of bytes written to an ordinary text file.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
+        },
+        "max_tool_result_bytes": {
+          "description": "Maximum bytes included in a returned tool result.",
+          "type": "integer",
+          "format": "uint",
+          "default": 0,
+          "minimum": 0
         }
       }
     }

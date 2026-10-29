@@ -5,10 +5,11 @@ use std::path::PathBuf;
 use serde_json::json;
 
 use super::{
-    limits::{ToolLimits, truncate_utf8},
+    limits::truncate_utf8,
     types::{Tool, ToolOutputSink},
 };
 use crate::agent::tools::{
+    BashToolConfig,
     ToolResult,
     error::InternalToolError,
     shell_exec::run_shell_command,
@@ -18,57 +19,27 @@ use crate::agent::tools::{
 /// Shell command execution tool.
 #[derive(Debug, Clone)]
 pub struct BashTool {
-    /// Maximum execution time in seconds.
-    timeout: u64,
-
-    /// Resource limits for output truncation and streaming.
-    limits: ToolLimits,
-
-    /// Explicit shell executable. `None` uses the user's environment default.
-    shell: Option<Vec<String>>,
+    /// Config for the tool.
+    config: BashToolConfig,
 }
 
 impl Default for BashTool {
     fn default() -> Self {
         Self {
-            timeout: 60,
-            limits: ToolLimits::default(),
-            shell: None,
+            config: BashToolConfig::default(),
         }
     }
 }
 
 impl BashTool {
-    /// Create a new `BashTool` with default settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
+    /// Create a new [`BashTool`].
+    pub fn new(config: Option<BashToolConfig>) -> Self {
+        let config = match config {
+            Some(value) => value,
+            None => BashToolConfig::default(),
+        };
 
-    /// Configure the timeout (in seconds) for command execution.
-    pub fn with_timeout(
-        mut self,
-        timeout: u64,
-    ) -> Self {
-        self.timeout = timeout;
-        self
-    }
-
-    /// Configure resource limits for this tool.
-    pub fn with_limits(
-        mut self,
-        limits: ToolLimits,
-    ) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    /// Configure the shell executable used for commands.
-    pub fn with_shell(
-        mut self,
-        shell: Option<Vec<String>>,
-    ) -> Self {
-        self.shell = shell;
-        self
+        Self { config }
     }
 }
 
@@ -135,7 +106,7 @@ impl BashTool {
         let timeout = arguments
             .get("timeout")
             .and_then(|value| value.as_u64())
-            .unwrap_or(self.timeout);
+            .unwrap_or(self.config.timeout);
 
         let execution_directory = cwd
             .map(PathBuf::from)
@@ -144,11 +115,11 @@ impl BashTool {
             .map_err(|error| InternalToolError::FailedToGetCurrentDirectory(error))?;
 
         let command_output = match run_shell_command(
-            self.shell.as_deref(),
+            self.config.shell.as_deref(),
             &command,
             &execution_directory,
             timeout,
-            self.limits.max_tool_result_bytes,
+            self.config.max_tool_result_bytes,
             output,
         )
         .await
@@ -162,7 +133,7 @@ impl BashTool {
             "bash",
             truncate_utf8(
                 &command_output.content,
-                self.limits.max_tool_result_bytes,
+                self.config.max_tool_result_bytes,
                 "Output",
             ),
         ))
@@ -178,10 +149,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn captures_both_pipes_without_unbounded_returned_output() {
-        let mut limits = ToolLimits::default();
-        limits.max_tool_result_bytes = 32;
-
-        let result = BashTool::new().with_limits(limits).execute(&json!({ "command": "i=0; while [ $i -lt 100 ]; do printf x; printf y >&2; i=$((i+1)); done" }), None).await.unwrap();
+        let result = BashTool::new(Some(BashToolConfig { max_tool_result_bytes: 32, ..Default::default() })).execute(&json!({ "command": "i=0; while [ $i -lt 100 ]; do printf x; printf y >&2; i=$((i+1)); done" }), None).await.unwrap();
 
         assert!(!result.is_error, "{}", result.content);
         assert!(result.content.contains("truncated"));
@@ -192,7 +160,7 @@ mod tests {
     async fn streams_output_before_the_command_finishes() {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         let output = ToolOutputSink::new(sender, "call-1", "bash");
-        let tool = BashTool::new();
+        let tool = BashTool::default();
         let command = json!({ "command": "printf first; sleep 1; printf second" });
 
         let execution = tool.execute_with_output(&command, None, Some(output));
@@ -220,7 +188,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn kills_a_timed_out_direct_child() {
-        let result = BashTool::new()
+        let result = BashTool::default()
             .execute(&json!({ "command": "sleep 2", "timeout": 1 }), None)
             .await
             .unwrap();
@@ -238,7 +206,7 @@ mod tests {
             "timeout": 1
         });
 
-        let result = BashTool::new().execute(&command, None).await.unwrap();
+        let result = BashTool::default().execute(&command, None).await.unwrap();
         assert!(result.content.contains("timed out"));
 
         tokio::time::sleep(Duration::from_millis(1300)).await;
@@ -258,7 +226,7 @@ mod tests {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         let output = ToolOutputSink::new(sender, "call-1", "bash");
 
-        let tool = BashTool::new();
+        let tool = BashTool::default();
 
         let mut execution = Box::pin(tool.execute_with_output(&command, None, Some(output)));
 

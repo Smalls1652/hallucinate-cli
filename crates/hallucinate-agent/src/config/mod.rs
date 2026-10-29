@@ -135,7 +135,7 @@ pub fn resolve_shell_timeout(
     settings: &self::settings::Settings,
     cli_timeout: Option<u64>,
 ) -> u64 {
-    cli_timeout.unwrap_or(settings.builtin_tools.bash.timeout.unwrap_or(60))
+    cli_timeout.unwrap_or(settings.builtin_tools.bash.timeout)
 }
 
 /// Derive agent request configuration from persisted settings, a selected

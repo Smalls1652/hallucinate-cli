@@ -3,45 +3,41 @@
 use serde_json::json;
 
 use super::{
-    limits::{MAX_REQUESTED_RESULTS, ToolLimits, parse_bounded_usize, run_blocking},
+    limits::{MAX_REQUESTED_RESULTS, parse_bounded_usize, run_blocking},
     paths::resolve_path,
     types::Tool,
     walker::{WalkControl, walk_matching_files},
 };
-use crate::agent::tools::{error::InternalToolError, types::AsyncToolExecutionResult};
+use crate::agent::tools::{
+    FindToolConfig,
+    error::InternalToolError,
+    types::AsyncToolExecutionResult,
+};
 
 /// Glob-based file search tool.
 #[derive(Debug, Clone)]
 pub struct FindTool {
-    /// Resource limits for output truncation and streaming.
-    limits: ToolLimits,
-
-    /// Default maximum number of results to return.
-    max_results: usize,
+    /// Config for the tool.
+    config: FindToolConfig,
 }
 
 impl Default for FindTool {
     fn default() -> Self {
         Self {
-            limits: ToolLimits::default(),
-            max_results: 100,
+            config: FindToolConfig::default(),
         }
     }
 }
 
 impl FindTool {
-    /// Create a new `FindTool` with default settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
+    /// Create a new [`FindTool`].
+    pub fn new(config: Option<FindToolConfig>) -> Self {
+        let config = match config {
+            Some(value) => value,
+            None => FindToolConfig::default(),
+        };
 
-    /// Configure resource limits for this tool.
-    pub fn with_limits(
-        mut self,
-        limits: ToolLimits,
-    ) -> Self {
-        self.limits = limits;
-        self
+        Self { config }
     }
 }
 
@@ -84,7 +80,7 @@ impl Tool for FindTool {
             let max_results = parse_bounded_usize(
                 arguments,
                 "max_results",
-                self.max_results,
+                self.config.max_results,
                 MAX_REQUESTED_RESULTS,
             )?;
 
@@ -98,15 +94,19 @@ impl Tool for FindTool {
                 Some(&project_dir),
             );
 
-            let limits = self.limits.clone();
-
             let pattern = pattern.to_string();
+
+            let config = self.config.clone();
 
             run_blocking("find", move || {
                 let mut matches = Vec::new();
 
-                let status =
-                    walk_matching_files(&search_path, Some(&glob_pattern), &limits, |path| {
+                let status = walk_matching_files(
+                    &search_path,
+                    Some(&glob_pattern),
+                    &config.max_files,
+                    &config.max_directory_entries,
+                    |path| {
                         if matches.len() >= max_results {
                             return WalkControl::Stop;
                         }
@@ -118,7 +118,8 @@ impl Tool for FindTool {
                         } else {
                             WalkControl::Continue
                         }
-                    })?;
+                    },
+                )?;
 
                 let mut content = if matches.is_empty() {
                     format!("No files matching pattern: {pattern}")
@@ -155,7 +156,7 @@ mod tests {
         fs::write(root.join("a.rs"), "").unwrap();
         fs::write(root.join("target/ignored.rs"), "").unwrap();
 
-        let result = FindTool::new()
+        let result = FindTool::new(None)
             .execute(&json!({ "pattern": "*.rs", "path": root }), None)
             .await
             .unwrap();
@@ -168,7 +169,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_result_counts_above_the_hard_ceiling() {
-        let result = FindTool::new()
+        let result = FindTool::new(None)
             .execute(&json!({ "pattern": "*", "max_results": 1001 }), None)
             .await;
         assert!(result.is_err());

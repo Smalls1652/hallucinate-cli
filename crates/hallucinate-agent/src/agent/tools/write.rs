@@ -5,11 +5,12 @@ use std::io::Write;
 use serde_json::json;
 
 use super::{
-    limits::{ToolLimits, run_blocking, truncate_utf8},
+    limits::{run_blocking, truncate_utf8},
     paths::resolve_path,
     types::{Tool, ToolOutputSink},
 };
 use crate::agent::tools::{
+    WriteToolConfig,
     error::InternalToolError,
     types::{AsyncToolExecutionResult, ToolExecutionResult},
 };
@@ -17,25 +18,29 @@ use crate::agent::tools::{
 /// File writing tool.
 ///
 /// Writes content to a file atomically using a temp file.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct WriteTool {
-    /// Resource limits for output truncation and streaming.
-    limits: ToolLimits,
+    /// Config for the tool.
+    config: WriteToolConfig,
+}
+
+impl Default for WriteTool {
+    fn default() -> Self {
+        Self {
+            config: WriteToolConfig::default(),
+        }
+    }
 }
 
 impl WriteTool {
-    /// Create a new WriteTool with default settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
+    /// Create a new [`WriteTool`].
+    pub fn new(config: Option<WriteToolConfig>) -> Self {
+        let config = match config {
+            Some(value) => value,
+            None => WriteToolConfig::default(),
+        };
 
-    /// Configure resource limits for this tool.
-    pub fn with_limits(
-        mut self,
-        limits: ToolLimits,
-    ) -> Self {
-        self.limits = limits;
-        self
+        Self { config }
     }
 }
 
@@ -100,14 +105,14 @@ impl WriteTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| InternalToolError::MissingRequiredField("content".to_string()))?;
 
-        if content.len() > self.limits.max_text_file_bytes {
+        if content.len() > self.config.max_text_file_bytes {
             return Ok(super::types::ToolResult::error(
                 "write",
                 "write",
                 format!(
                     "Content too large: {} bytes (max: {} bytes)",
                     content.len(),
-                    self.limits.max_text_file_bytes
+                    self.config.max_text_file_bytes
                 ),
             ));
         }
@@ -115,7 +120,7 @@ impl WriteTool {
         if let Some(output) = output {
             output.emit(truncate_utf8(
                 content,
-                self.limits.max_tool_result_bytes,
+                self.config.max_tool_result_bytes,
                 "Written content",
             ));
         }
@@ -124,7 +129,7 @@ impl WriteTool {
         let content = content.to_string();
         let result_content = truncate_utf8(
             &content,
-            self.limits.max_tool_result_bytes,
+            self.config.max_tool_result_bytes,
             "Written content",
         );
 
@@ -159,7 +164,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_tool_exists() {
-        let tool = WriteTool::new();
+        let tool = WriteTool::default();
 
         assert_eq!(tool.name(), "write");
         assert!(!tool.description().is_empty());
@@ -167,7 +172,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_missing_path() {
-        let tool = WriteTool::new();
+        let tool = WriteTool::default();
         let args = json!({ "content": "hello" });
         let result = futures::executor::block_on(tool.execute(&args, None));
 
@@ -176,7 +181,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_missing_content() {
-        let tool = WriteTool::new();
+        let tool = WriteTool::default();
         let args = json!({ "path": "/tmp/test.txt" });
         let result = futures::executor::block_on(tool.execute(&args, None));
 
@@ -190,7 +195,7 @@ mod tests {
         let output = ToolOutputSink::new(sender, "call-1", "write");
         let args = json!({ "path": path, "content": "written content" });
 
-        let result = WriteTool::new()
+        let result = WriteTool::default()
             .execute_with_output(&args, None, Some(output))
             .await
             .unwrap();

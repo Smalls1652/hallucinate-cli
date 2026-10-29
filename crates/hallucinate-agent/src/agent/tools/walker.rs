@@ -8,8 +8,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::limits::ToolLimits;
-
 const SKIPPED_DIRECTORIES: &[&str] = &[
     ".git",
     "target",
@@ -45,7 +43,8 @@ pub struct WalkStatus {
 pub fn walk_matching_files<F>(
     root: &Path,
     pattern: Option<&glob::Pattern>,
-    limits: &ToolLimits,
+    max_files: &usize,
+    max_directory_entries: &usize,
     mut visit: F,
 ) -> Result<WalkStatus, std::io::Error>
 where
@@ -53,12 +52,12 @@ where
 {
     let mut candidate_files = 0_usize;
 
-    walk_entries(root, true, limits, |path, file_type| {
+    walk_entries(root, true, max_directory_entries, |path, file_type| {
         if !file_type.is_file() || !matches_pattern(root, &path, pattern) {
             return WalkControl::Continue;
         }
 
-        if candidate_files >= limits.max_candidate_files {
+        if candidate_files >= *max_files {
             return WalkControl::Stop;
         }
 
@@ -81,7 +80,7 @@ enum Pending {
 pub fn walk_entries<F>(
     root: &Path,
     recursive: bool,
-    limits: &ToolLimits,
+    max_directory_entries: &usize,
     mut visit: F,
 ) -> Result<WalkStatus, std::io::Error>
 where
@@ -116,9 +115,7 @@ where
             },
 
             Pending::Directory(directory) => {
-                let remaining_entries = limits
-                    .max_directory_entries
-                    .saturating_sub(directory_entries);
+                let remaining_entries = max_directory_entries.saturating_sub(directory_entries);
 
                 if remaining_entries == 0 {
                     status.truncated = true;
@@ -204,7 +201,7 @@ mod tests {
 
         let pattern = glob::Pattern::new("*.rs").unwrap();
         let mut matches = Vec::new();
-        let status = walk_matching_files(&root, Some(&pattern), &ToolLimits::default(), |path| {
+        let status = walk_matching_files(&root, Some(&pattern), &10_000, &20_000, |path| {
             matches.push(path);
             if matches.len() == 1 {
                 WalkControl::Stop

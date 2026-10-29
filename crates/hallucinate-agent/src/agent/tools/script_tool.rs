@@ -9,12 +9,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use super::{
-    limits::ToolLimits,
-    types::{Tool, ToolOutputSink, ToolResult},
-};
+use super::types::{Tool, ToolOutputSink, ToolResult};
 use crate::{
     agent::tools::{
+        DEFAULT_MAX_TOOL_RESULT_BYTES,
         error::{InternalToolError, ScriptToolDefinitionError},
         shell_exec::run_shell_command,
         types::{AsyncToolExecutionResult, ToolExecutionResult},
@@ -52,17 +50,17 @@ pub struct ScriptToolDefinition {
     /// Human-readable description of what the tool does.
     description: String,
 
-    #[serde(default)]
     /// Optional shell override (e.g. `["bash", "-c"]`).
+    #[serde(default)]
     shell: Option<Vec<String>>,
 
-    #[serde(default)]
     /// Maximum execution time in seconds. Defaults to the configured shell
     /// timeout.
+    #[serde(default)]
     timeout: Option<u64>,
 
-    #[serde(default)]
     /// Named parameters accepted by the tool.
+    #[serde(default)]
     parameters: BTreeMap<String, ScriptToolParameter>,
 }
 
@@ -73,17 +71,75 @@ pub struct ScriptToolParameter {
     /// Description of the parameter.
     description: String,
 
-    #[serde(default = "default_input_type")]
     /// JSON schema type for the parameter (e.g. "string", "int", "bool").
-    input_type: String,
-
     #[serde(default)]
+    input_type: ScriptToolParameterInputType,
+
     /// Whether this parameter is required.
+    #[serde(default)]
     required: bool,
 
     #[serde(default)]
     /// Optional constraints enforced for values supplied to this parameter.
     constraints: Option<ScriptToolParameterConstraints>,
+}
+
+/// JSON schema types for a script tool parameter.
+#[cfg_attr(not(feature = "schemas"), derive(Debug, Deserialize, Default))]
+#[cfg_attr(
+    feature = "schemas",
+    derive(Debug, Deserialize, Default, schemars::JsonSchema)
+)]
+pub enum ScriptToolParameterInputType {
+    /// A string type.
+    #[default]
+    #[serde(rename = "string")]
+    String,
+
+    /// An integer type.
+    #[serde(rename = "int", alias = "integer")]
+    Integer,
+
+    /// A floating-point number type.
+    #[serde(rename = "float", alias = "number")]
+    Float,
+
+    /// A boolean type.
+    #[serde(rename = "bool", alias = "boolean")]
+    Boolean,
+
+    /// An array type.
+    #[serde(rename = "array")]
+    Array,
+
+    /// An object type.
+    #[serde(rename = "object")]
+    Object,
+}
+
+impl ScriptToolParameterInputType {
+    /// Convert this input type to its JSON schema type string.
+    pub fn to_json_schema_type(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl std::fmt::Display for ScriptToolParameterInputType {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        let value = match self {
+            ScriptToolParameterInputType::String => "string",
+            ScriptToolParameterInputType::Integer => "integer",
+            ScriptToolParameterInputType::Float => "number",
+            ScriptToolParameterInputType::Boolean => "boolean",
+            ScriptToolParameterInputType::Array => "array",
+            ScriptToolParameterInputType::Object => "object",
+        };
+
+        write!(f, "{value}")
+    }
 }
 
 #[cfg_attr(not(feature = "schemas"), derive(Debug, Serialize, Deserialize))]
@@ -126,9 +182,6 @@ pub struct ScriptTool {
 
     /// Maximum execution time in seconds.
     timeout: u64,
-
-    /// Output size and resource limits.
-    limits: ToolLimits,
 }
 
 impl ScriptTool {
@@ -176,13 +229,6 @@ impl ScriptTool {
                 ));
             }
 
-            if json_schema_type(&parameter.input_type).is_none() {
-                return Err(ScriptToolDefinitionError::InvalidParameterInputType(
-                    name.clone(),
-                    parameter.input_type.clone(),
-                ));
-            }
-
             validate_parameter_constraints(name, parameter)?;
         }
 
@@ -193,7 +239,6 @@ impl ScriptTool {
             shell: definition.shell,
             parameters: definition.parameters,
             timeout: definition.timeout.unwrap_or(timeout),
-            limits: ToolLimits::default(),
         })
     }
 
@@ -204,7 +249,9 @@ impl ScriptTool {
     ) -> Result<String, InternalToolError> {
         for (name, parameter) in &self.parameters {
             match arguments.get(name) {
-                Some(value) if value_matches_type(value, &parameter.input_type) => {
+                Some(value)
+                    if value_matches_type(value, &parameter.input_type.to_json_schema_type()) =>
+                {
                     if !value_matches_constraints(value, parameter.constraints.as_ref()) {
                         return Err(InternalToolError::InvalidScriptToolParamConstraint(
                             name.clone(),
@@ -215,7 +262,7 @@ impl ScriptTool {
                 Some(_) => {
                     return Err(InternalToolError::InvalidScriptToolParamType(
                         name.clone(),
-                        parameter.input_type.clone(),
+                        parameter.input_type.to_json_schema_type(),
                     ));
                 },
 
@@ -254,7 +301,7 @@ impl ScriptTool {
             &command,
             &execution_directory,
             self.timeout,
-            self.limits.max_tool_result_bytes,
+            DEFAULT_MAX_TOOL_RESULT_BYTES,
             output,
         )
         .await
@@ -294,7 +341,7 @@ impl Tool for ScriptTool {
             let mut property = Map::from_iter([
                 (
                     "type".to_string(),
-                    json!(json_schema_type(&parameter.input_type).expect("validated type")),
+                    json!(parameter.input_type.to_json_schema_type()),
                 ),
                 (
                     "description".to_string(),
@@ -421,11 +468,6 @@ pub fn load_script_tools(
     result
 }
 
-/// Return the default input type for script tool parameters.
-fn default_input_type() -> String {
-    "string".to_string()
-}
-
 /// Validate that a name contains only allowed characters.
 fn valid_name(
     name: &str,
@@ -486,12 +528,12 @@ fn validate_parameter_constraints(
     if let Some(enum_values) = &constraints.enum_values {
         if enum_values
             .iter()
-            .any(|value| !value_matches_type(value, &parameter.input_type))
+            .any(|value| !value_matches_type(value, &parameter.input_type.to_json_schema_type()))
         {
             return Err(
                 ScriptToolDefinitionError::InvalidParameterConstraintEnumInputType(
                     name.to_string(),
-                    parameter.input_type.clone(),
+                    parameter.input_type.to_json_schema_type(),
                 ),
             );
         }
@@ -500,8 +542,8 @@ fn validate_parameter_constraints(
     let has_range = constraints.minimum.is_some() || constraints.maximum.is_some();
     if has_range
         && !matches!(
-            json_schema_type(&parameter.input_type),
-            Some("integer" | "number")
+            parameter.input_type.to_json_schema_type().as_str(),
+            "integer" | "number"
         )
     {
         return Err(
