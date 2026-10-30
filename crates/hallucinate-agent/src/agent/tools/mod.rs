@@ -156,21 +156,19 @@ impl std::fmt::Display for BuiltInTool {
         schemars::JsonSchema
     )
 )]
+#[serde(default)]
 pub struct ShellToolConfig {
     /// Whether the tool is enabled.
-    #[serde(default)]
     pub enabled: bool,
 
     /// The shell executable and arguments to use (e.g., `["/bin/bash", "-c"]`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shell: Option<Vec<String>>,
 
     /// Maximum execution timeout in seconds.
-    #[serde(default)]
     pub timeout: u64,
 
     /// Maximum bytes included in a returned tool result.
-    #[serde(default)]
     pub max_tool_result_bytes: usize,
 }
 
@@ -200,9 +198,9 @@ impl Default for ShellToolConfig {
         schemars::JsonSchema
     )
 )]
+#[serde(default)]
 pub struct EditToolConfig {
     /// Whether the tool is enabled.
-    #[serde(default)]
     pub enabled: bool,
 }
 
@@ -227,21 +225,18 @@ impl Default for EditToolConfig {
         schemars::JsonSchema
     )
 )]
+#[serde(default)]
 pub struct FindToolConfig {
     /// Whether the tool is enabled.
-    #[serde(default)]
     pub enabled: bool,
 
     /// The maximum amount of results to return.
-    #[serde(default)]
     pub max_results: usize,
 
     /// The maximum amount of files to consider.
-    #[serde(default)]
     pub max_files: usize,
 
     /// The maximum amount of directory entries to walk.
-    #[serde(default)]
     pub max_directory_entries: usize,
 }
 
@@ -271,37 +266,30 @@ impl Default for FindToolConfig {
         schemars::JsonSchema
     )
 )]
+#[serde(default)]
 pub struct GrepToolConfig {
     /// Whether the tool is enabled.
-    #[serde(default)]
     pub enabled: bool,
 
     /// The maximum amount of results to return.
-    #[serde(default)]
     pub max_results: usize,
 
     /// The maximum amount of files to consider.
-    #[serde(default)]
     pub max_files: usize,
 
     /// The maximum amount of directory entries to walk.
-    #[serde(default)]
     pub max_directory_entries: usize,
 
     /// Maximum bytes scanned from one grep candidate.
-    #[serde(default)]
     pub max_file_scan_bytes: usize,
 
     /// Maximum bytes scanned by one grep request.
-    #[serde(default)]
     pub max_search_bytes: usize,
 
     /// Maximum accepted line length while scanning grep candidates.
-    #[serde(default)]
     pub max_line_bytes: usize,
 
     /// Maximum bytes included in a returned tool result.
-    #[serde(default)]
     pub max_tool_result_bytes: usize,
 }
 
@@ -335,21 +323,18 @@ impl Default for GrepToolConfig {
         schemars::JsonSchema
     )
 )]
+#[serde(default)]
 pub struct LsToolConfig {
     /// Whether the tool is enabled.
-    #[serde(default)]
     pub enabled: bool,
 
     /// The maximum amount of results to return.
-    #[serde(default)]
     pub max_results: usize,
 
     /// The maximum amount of files to consider.
-    #[serde(default)]
     pub max_files: usize,
 
     /// The maximum amount of directory entries to walk.
-    #[serde(default)]
     pub max_directory_entries: usize,
 }
 
@@ -379,21 +364,18 @@ impl Default for LsToolConfig {
         schemars::JsonSchema
     )
 )]
+#[serde(default)]
 pub struct ReadToolConfig {
     /// Whether the tool is enabled.
-    #[serde(default)]
     pub enabled: bool,
 
     /// Whether to automatically resize images when reading files.
-    #[serde(default)]
     pub auto_resize_images: bool,
 
     /// Maximum number of bytes read from an ordinary text file.
-    #[serde(default)]
     pub max_text_file_bytes: usize,
 
     /// Maximum source-image bytes accepted before decoding.
-    #[serde(default)]
     pub max_image_source_bytes: usize,
 }
 
@@ -423,17 +405,15 @@ impl Default for ReadToolConfig {
         schemars::JsonSchema
     )
 )]
+#[serde(default)]
 pub struct WriteToolConfig {
     /// Whether the tool is enabled.
-    #[serde(default)]
     pub enabled: bool,
 
     /// Maximum number of bytes written to an ordinary text file.
-    #[serde(default)]
     pub max_text_file_bytes: usize,
 
     /// Maximum bytes included in a returned tool result.
-    #[serde(default)]
     pub max_tool_result_bytes: usize,
 }
 

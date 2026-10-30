@@ -68,25 +68,25 @@
     "enable_compaction": {
       "description": "Enable context compaction.",
       "type": "boolean",
-      "default": false
+      "default": true
     },
     "enable_tools": {
       "description": "Enable tool use by default.",
       "type": "boolean",
-      "default": false
+      "default": true
     },
     "max_concurrent_tool_calls": {
       "description": "Maximum number of independent tool calls to execute at once.",
       "type": "integer",
       "format": "uint",
-      "default": 0,
+      "default": 4,
       "minimum": 0
     },
     "max_retries": {
       "description": "Number of retries for transient LLM API failures.",
       "type": "integer",
       "format": "uint32",
-      "default": 0,
+      "default": 3,
       "minimum": 0
     },
     "max_tokens": {
@@ -102,7 +102,7 @@
       "description": "Maximum number of turns.",
       "type": "integer",
       "format": "uint32",
-      "default": 0,
+      "default": 120,
       "minimum": 0
     },
     "mcp_servers": {
@@ -115,7 +115,7 @@
     "provider": {
       "description": "Credential namespace for the OpenAI-compatible provider (usually\n\"openai\"). Defaults to `\"openai\"`.",
       "type": "string",
-      "default": ""
+      "default": "openai"
     },
     "provider_headers": {
       "description": "Provider-specific headers for the legacy/default provider.",
@@ -152,7 +152,7 @@
       "description": "Request timeout in milliseconds.",
       "type": "integer",
       "format": "uint64",
-      "default": 0,
+      "default": 600000,
       "minimum": 0
     }
   },
@@ -254,7 +254,7 @@
         "enabled": {
           "description": "Whether the tool is enabled.",
           "type": "boolean",
-          "default": false
+          "default": true
         }
       }
     },
@@ -265,27 +265,27 @@
         "enabled": {
           "description": "Whether the tool is enabled.",
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "max_directory_entries": {
           "description": "The maximum amount of directory entries to walk.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 20000,
           "minimum": 0
         },
         "max_files": {
           "description": "The maximum amount of files to consider.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 10000,
           "minimum": 0
         },
         "max_results": {
           "description": "The maximum amount of results to return.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 100,
           "minimum": 0
         }
       }
@@ -297,55 +297,55 @@
         "enabled": {
           "description": "Whether the tool is enabled.",
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "max_directory_entries": {
           "description": "The maximum amount of directory entries to walk.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 20000,
           "minimum": 0
         },
         "max_file_scan_bytes": {
           "description": "Maximum bytes scanned from one grep candidate.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 1000000,
           "minimum": 0
         },
         "max_files": {
           "description": "The maximum amount of files to consider.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 10000,
           "minimum": 0
         },
         "max_line_bytes": {
           "description": "Maximum accepted line length while scanning grep candidates.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 65536,
           "minimum": 0
         },
         "max_results": {
           "description": "The maximum amount of results to return.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 100,
           "minimum": 0
         },
         "max_search_bytes": {
           "description": "Maximum bytes scanned by one grep request.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 20971520,
           "minimum": 0
         },
         "max_tool_result_bytes": {
           "description": "Maximum bytes included in a returned tool result.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 100000,
           "minimum": 0
         }
       }
@@ -357,27 +357,27 @@
         "enabled": {
           "description": "Whether the tool is enabled.",
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "max_directory_entries": {
           "description": "The maximum amount of directory entries to walk.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 20000,
           "minimum": 0
         },
         "max_files": {
           "description": "The maximum amount of files to consider.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 10000,
           "minimum": 0
         },
         "max_results": {
           "description": "The maximum amount of results to return.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 100,
           "minimum": 0
         }
       }
@@ -523,7 +523,7 @@
           "description": "Maximum context window size in tokens.",
           "type": "integer",
           "format": "uint32",
-          "default": 0,
+          "default": 128000,
           "minimum": 0
         },
         "cost": {
@@ -545,7 +545,9 @@
         "input": {
           "description": "Supported input modalities (e.g., \"text\", \"image\").",
           "type": "array",
-          "default": [],
+          "default": [
+            "text"
+          ],
           "items": {
             "type": "string"
           }
@@ -554,7 +556,7 @@
           "description": "Maximum number of tokens the model can output.",
           "type": "integer",
           "format": "uint32",
-          "default": 0,
+          "default": 16384,
           "minimum": 0
         },
         "name": {
@@ -625,25 +627,25 @@
         "auto_resize_images": {
           "description": "Whether to automatically resize images when reading files.",
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "enabled": {
           "description": "Whether the tool is enabled.",
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "max_image_source_bytes": {
           "description": "Maximum source-image bytes accepted before decoding.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 20971520,
           "minimum": 0
         },
         "max_text_file_bytes": {
           "description": "Maximum number of bytes read from an ordinary text file.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 1000000,
           "minimum": 0
         }
       }
@@ -670,7 +672,7 @@
         "enabled": {
           "description": "Whether new sessions receive an LLM-generated title.",
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "generation_mode": {
           "description": "Whether title generation runs alongside or before the first response.",
@@ -693,13 +695,13 @@
         "enabled": {
           "description": "Whether the tool is enabled.",
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "max_tool_result_bytes": {
           "description": "Maximum bytes included in a returned tool result.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 100000,
           "minimum": 0
         },
         "shell": {
@@ -716,7 +718,7 @@
           "description": "Maximum execution timeout in seconds.",
           "type": "integer",
           "format": "uint64",
-          "default": 0,
+          "default": 60,
           "minimum": 0
         }
       }
@@ -728,20 +730,20 @@
         "enabled": {
           "description": "Whether the tool is enabled.",
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "max_text_file_bytes": {
           "description": "Maximum number of bytes written to an ordinary text file.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 1000000,
           "minimum": 0
         },
         "max_tool_result_bytes": {
           "description": "Maximum bytes included in a returned tool result.",
           "type": "integer",
           "format": "uint",
-          "default": 0,
+          "default": 100000,
           "minimum": 0
         }
       }

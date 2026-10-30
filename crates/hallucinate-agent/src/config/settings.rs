@@ -51,48 +51,42 @@ use crate::{
     feature = "schemas",
     derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)
 )]
+#[serde(default)]
 pub struct ModelSettings {
     /// Human-readable name for the model.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 
     /// API variant used by the provider (e.g., OpenAI Chat Completions or
     /// Responses).
-    #[serde(default)]
     pub api: Api,
 
     /// Override the base URL for this specific model.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
 
     /// Whether this model supports reasoning/thinking output.
-    #[serde(default)]
     pub reasoning: bool,
 
     /// Whether this model accepts the Responses API `reasoning.effort` option.
-    #[serde(default)]
     pub supports_reasoning_effort: bool,
 
     /// Whether this model is hidden from the interactive model picker.
-    #[serde(default)]
     pub hidden: bool,
 
     /// Supported input modalities (e.g., "text", "image").
-    #[serde(default)]
     pub input: Vec<String>,
 
     /// Maximum context window size in tokens.
-    #[serde(default)]
     pub context_window: u32,
 
     /// Maximum number of tokens the model can output.
-    #[serde(default)]
     pub max_tokens: u32,
 
     /// Optional cost rates per million tokens.
     ///
     /// When omitted, usage cost is tracked as zero.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cost: Option<ModelCostRates>,
 }
 
@@ -183,18 +177,17 @@ pub enum SessionTitleGenerationMode {
     feature = "schemas",
     derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)
 )]
+#[serde(default)]
 pub struct SessionTitleSettings {
     /// Whether new sessions receive an LLM-generated title.
-    #[serde(default)]
     pub enabled: bool,
 
     /// Model selector used for title generation. When omitted, the active
     /// conversation model is used.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 
     /// Whether title generation runs alongside or before the first response.
-    #[serde(default)]
     pub generation_mode: SessionTitleGenerationMode,
 }
 
@@ -217,27 +210,27 @@ impl Default for SessionTitleSettings {
     feature = "schemas",
     derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)
 )]
+#[serde(default)]
 pub struct BuiltInToolSettings {
     /// Settings for the shell tool.
-    #[serde(default)]
     pub shell: ShellToolConfig,
+
     /// Settings for the edit tool.
-    #[serde(default)]
     pub edit: EditToolConfig,
+
     /// Settings for the find tool.
-    #[serde(default)]
     pub find: FindToolConfig,
+
     /// Settings for the grep tool.
-    #[serde(default)]
     pub grep: GrepToolConfig,
+
     /// Settings for the ls tool.
-    #[serde(default)]
     pub ls: LsToolConfig,
+
     /// Settings for the read tool.
-    #[serde(default)]
     pub read: ReadToolConfig,
+
     /// Settings for the write tool.
-    #[serde(default)]
     pub write: WriteToolConfig,
 }
 
@@ -285,6 +278,7 @@ impl BuiltInToolSettings {
     feature = "schemas",
     derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)
 )]
+#[serde(default)]
 pub struct Settings {
     /// Default model to use.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -292,7 +286,6 @@ pub struct Settings {
 
     /// Credential namespace for the OpenAI-compatible provider (usually
     /// "openai"). Defaults to `"openai"`.
-    #[serde(default)]
     pub provider: String,
 
     /// Default base URL for the provider.
@@ -300,49 +293,41 @@ pub struct Settings {
     pub base_url: Option<String>,
 
     /// Provider-specific headers for the legacy/default provider.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub provider_headers: HashMap<String, String>,
 
     /// Providers and their models. Models are deliberately nested under a
     /// provider instead of using pi's flat provider/model catalog shape.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub providers: HashMap<String, ProviderSettings>,
 
     /// Config settings for built-in tools.
-    #[serde(default)]
     pub builtin_tools: BuiltInToolSettings,
 
     /// MCP servers whose stdio tools are exposed to the agent. Each map key
     /// identifies a server and becomes part of its qualified tool names.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub mcp_servers: HashMap<String, crate::agent::tools::mcp::McpServerSettings>,
 
     /// Request timeout in milliseconds.
-    #[serde(default)]
     pub timeout_ms: u64,
 
     /// Number of retries for transient LLM API failures.
-    #[serde(default)]
     pub max_retries: u32,
 
     /// Maximum number of turns.
-    #[serde(default)]
     pub max_turns: u32,
 
     /// Enable tool use by default.
-    #[serde(default)]
     pub enable_tools: bool,
 
     /// Enable context compaction.
-    #[serde(default)]
     pub enable_compaction: bool,
 
     /// Maximum number of independent tool calls to execute at once.
-    #[serde(default)]
     pub max_concurrent_tool_calls: usize,
 
     /// Show model thinking/reasoning in user-facing output.
-    #[serde(default)]
     pub show_thinking: bool,
 
     /// Default temperature.
@@ -354,7 +339,7 @@ pub struct Settings {
     pub max_tokens: Option<u32>,
 
     /// Settings for generating a session title from its first user message.
-    #[serde(default, skip_serializing_if = "session_title_settings_is_default")]
+    #[serde(skip_serializing_if = "session_title_settings_is_default")]
     pub session_title: SessionTitleSettings,
 
     /// Whether these settings include a project-local override. This is kept
@@ -831,6 +816,7 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::tools::*;
 
     #[test]
     fn settings_load_from_toml() {
@@ -839,10 +825,8 @@ mod tests {
             default_model = "example/model"
             provider = "example"
             base_url = "https://example.test/v1"
-            shell = ["/bin/bash"]
             timeout_ms = 30_000
             max_retries = 2
-            auto_resize_images = false
             max_turns = 5
             enable_tools = false
             enable_compaction = false
@@ -1038,5 +1022,40 @@ mod tests {
 
         let serialized = toml::to_string(&settings).unwrap();
         assert!(!serialized.contains("cost"));
+    }
+
+    #[test]
+    fn builtin_tool_config_implies_defaults() {
+        let settings: Settings = toml::from_str(
+            r#"
+            [builtin_tools.shell]
+            timeout = 3_600
+
+            [builtin_tools.read]
+            max_text_file_bytes = 1_000
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(settings.builtin_tools.shell.enabled, true);
+        assert_ne!(
+            settings.builtin_tools.shell.timeout,
+            DEFAULT_SHELL_COMMAND_TIMEOUT
+        );
+        assert_eq!(
+            settings.builtin_tools.shell.max_tool_result_bytes,
+            DEFAULT_MAX_TOOL_RESULT_BYTES
+        );
+
+        assert_eq!(settings.builtin_tools.read.enabled, true);
+        assert_eq!(settings.builtin_tools.read.auto_resize_images, true);
+        assert_ne!(
+            settings.builtin_tools.read.max_text_file_bytes,
+            DEFAULT_MAX_TEXT_FILE_BYTES
+        );
+        assert_eq!(
+            settings.builtin_tools.read.max_image_source_bytes,
+            DEFAULT_MAX_IMAGE_SOURCE_BYTES
+        );
     }
 }
