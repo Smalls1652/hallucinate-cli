@@ -49,7 +49,7 @@ input_type = "string"
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `shell` | `array` | `$SHELL` (Unix) / `%COMSPEC%` (Windows) | Shell executable and arguments used to run the command. Overrides the global `shell` setting for this tool only. |
-| `timeout` | `integer` | Configured `shell_timeout` (60 seconds by default) | Maximum execution time in seconds. Must be greater than zero. |
+| `timeout` | `integer` | `60` (from `builtin_tools.shell.timeout`) | Maximum execution time in seconds. Must be greater than zero. |
 
 ### Parameters
 
@@ -58,7 +58,7 @@ Parameters are defined under `[parameters.<name>]` tables. Each parameter become
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `description` | `string` | — | Brief explanation of the parameter (required). |
-| `input_type` | `string` | `"string"` | JSON Schema type for the parameter. |
+| `input_type` | `string` | `"string"` | JSON schema type for the parameter. |
 | `required` | `bool` | `false` | Whether the parameter must be provided. |
 | `constraints` | `table` | — | Optional value constraints. Supports `enum`, `minimum`, and `maximum`. |
 
@@ -146,7 +146,7 @@ input_type = "string"
 ## Execution Behavior
 
 - **Working directory**: The command runs in the agent's current working directory. The agent may override the CWD per invocation.
-- **Timeout**: Commands are terminated after the timeout specified in the tool definition. Definitions without `timeout` use the configured shell timeout (default: 60 seconds). Timed-out commands return an error.
+- **Timeout**: Commands are terminated after the timeout specified in the tool definition. Definitions without `timeout` use `builtin_tools.shell.timeout` (default: 60 seconds). Timed-out commands return an error.
 - **Shell quoting**: All arguments are single-quoted with inner quotes escaped (`'\''`), preventing injection even when parameter values contain special characters.
 - **Output**: On success, stdout is returned. On failure, stderr is returned. Output is truncated to the configured tool result limit.
 - **Exit code**: The tool reports success or failure based on the process exit code.
@@ -263,5 +263,5 @@ Invalid definitions are silently skipped and logged as diagnostics. Common reaso
 - `timeout` is zero
 - Parameter name contains invalid characters (only letters, numbers, and underscores allowed)
 - Parameter `description` is empty
-- Parameter `input_type` is not a supported type
+- Parameter `input_type` is not a valid type
 - Parameter constraints are incompatible with the input type, empty, or have an invalid range

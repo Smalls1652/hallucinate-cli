@@ -11,10 +11,8 @@ Complete reference for all configuration options in `hallucinate`.
 | `default_model` | `string` | — | Default model selector (`provider/model`). |
 | `provider` | `string` | `"openai"` | Credential namespace for the default provider. |
 | `base_url` | `string` | — | Global API endpoint for the default provider. |
-| `shell` | `string` | `$SHELL` | Shell executable used by the shell tool. |
 | `timeout_ms` | `number` | `600000` | Request timeout in milliseconds. |
 | `max_retries` | `number` | `3` | Retries for transient LLM API failures. |
-| `auto_resize_images` | `bool` | `true` | Automatically resize image attachments. |
 | `max_turns` | `number` | `120` | Maximum conversation turns per prompt. |
 | `enable_tools` | `bool` | `true` | Enable tool use by default. |
 | `enable_compaction` | `bool` | `true` | Enable automatic context compaction. |
@@ -22,6 +20,7 @@ Complete reference for all configuration options in `hallucinate`.
 | `show_thinking` | `bool` | `false` | Show model reasoning output to the user. |
 | `temperature` | `number` | — | Default sampling temperature. |
 | `max_tokens` | `number` | — | Default maximum output tokens. |
+| `builtin_tools` | `table` | — | Per-tool configuration for built-in tools. |
 | `session_title.enabled` | `bool` | `true` | Generate a title from a session's first user message. |
 | `session_title.model` | `string` | Active model | Model selector used to generate session titles. |
 | `session_title.generation_mode` | `string` | `"parallel"` | Generate alongside (`parallel`) or before (`before`) the first response. |
@@ -123,13 +122,117 @@ Global API endpoint for the default provider. Provider-level `base_url` takes pr
 base_url = "https://api.openai.com/v1"
 ```
 
-### `shell`
+### `builtin_tools`
 
-Shell executable used by the shell tool. When unset, the `SHELL` environment variable (or the platform fallback) is used.
+Per-tool configuration for built-in tools. Each tool has an `enabled` flag and tool-specific options.
 
 ```toml
-shell = "/bin/bash"
+[builtin_tools]
+
+[builtin_tools.shell]
+enabled = true
+timeout = 60
+max_tool_result_bytes = 100000
+
+[builtin_tools.edit]
+enabled = true
+
+[builtin_tools.find]
+enabled = true
+max_results = 100
+max_files = 10000
+max_directory_entries = 20000
+
+[builtin_tools.grep]
+enabled = true
+max_results = 100
+max_files = 10000
+max_directory_entries = 20000
+max_file_scan_bytes = 1000000
+max_search_bytes = 20971520
+max_line_bytes = 65536
+max_tool_result_bytes = 100000
+
+[builtin_tools.ls]
+enabled = true
+max_results = 100
+max_files = 10000
+max_directory_entries = 20000
+
+[builtin_tools.read]
+enabled = true
+auto_resize_images = true
+max_text_file_bytes = 1000000
+max_image_source_bytes = 20971520
+
+[builtin_tools.write]
+enabled = true
+max_text_file_bytes = 1000000
+max_tool_result_bytes = 100000
 ```
+
+#### Shell Tool
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `bool` | `true` | Whether the tool is enabled. |
+| `shell` | `array` | `$SHELL` | Shell executable and arguments (e.g., `["/bin/bash", "-c"]`). |
+| `timeout` | `number` | `60` | Maximum execution timeout in seconds. |
+| `max_tool_result_bytes` | `number` | `100000` | Maximum bytes included in a returned tool result. |
+
+#### Edit Tool
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `bool` | `true` | Whether the tool is enabled. |
+
+#### Find Tool
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `bool` | `true` | Whether the tool is enabled. |
+| `max_results` | `number` | `100` | Maximum results to return. |
+| `max_files` | `number` | `10000` | Maximum files to consider. |
+| `max_directory_entries` | `number` | `20000` | Maximum directory entries to walk. |
+
+#### Grep Tool
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `bool` | `true` | Whether the tool is enabled. |
+| `max_results` | `number` | `100` | Maximum results to return. |
+| `max_files` | `number` | `10000` | Maximum files to consider. |
+| `max_directory_entries` | `number` | `20000` | Maximum directory entries to walk. |
+| `max_file_scan_bytes` | `number` | `1000000` | Maximum bytes scanned from one grep candidate. |
+| `max_search_bytes` | `number` | `20971520` (20 MiB) | Maximum bytes scanned by one grep request. |
+| `max_line_bytes` | `number` | `65536` (64 KiB) | Maximum accepted line length while scanning grep candidates. |
+| `max_tool_result_bytes` | `number` | `100000` | Maximum bytes included in a returned tool result. |
+
+#### Ls Tool
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `bool` | `true` | Whether the tool is enabled. |
+| `max_results` | `number` | `100` | Maximum results to return. |
+| `max_files` | `number` | `10000` | Maximum files to consider. |
+| `max_directory_entries` | `number` | `20000` | Maximum directory entries to walk. |
+
+#### Read Tool
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `bool` | `true` | Whether the tool is enabled. |
+| `auto_resize_images` | `bool` | `true` | Automatically resize images when reading files. |
+| `max_text_file_bytes` | `number` | `1000000` (1 MiB) | Maximum number of bytes read from an ordinary text file. |
+| `max_image_source_bytes` | `number` | `20971520` (20 MiB) | Maximum source-image bytes accepted before decoding. |
+
+#### Write Tool
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `bool` | `true` | Whether the tool is enabled. |
+| `max_text_file_bytes` | `number` | `1000000` (1 MiB) | Maximum number of bytes written to an ordinary text file. |
+| `max_tool_result_bytes` | `number` | `100000` | Maximum bytes included in a returned tool result. |
 
 ### `timeout_ms`
 
@@ -145,14 +248,6 @@ Number of retries for transient LLM API failures.
 
 ```toml
 max_retries = 3
-```
-
-### `auto_resize_images`
-
-Automatically resize image attachments to provider-friendly limits.
-
-```toml
-auto_resize_images = true
 ```
 
 ### `max_turns`
@@ -303,7 +398,7 @@ x-custom-header = "value"
 | `HALLUCINATE_API_KEY` | API key fallback (overridden by `--api-key`). |
 | `OPENAI_API_KEY` | Fallback when the default provider is `"openai"`. |
 | `HALLUCINATE_<PROVIDER>_API_KEY` | Provider-specific key (e.g., `HALLUCINATE_OPENROUTER_API_KEY`). |
-| `SHELL` | Shell executable for the shell tool (overridden by `shell` setting). |
+| `SHELL` | Shell executable for the shell tool (overridden by `builtin_tools.shell.shell`). |
 
 Key resolution order: `--api-key` flag → `HALLUCINATE_API_KEY` → `OPENAI_API_KEY` (for default provider) → `HALLUCINATE_<PROVIDER>_API_KEY` → inline `api_key` in provider settings → stored credential in the platform keyring.
 
@@ -428,7 +523,7 @@ The CLI uses a **subcommand-based** architecture. Global options apply to all su
 | `-m, --model <selector>` | Model to use (`provider/model` or bare ID). |
 | `--api-key <key>` | API key override. |
 | `--base-url <url>` | API endpoint override. |
-| `--shell <path>` | Shell executable override. |
+| `--shell <path>` | Shell executable override (overrides `builtin_tools.shell.shell`). |
 | `--session <id>` | Resume a persisted session in interactive mode. |
 | `--max-tokens <n>` | Response max tokens override. |
 | `--thinking` | Show model thinking output. |
@@ -492,18 +587,18 @@ hallucinate auth list
 default_model = "openai/gpt-5.6-luna"
 provider = "openai"
 base_url = "https://api.openai.com/v1"
-shell = "/bin/bash"
 timeout_ms = 60000
 max_retries = 3
-auto_resize_images = true
 max_turns = 120
 enable_tools = true
 enable_compaction = true
 show_thinking = false
 
-[mcp_servers.filesystem]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+[builtin_tools.shell]
+timeout = 60
+
+[builtin_tools.read]
+auto_resize_images = true
 
 show_thinking = false
 temperature = 0.7
