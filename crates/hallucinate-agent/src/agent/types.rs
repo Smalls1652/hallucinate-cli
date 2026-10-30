@@ -324,6 +324,9 @@ pub struct AgentConfig {
     /// Whether to enable tool use.
     pub enable_tools: bool,
 
+    /// Tools that are disabled.
+    pub disabled_tools: Vec<String>,
+
     /// Default temperature for LLM calls.
     pub temperature: Option<f64>,
 
@@ -350,6 +353,7 @@ impl Default for AgentConfig {
             max_context_tokens: 128_000,
             enable_compaction: true,
             enable_tools: true,
+            disabled_tools: vec![],
             temperature: None,
             max_tokens: None,
             reasoning_effort: None,

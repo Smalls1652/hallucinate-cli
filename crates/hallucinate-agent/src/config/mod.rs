@@ -125,7 +125,7 @@ pub fn resolve_shell(
     settings: &self::settings::Settings,
     shell: Option<Vec<String>>,
 ) -> Option<Vec<String>> {
-    shell.or_else(|| settings.builtin_tools.shell.shell.clone())
+    shell.or_else(|| settings.tools.builtin.shell.shell.clone())
 }
 
 /// Resolve the shell tool timeout. The explicit CLI option takes precedence
@@ -135,7 +135,7 @@ pub fn resolve_shell_timeout(
     settings: &self::settings::Settings,
     cli_timeout: Option<u64>,
 ) -> u64 {
-    cli_timeout.unwrap_or(settings.builtin_tools.shell.timeout)
+    cli_timeout.unwrap_or(settings.tools.builtin.shell.timeout)
 }
 
 /// Derive agent request configuration from persisted settings, a selected
@@ -149,7 +149,8 @@ pub fn agent_config(
         max_turns: settings.max_turns,
         max_context_tokens: model.context_window,
         enable_compaction: settings.enable_compaction,
-        enable_tools: settings.enable_tools,
+        enable_tools: settings.tools.enable_tools,
+        disabled_tools: settings.tools.disable_tools.clone(),
         temperature: overrides.temperature.or(settings.temperature),
         reasoning_effort: model.supports_reasoning_effort.then(|| {
             overrides

@@ -235,40 +235,53 @@ pub struct BuiltInToolSettings {
 }
 
 impl BuiltInToolSettings {
-    /// Create a [`Vec<BuiltInTool>`] based on whether a specific tool is
-    /// enabled.
+    /// Create a [`Vec<BuiltInTool>`] for built-in tools.
     pub fn to_tool_list(&self) -> Vec<BuiltInTool> {
         let mut tool_list = vec![];
 
-        if self.shell.enabled {
-            tool_list.push(BuiltInTool::Shell(self.shell.clone()));
-        }
-
-        if self.edit.enabled {
-            tool_list.push(BuiltInTool::Edit(self.edit.clone()));
-        }
-
-        if self.find.enabled {
-            tool_list.push(BuiltInTool::Find(self.find.clone()));
-        }
-
-        if self.grep.enabled {
-            tool_list.push(BuiltInTool::Grep(self.grep.clone()));
-        }
-
-        if self.ls.enabled {
-            tool_list.push(BuiltInTool::Ls(self.ls.clone()));
-        }
-
-        if self.read.enabled {
-            tool_list.push(BuiltInTool::Read(self.read.clone()));
-        }
-
-        if self.write.enabled {
-            tool_list.push(BuiltInTool::Write(self.write.clone()));
-        }
+        tool_list.push(BuiltInTool::Shell(self.shell.clone()));
+        tool_list.push(BuiltInTool::Edit(self.edit.clone()));
+        tool_list.push(BuiltInTool::Find(self.find.clone()));
+        tool_list.push(BuiltInTool::Grep(self.grep.clone()));
+        tool_list.push(BuiltInTool::Ls(self.ls.clone()));
+        tool_list.push(BuiltInTool::Read(self.read.clone()));
+        tool_list.push(BuiltInTool::Write(self.write.clone()));
 
         tool_list
+    }
+}
+
+/// Settings for managing tools.
+#[cfg_attr(not(feature = "schemas"), derive(Debug, Clone, Serialize, Deserialize))]
+#[cfg_attr(
+    feature = "schemas",
+    derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)
+)]
+#[serde(default)]
+pub struct ToolSettings {
+    /// Enable tool use by default.
+    pub enable_tools: bool,
+
+    /// Disable tools by name.
+    pub disable_tools: Vec<String>,
+
+    /// Config settings for built-in tools.
+    pub builtin: BuiltInToolSettings,
+
+    /// MCP servers whose stdio tools are exposed to the agent. Each map key
+    /// identifies a server and becomes part of its qualified tool names.
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub mcp_servers: HashMap<String, crate::agent::tools::mcp::McpServerSettings>,
+}
+
+impl Default for ToolSettings {
+    fn default() -> Self {
+        Self {
+            enable_tools: true,
+            disable_tools: vec![],
+            builtin: BuiltInToolSettings::default(),
+            mcp_servers: HashMap::new(),
+        }
     }
 }
 
@@ -301,13 +314,8 @@ pub struct Settings {
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub providers: HashMap<String, ProviderSettings>,
 
-    /// Config settings for built-in tools.
-    pub builtin_tools: BuiltInToolSettings,
-
-    /// MCP servers whose stdio tools are exposed to the agent. Each map key
-    /// identifies a server and becomes part of its qualified tool names.
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub mcp_servers: HashMap<String, crate::agent::tools::mcp::McpServerSettings>,
+    /// Settings for tools.
+    pub tools: ToolSettings,
 
     /// Request timeout in milliseconds.
     pub timeout_ms: u64,
@@ -317,9 +325,6 @@ pub struct Settings {
 
     /// Maximum number of turns.
     pub max_turns: u32,
-
-    /// Enable tool use by default.
-    pub enable_tools: bool,
 
     /// Enable context compaction.
     pub enable_compaction: bool,
@@ -357,12 +362,10 @@ impl Default for Settings {
             base_url: None,
             provider_headers: HashMap::new(),
             providers: HashMap::new(),
-            builtin_tools: BuiltInToolSettings::default(),
-            mcp_servers: HashMap::new(),
+            tools: ToolSettings::default(),
             timeout_ms: 600_000,
             max_retries: 3,
             max_turns: 120,
-            enable_tools: true,
             enable_compaction: true,
             max_concurrent_tool_calls: 4,
             show_thinking: false,
@@ -851,7 +854,7 @@ mod tests {
             settings.base_url.as_deref(),
             Some("https://example.test/v1")
         );
-        assert!(settings.mcp_servers.is_empty());
+        assert!(settings.tools.mcp_servers.is_empty());
         assert_eq!(settings.timeout_ms, 30_000);
         assert_eq!(settings.temperature, Some(0.2));
         assert!(settings.show_thinking);
@@ -1028,33 +1031,31 @@ mod tests {
     fn builtin_tool_config_implies_defaults() {
         let settings: Settings = toml::from_str(
             r#"
-            [builtin_tools.shell]
+            [tools.builtin.shell]
             timeout = 3_600
 
-            [builtin_tools.read]
+            [tools.builtin.read]
             max_text_file_bytes = 1_000
             "#,
         )
         .unwrap();
 
-        assert_eq!(settings.builtin_tools.shell.enabled, true);
         assert_ne!(
-            settings.builtin_tools.shell.timeout,
+            settings.tools.builtin.shell.timeout,
             DEFAULT_SHELL_COMMAND_TIMEOUT
         );
         assert_eq!(
-            settings.builtin_tools.shell.max_tool_result_bytes,
+            settings.tools.builtin.shell.max_tool_result_bytes,
             DEFAULT_MAX_TOOL_RESULT_BYTES
         );
 
-        assert_eq!(settings.builtin_tools.read.enabled, true);
-        assert_eq!(settings.builtin_tools.read.auto_resize_images, true);
+        assert_eq!(settings.tools.builtin.read.auto_resize_images, true);
         assert_ne!(
-            settings.builtin_tools.read.max_text_file_bytes,
+            settings.tools.builtin.read.max_text_file_bytes,
             DEFAULT_MAX_TEXT_FILE_BYTES
         );
         assert_eq!(
-            settings.builtin_tools.read.max_image_source_bytes,
+            settings.tools.builtin.read.max_image_source_bytes,
             DEFAULT_MAX_IMAGE_SOURCE_BYTES
         );
     }

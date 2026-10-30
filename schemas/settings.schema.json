@@ -11,53 +11,6 @@
         "null"
       ]
     },
-    "builtin_tools": {
-      "description": "Config settings for built-in tools.",
-      "$ref": "#/$defs/BuiltInToolSettings",
-      "default": {
-        "edit": {
-          "enabled": true
-        },
-        "find": {
-          "enabled": true,
-          "max_directory_entries": 20000,
-          "max_files": 10000,
-          "max_results": 100
-        },
-        "grep": {
-          "enabled": true,
-          "max_directory_entries": 20000,
-          "max_file_scan_bytes": 1000000,
-          "max_files": 10000,
-          "max_line_bytes": 65536,
-          "max_results": 100,
-          "max_search_bytes": 20971520,
-          "max_tool_result_bytes": 100000
-        },
-        "ls": {
-          "enabled": true,
-          "max_directory_entries": 20000,
-          "max_files": 10000,
-          "max_results": 100
-        },
-        "read": {
-          "auto_resize_images": true,
-          "enabled": true,
-          "max_image_source_bytes": 20971520,
-          "max_text_file_bytes": 1000000
-        },
-        "shell": {
-          "enabled": true,
-          "max_tool_result_bytes": 100000,
-          "timeout": 60
-        },
-        "write": {
-          "enabled": true,
-          "max_text_file_bytes": 1000000,
-          "max_tool_result_bytes": 100000
-        }
-      }
-    },
     "default_model": {
       "description": "Default model to use.",
       "type": [
@@ -67,11 +20,6 @@
     },
     "enable_compaction": {
       "description": "Enable context compaction.",
-      "type": "boolean",
-      "default": true
-    },
-    "enable_tools": {
-      "description": "Enable tool use by default.",
       "type": "boolean",
       "default": true
     },
@@ -104,13 +52,6 @@
       "format": "uint32",
       "default": 120,
       "minimum": 0
-    },
-    "mcp_servers": {
-      "description": "MCP servers whose stdio tools are exposed to the agent. Each map key\nidentifies a server and becomes part of its qualified tool names.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/McpServerSettings"
-      }
     },
     "provider": {
       "description": "Credential namespace for the OpenAI-compatible provider (usually\n\"openai\"). Defaults to `\"openai\"`.",
@@ -154,6 +95,49 @@
       "format": "uint64",
       "default": 600000,
       "minimum": 0
+    },
+    "tools": {
+      "description": "Settings for tools.",
+      "$ref": "#/$defs/ToolSettings",
+      "default": {
+        "builtin": {
+          "edit": {},
+          "find": {
+            "max_directory_entries": 20000,
+            "max_files": 10000,
+            "max_results": 100
+          },
+          "grep": {
+            "max_directory_entries": 20000,
+            "max_file_scan_bytes": 1000000,
+            "max_files": 10000,
+            "max_line_bytes": 65536,
+            "max_results": 100,
+            "max_search_bytes": 20971520,
+            "max_tool_result_bytes": 100000
+          },
+          "ls": {
+            "max_directory_entries": 20000,
+            "max_files": 10000,
+            "max_results": 100
+          },
+          "read": {
+            "auto_resize_images": true,
+            "max_image_source_bytes": 20971520,
+            "max_text_file_bytes": 1000000
+          },
+          "shell": {
+            "max_tool_result_bytes": 100000,
+            "timeout": 60
+          },
+          "write": {
+            "max_text_file_bytes": 1000000,
+            "max_tool_result_bytes": 100000
+          }
+        },
+        "disable_tools": [],
+        "enable_tools": true
+      }
     }
   },
   "$defs": {
@@ -179,15 +163,12 @@
         "edit": {
           "description": "Settings for the edit tool.",
           "$ref": "#/$defs/EditToolConfig",
-          "default": {
-            "enabled": true
-          }
+          "default": {}
         },
         "find": {
           "description": "Settings for the find tool.",
           "$ref": "#/$defs/FindToolConfig",
           "default": {
-            "enabled": true,
             "max_directory_entries": 20000,
             "max_files": 10000,
             "max_results": 100
@@ -197,7 +178,6 @@
           "description": "Settings for the grep tool.",
           "$ref": "#/$defs/GrepToolConfig",
           "default": {
-            "enabled": true,
             "max_directory_entries": 20000,
             "max_file_scan_bytes": 1000000,
             "max_files": 10000,
@@ -211,7 +191,6 @@
           "description": "Settings for the ls tool.",
           "$ref": "#/$defs/LsToolConfig",
           "default": {
-            "enabled": true,
             "max_directory_entries": 20000,
             "max_files": 10000,
             "max_results": 100
@@ -222,7 +201,6 @@
           "$ref": "#/$defs/ReadToolConfig",
           "default": {
             "auto_resize_images": true,
-            "enabled": true,
             "max_image_source_bytes": 20971520,
             "max_text_file_bytes": 1000000
           }
@@ -231,7 +209,6 @@
           "description": "Settings for the shell tool.",
           "$ref": "#/$defs/ShellToolConfig",
           "default": {
-            "enabled": true,
             "max_tool_result_bytes": 100000,
             "timeout": 60
           }
@@ -240,7 +217,6 @@
           "description": "Settings for the write tool.",
           "$ref": "#/$defs/WriteToolConfig",
           "default": {
-            "enabled": true,
             "max_text_file_bytes": 1000000,
             "max_tool_result_bytes": 100000
           }
@@ -249,24 +225,12 @@
     },
     "EditToolConfig": {
       "description": "Configuration for the built-in edit tool.",
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "description": "Whether the tool is enabled.",
-          "type": "boolean",
-          "default": true
-        }
-      }
+      "type": "object"
     },
     "FindToolConfig": {
       "description": "Configuration for the built-in find tool.",
       "type": "object",
       "properties": {
-        "enabled": {
-          "description": "Whether the tool is enabled.",
-          "type": "boolean",
-          "default": true
-        },
         "max_directory_entries": {
           "description": "The maximum amount of directory entries to walk.",
           "type": "integer",
@@ -294,11 +258,6 @@
       "description": "Configuration for the built-in grep tool.",
       "type": "object",
       "properties": {
-        "enabled": {
-          "description": "Whether the tool is enabled.",
-          "type": "boolean",
-          "default": true
-        },
         "max_directory_entries": {
           "description": "The maximum amount of directory entries to walk.",
           "type": "integer",
@@ -354,11 +313,6 @@
       "description": "Configuration for the built-in ls tool.",
       "type": "object",
       "properties": {
-        "enabled": {
-          "description": "Whether the tool is enabled.",
-          "type": "boolean",
-          "default": true
-        },
         "max_directory_entries": {
           "description": "The maximum amount of directory entries to walk.",
           "type": "integer",
@@ -629,11 +583,6 @@
           "type": "boolean",
           "default": true
         },
-        "enabled": {
-          "description": "Whether the tool is enabled.",
-          "type": "boolean",
-          "default": true
-        },
         "max_image_source_bytes": {
           "description": "Maximum source-image bytes accepted before decoding.",
           "type": "integer",
@@ -692,11 +641,6 @@
       "description": "Configuration for the built-in shell tool.",
       "type": "object",
       "properties": {
-        "enabled": {
-          "description": "Whether the tool is enabled.",
-          "type": "boolean",
-          "default": true
-        },
         "max_tool_result_bytes": {
           "description": "Maximum bytes included in a returned tool result.",
           "type": "integer",
@@ -723,15 +667,75 @@
         }
       }
     },
+    "ToolSettings": {
+      "description": "Settings for managing tools.",
+      "type": "object",
+      "properties": {
+        "builtin": {
+          "description": "Config settings for built-in tools.",
+          "$ref": "#/$defs/BuiltInToolSettings",
+          "default": {
+            "edit": {},
+            "find": {
+              "max_directory_entries": 20000,
+              "max_files": 10000,
+              "max_results": 100
+            },
+            "grep": {
+              "max_directory_entries": 20000,
+              "max_file_scan_bytes": 1000000,
+              "max_files": 10000,
+              "max_line_bytes": 65536,
+              "max_results": 100,
+              "max_search_bytes": 20971520,
+              "max_tool_result_bytes": 100000
+            },
+            "ls": {
+              "max_directory_entries": 20000,
+              "max_files": 10000,
+              "max_results": 100
+            },
+            "read": {
+              "auto_resize_images": true,
+              "max_image_source_bytes": 20971520,
+              "max_text_file_bytes": 1000000
+            },
+            "shell": {
+              "max_tool_result_bytes": 100000,
+              "timeout": 60
+            },
+            "write": {
+              "max_text_file_bytes": 1000000,
+              "max_tool_result_bytes": 100000
+            }
+          }
+        },
+        "disable_tools": {
+          "description": "Disable tools by name.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "enable_tools": {
+          "description": "Enable tool use by default.",
+          "type": "boolean",
+          "default": true
+        },
+        "mcp_servers": {
+          "description": "MCP servers whose stdio tools are exposed to the agent. Each map key\nidentifies a server and becomes part of its qualified tool names.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/McpServerSettings"
+          }
+        }
+      }
+    },
     "WriteToolConfig": {
       "description": "Configuration for the built-in write tool.",
       "type": "object",
       "properties": {
-        "enabled": {
-          "description": "Whether the tool is enabled.",
-          "type": "boolean",
-          "default": true
-        },
         "max_text_file_bytes": {
           "description": "Maximum number of bytes written to an ordinary text file.",
           "type": "integer",

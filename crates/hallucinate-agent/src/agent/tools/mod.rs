@@ -158,9 +158,6 @@ impl std::fmt::Display for BuiltInTool {
 )]
 #[serde(default)]
 pub struct ShellToolConfig {
-    /// Whether the tool is enabled.
-    pub enabled: bool,
-
     /// The shell executable and arguments to use (e.g., `["/bin/bash", "-c"]`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shell: Option<Vec<String>>,
@@ -175,7 +172,6 @@ pub struct ShellToolConfig {
 impl Default for ShellToolConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             shell: None,
             timeout: DEFAULT_SHELL_COMMAND_TIMEOUT,
             max_tool_result_bytes: DEFAULT_MAX_TOOL_RESULT_BYTES,
@@ -199,14 +195,11 @@ impl Default for ShellToolConfig {
     )
 )]
 #[serde(default)]
-pub struct EditToolConfig {
-    /// Whether the tool is enabled.
-    pub enabled: bool,
-}
+pub struct EditToolConfig {}
 
 impl Default for EditToolConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {}
     }
 }
 
@@ -227,9 +220,6 @@ impl Default for EditToolConfig {
 )]
 #[serde(default)]
 pub struct FindToolConfig {
-    /// Whether the tool is enabled.
-    pub enabled: bool,
-
     /// The maximum amount of results to return.
     pub max_results: usize,
 
@@ -243,7 +233,6 @@ pub struct FindToolConfig {
 impl Default for FindToolConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             max_results: DEFAULT_MAX_RESULTS,
             max_files: DEFAULT_MAX_FILES,
             max_directory_entries: DEFAULT_MAX_DIRECTORY_ENTRIES,
@@ -268,9 +257,6 @@ impl Default for FindToolConfig {
 )]
 #[serde(default)]
 pub struct GrepToolConfig {
-    /// Whether the tool is enabled.
-    pub enabled: bool,
-
     /// The maximum amount of results to return.
     pub max_results: usize,
 
@@ -296,7 +282,6 @@ pub struct GrepToolConfig {
 impl Default for GrepToolConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             max_results: DEFAULT_MAX_RESULTS,
             max_files: DEFAULT_MAX_FILES,
             max_directory_entries: DEFAULT_MAX_DIRECTORY_ENTRIES,
@@ -325,9 +310,6 @@ impl Default for GrepToolConfig {
 )]
 #[serde(default)]
 pub struct LsToolConfig {
-    /// Whether the tool is enabled.
-    pub enabled: bool,
-
     /// The maximum amount of results to return.
     pub max_results: usize,
 
@@ -341,7 +323,6 @@ pub struct LsToolConfig {
 impl Default for LsToolConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             max_results: DEFAULT_MAX_RESULTS,
             max_files: DEFAULT_MAX_FILES,
             max_directory_entries: DEFAULT_MAX_DIRECTORY_ENTRIES,
@@ -366,9 +347,6 @@ impl Default for LsToolConfig {
 )]
 #[serde(default)]
 pub struct ReadToolConfig {
-    /// Whether the tool is enabled.
-    pub enabled: bool,
-
     /// Whether to automatically resize images when reading files.
     pub auto_resize_images: bool,
 
@@ -382,7 +360,6 @@ pub struct ReadToolConfig {
 impl Default for ReadToolConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             auto_resize_images: true,
             max_text_file_bytes: DEFAULT_MAX_TEXT_FILE_BYTES,
             max_image_source_bytes: DEFAULT_MAX_IMAGE_SOURCE_BYTES,
@@ -407,9 +384,6 @@ impl Default for ReadToolConfig {
 )]
 #[serde(default)]
 pub struct WriteToolConfig {
-    /// Whether the tool is enabled.
-    pub enabled: bool,
-
     /// Maximum number of bytes written to an ordinary text file.
     pub max_text_file_bytes: usize,
 
@@ -420,7 +394,6 @@ pub struct WriteToolConfig {
 impl Default for WriteToolConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             max_text_file_bytes: DEFAULT_MAX_TEXT_FILE_BYTES,
             max_tool_result_bytes: DEFAULT_MAX_TOOL_RESULT_BYTES,
         }
@@ -477,6 +450,22 @@ impl ToolRegistry {
     ) {
         tracing::debug!("added external tool '{}' to registry", tool.name());
         self.tools.push(tool);
+    }
+
+    pub fn remove_tool(
+        &mut self,
+        tool: &str,
+    ) {
+        let tool_index = match self.tools.iter().position(|item| item.name() == tool) {
+            Some(value) => value,
+            None => {
+                tracing::warn!("No such tool named '{tool}'. Ignoring...");
+                return;
+            },
+        };
+
+        self.tools.remove(tool_index);
+        tracing::debug!("Removed '{tool}' from tool registry.");
     }
 
     /// Get the list of available tools in AI format.
@@ -556,13 +545,11 @@ mod tests {
     fn test_registry_with_nondefault_configs() {
         let tools = vec![
             BuiltInTool::Shell(ShellToolConfig {
-                enabled: true,
                 shell: Some(vec!["/bin/bash".to_string(), "-c".to_string()]),
                 timeout: 67,
                 ..Default::default()
             }),
             BuiltInTool::Read(ReadToolConfig {
-                enabled: true,
                 auto_resize_images: false,
                 ..Default::default()
             }),

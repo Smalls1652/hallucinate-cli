@@ -319,6 +319,14 @@ impl Agent {
         Ok(())
     }
 
+    pub fn disable_tools(&mut self) -> Result<(), AgentError> {
+        for tool_name in &self.config.disabled_tools {
+            self.tool_registry.remove_tool(&tool_name);
+        }
+
+        Ok(())
+    }
+
     /// Update the working directory when resuming a session.
     pub fn set_cwd(
         &mut self,

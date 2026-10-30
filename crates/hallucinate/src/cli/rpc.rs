@@ -398,10 +398,10 @@ async fn chat(
     .with_cwd(session.cwd.clone());
 
     // Load built-in tools.
-    agent.add_builtin_tools(settings.builtin_tools.to_tool_list());
+    agent.add_builtin_tools(settings.tools.builtin.to_tool_list());
 
     // Load MCP servers.
-    if let Err(error) = agent.add_mcp_servers(&settings.mcp_servers).await {
+    if let Err(error) = agent.add_mcp_servers(&settings.tools.mcp_servers).await {
         return RpcResponse::error(
             -32603,
             "MCP server configuration failed",
@@ -434,6 +434,10 @@ async fn chat(
                 error.to_string(),
             );
         }
+    }
+
+    if let Err(error) = agent.disable_tools() {
+        return RpcResponse::error(-32603, "Failed to disable tools", id, error.to_string());
     }
 
     if let Some(system_prompt) = &args.system_prompt {

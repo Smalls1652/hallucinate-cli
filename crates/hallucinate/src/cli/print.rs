@@ -75,7 +75,7 @@ fn parse_reasoning_effort(value: &str) -> Result<ReasoningEffort, String> {
 /// Run print mode with the given CLI arguments and settings.
 pub async fn print_command(args: &PrintArgs) -> Result<()> {
     let mut settings = Settings::load()?;
-    settings.enable_tools = false;
+    settings.tools.enable_tools = false;
 
     // Resolve model
     let model = hallucinate_agent::config::resolve_model(
@@ -88,7 +88,7 @@ pub async fn print_command(args: &PrintArgs) -> Result<()> {
     let images = futures::future::try_join_all(args.images.iter().map(|path| {
         hallucinate_agent::ai::images::load_image_file(
             path,
-            settings.builtin_tools.read.auto_resize_images,
+            settings.tools.builtin.read.auto_resize_images,
         )
     }))
     .await?;

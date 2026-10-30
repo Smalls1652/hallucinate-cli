@@ -83,10 +83,10 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
         .with_skills(loaded_skills.clone());
 
     // Load built-in tools.
-    agent.add_builtin_tools(settings.builtin_tools.to_tool_list());
+    agent.add_builtin_tools(settings.tools.builtin.to_tool_list());
 
     // Load MCP servers.
-    agent.add_mcp_servers(&settings.mcp_servers).await?;
+    agent.add_mcp_servers(&settings.tools.mcp_servers).await?;
 
     // Load in any script tools the user has defined.
     let script_tools = hallucinate_agent::agent::tools::script_tool::load_script_tools(
@@ -109,6 +109,8 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
             );
         }
     }
+
+    agent.disable_tools()?;
 
     let loaded_tools = agent.list_tools();
 
