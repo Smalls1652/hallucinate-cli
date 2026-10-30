@@ -6,7 +6,7 @@
 use std::{fs, path::Path};
 
 use chrono::Utc;
-use hallucinate_agent::{agent::types::AgentEvent, ai::types::Message, config::paths};
+use hallucinate_agent::{agent::types::AgentEvent, ai::types::Message};
 use uuid::Uuid;
 
 use crate::{
@@ -73,7 +73,7 @@ impl SessionManager {
         let session_id = Uuid::new_v4().to_string();
 
         // Ensure sessions directory exists
-        if let Some(sessions_dir) = paths::sessions_dir() {
+        if let Some(sessions_dir) = hallucinate_agent::config::sessions_dir() {
             fs::create_dir_all(&sessions_dir)?;
         }
 
@@ -761,12 +761,12 @@ mod tests {
 
         SessionManager::delete_session(&session.id).unwrap();
         assert!(
-            !hallucinate_agent::config::paths::session_file(&session.id)
+            !hallucinate_agent::config::session_file(&session.id)
                 .unwrap()
                 .exists()
         );
         assert!(
-            !hallucinate_agent::config::paths::session_file(&session.id)
+            !hallucinate_agent::config::session_file(&session.id)
                 .unwrap()
                 .with_extension("cwd.json")
                 .exists()

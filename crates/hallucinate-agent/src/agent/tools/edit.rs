@@ -4,10 +4,11 @@ use std::io::Write;
 
 use serde_json::json;
 
-use super::{limits::run_blocking, paths::resolve_path, types::Tool};
-use crate::agent::tools::{
+use super::{
     error::{EditsField, InternalToolError},
-    types::AsyncToolExecutionResult,
+    limits::run_blocking,
+    paths::resolve_path,
+    types::{AsyncToolExecutionResult, Tool},
 };
 
 /// A single exact-text replacement requested from the edit tool.
@@ -92,7 +93,7 @@ impl Tool for EditTool {
             let edits = parse_edits(arguments)?;
 
             let path = resolve_path(path_str, cwd);
-            let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
+            let display_path = crate::config::display_path(&path, cwd.unwrap_or("."));
 
             run_blocking("edit", move || {
                 let content = std::fs::read_to_string(&path).map_err(|error| {

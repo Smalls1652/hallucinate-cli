@@ -9,7 +9,7 @@ use std::{
 use regex::Regex;
 use serde::Deserialize;
 
-use crate::config::paths;
+use crate::config;
 
 /// A reusable prompt loaded from a Markdown file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,12 +81,12 @@ pub fn load_prompt_templates(options: &PromptTemplateLoadOptions) -> PromptTempl
     let mut files = HashSet::new();
 
     if options.include_defaults {
-        if let Some(directory) = paths::prompts_dir() {
+        if let Some(directory) = config::prompts_dir() {
             load_directory(&directory, &mut result, &mut names, &mut files);
         }
 
         load_directory(
-            &paths::project_prompts_dir(&options.cwd),
+            &config::project_prompts_dir(&options.cwd),
             &mut result,
             &mut names,
             &mut files,

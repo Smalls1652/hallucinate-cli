@@ -28,7 +28,7 @@ pub async fn load_image_file(
     auto_resize: bool,
 ) -> Result<ImageContent, InternalToolError> {
     let path = path.as_ref().to_path_buf();
-    let display_path = crate::config::paths::display_path(&path, ".");
+    let display_path = crate::config::display_path(&path, ".");
     let max_source_bytes = ToolLimits::default().max_image_source_bytes;
 
     run_blocking("image processing", move || {

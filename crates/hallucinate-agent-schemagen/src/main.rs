@@ -1,9 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use hallucinate_agent::{
-    agent::tools::script_tool::ScriptToolDefinition,
-    config::settings::Settings,
-};
+use hallucinate_agent::{agent::tools::script_tool::ScriptToolDefinition, config::Settings};
 use schemars::schema_for;
 
 pub const CLI_NAME: &str = "hallucinate-agent-schemagen";

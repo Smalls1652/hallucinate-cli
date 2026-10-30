@@ -11,7 +11,7 @@ use clap::{ArgAction, Args};
 use hallucinate_agent::{
     agent::runtime::Agent,
     ai::types::{Message, ReasoningEffort},
-    config::settings::Settings,
+    config::Settings,
 };
 use hallucinate_session::manager::{SessionCreateOptions, SessionManager};
 use serde::{Deserialize, Serialize};
@@ -103,7 +103,7 @@ fn parse_reasoning_effort(value: &str) -> Result<ReasoningEffort, String> {
 pub async fn rpc_command(args: &RpcArgs) -> Result<()> {
     let settings = &Settings::load()?;
 
-    hallucinate_agent::config::paths::ensure_directories()?;
+    hallucinate_agent::config::ensure_directories()?;
 
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();

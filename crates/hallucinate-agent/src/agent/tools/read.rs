@@ -8,15 +8,12 @@ use std::{
 use serde_json::json;
 
 use super::{
+    error::InternalToolError,
     limits::{parse_bounded_usize, run_blocking, truncate_utf8},
     paths::resolve_path,
-    types::Tool,
+    types::{AsyncToolExecutionResult, Tool},
 };
-use crate::agent::tools::{
-    ReadToolConfig,
-    error::InternalToolError,
-    types::AsyncToolExecutionResult,
-};
+use crate::config::ReadToolConfig;
 
 /// File reading tool.
 ///
@@ -87,7 +84,7 @@ impl Tool for ReadTool {
             )?;
 
             let path = resolve_path(path_str, cwd);
-            let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
+            let display_path = crate::config::display_path(&path, cwd.unwrap_or("."));
 
             let config = self.config.clone();
 

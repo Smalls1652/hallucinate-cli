@@ -13,7 +13,7 @@ use std::{
 
 use serde::Deserialize;
 
-use crate::{config::paths, error::AgentError};
+use crate::{config, error::AgentError};
 
 const MAX_NAME_LENGTH: usize = 64;
 const MAX_DESCRIPTION_LENGTH: usize = 1024;
@@ -94,12 +94,12 @@ pub fn load_skills(options: &SkillLoadOptions) -> SkillLoadResult {
         // Preserve the existing built-in locations first. This keeps the
         // traditional first-loaded-skill-wins merge behavior when a skill is
         // present in more than one location.
-        if let Some(directory) = paths::skills_dir() {
+        if let Some(directory) = config::skills_dir() {
             load_skills_from_dir(&directory, &mut result, &mut seen_paths, &mut seen_names);
         }
 
         load_skills_from_dir(
-            &paths::project_skills_dir(&options.cwd),
+            &config::project_skills_dir(&options.cwd),
             &mut result,
             &mut seen_paths,
             &mut seen_names,
@@ -109,7 +109,7 @@ pub fn load_skills(options: &SkillLoadOptions) -> SkillLoadResult {
         // harnesses. Unlike the built-in locations, root Markdown files in
         // these directories are not skills; skills are declared by SKILL.md
         // files or Markdown files below a grouping directory.
-        if let Some(directory) = paths::agents_skills_dir() {
+        if let Some(directory) = config::agents_skills_dir() {
             load_skills_from_dir_with_root_files(
                 &directory,
                 false,
@@ -467,7 +467,7 @@ fn project_agents_skills_dirs(cwd: &Path) -> Vec<PathBuf> {
     let git_root = find_git_root(&directory);
 
     loop {
-        directories.push(paths::project_agents_skills_dir(&directory));
+        directories.push(config::project_agents_skills_dir(&directory));
 
         if git_root.as_ref().is_some_and(|root| root == &directory) {
             break;

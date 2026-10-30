@@ -5,15 +5,12 @@ use std::io::Write;
 use serde_json::json;
 
 use super::{
+    error::InternalToolError,
     limits::{run_blocking, truncate_utf8},
     paths::resolve_path,
-    types::{Tool, ToolOutputSink},
+    types::{AsyncToolExecutionResult, Tool, ToolExecutionResult, ToolOutputSink},
 };
-use crate::agent::tools::{
-    WriteToolConfig,
-    error::InternalToolError,
-    types::{AsyncToolExecutionResult, ToolExecutionResult},
-};
+use crate::config::WriteToolConfig;
 
 /// File writing tool.
 ///

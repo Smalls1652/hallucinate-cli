@@ -258,7 +258,7 @@ fn display_tool_path(
     path: &str,
     cwd: &Path,
 ) -> String {
-    let displayed = crate::config::paths::display_path(path, cwd);
+    let displayed = crate::config::display_path(path, cwd);
 
     if (path.ends_with('/') || path.ends_with('\\'))
         && displayed != "."

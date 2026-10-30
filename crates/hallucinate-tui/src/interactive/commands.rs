@@ -320,10 +320,7 @@ impl InteractiveTui {
                         session.title.as_deref().unwrap_or("untitled"),
                         session.message_count,
                         self.token_count,
-                        hallucinate_agent::config::paths::display_path(
-                            &session.cwd,
-                            &self.project_cwd
-                        ),
+                        hallucinate_agent::config::display_path(&session.cwd, &self.project_cwd),
                         session.parent_session_id.as_deref().unwrap_or("none")
                     ));
                 }
@@ -404,7 +401,7 @@ impl InteractiveTui {
                     .map(|diagnostic| {
                         format!(
                             "Warning: could not load prompt template {}: {}",
-                            hallucinate_agent::config::paths::display_path(
+                            hallucinate_agent::config::display_path(
                                 &diagnostic.path,
                                 &self.project_cwd,
                             ),

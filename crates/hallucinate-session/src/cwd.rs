@@ -5,8 +5,6 @@
 
 use std::{fs, path::PathBuf};
 
-use hallucinate_agent::config::paths;
-
 /// Session working directory metadata stored alongside the session file.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionCwd {
@@ -59,7 +57,7 @@ fn cwd_file_path(session_id: &str) -> PathBuf {
         })
         .collect();
 
-    if let Some(sessions_dir) = paths::sessions_dir() {
+    if let Some(sessions_dir) = hallucinate_agent::config::sessions_dir() {
         sessions_dir.join(format!("{}.cwd.json", safe_id))
     } else {
         PathBuf::from(format!("/tmp/session-{}.cwd.json", safe_id))

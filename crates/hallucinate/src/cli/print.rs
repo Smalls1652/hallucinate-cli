@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use clap::{ArgAction, Args};
 use hallucinate_agent::{
     ai::types::{AssistantContent, Context, Message, ReasoningEffort, StreamOptions, UserMessage},
-    config::settings::Settings,
+    config::Settings,
 };
 use hallucinate_tui::components::markdown_to_ansi;
 

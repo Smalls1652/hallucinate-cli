@@ -5,7 +5,7 @@
 //! terminal setup.
 
 use anyhow::{Context, Result};
-use hallucinate_agent::{agent::runtime::Agent, config::settings::Settings};
+use hallucinate_agent::{agent::runtime::Agent, config::Settings};
 use hallucinate_session::SessionManager;
 use hallucinate_tui::interactive::InteractiveTui;
 
@@ -16,7 +16,7 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
     let settings = &Settings::load()?;
 
     // Ensure directories exist
-    hallucinate_agent::config::paths::ensure_directories()?;
+    hallucinate_agent::config::ensure_directories()?;
     let discarded_sessions = SessionManager::discard_historical_empty_sessions()?;
     if discarded_sessions > 0 {
         tracing::debug!(discarded_sessions, "discarded historical empty sessions");
@@ -52,7 +52,7 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
     for diagnostic in &skills.diagnostics {
         eprintln!(
             "Warning: could not load skill {}: {}",
-            hallucinate_agent::config::paths::display_path(&diagnostic.path, &cwd),
+            hallucinate_agent::config::display_path(&diagnostic.path, &cwd),
             diagnostic.message
         );
     }
@@ -70,7 +70,7 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
     for diagnostic in &prompt_templates.diagnostics {
         eprintln!(
             "Warning: could not load prompt template {}: {}",
-            hallucinate_agent::config::paths::display_path(&diagnostic.path, &cwd),
+            hallucinate_agent::config::display_path(&diagnostic.path, &cwd),
             diagnostic.message
         );
     }
@@ -97,7 +97,7 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
     for diagnostic in script_tools.diagnostics {
         eprintln!(
             "Warning: could not load script tool {}: {}",
-            hallucinate_agent::config::paths::display_path(&diagnostic.path, &cwd),
+            hallucinate_agent::config::display_path(&diagnostic.path, &cwd),
             diagnostic.message
         );
     }

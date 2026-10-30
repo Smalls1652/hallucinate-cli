@@ -5,10 +5,10 @@ use serde_json::json;
 use super::{
     limits::{MAX_REQUESTED_RESULTS, parse_bounded_usize, run_blocking},
     paths::resolve_path,
-    types::Tool,
+    types::{AsyncToolExecutionResult, Tool},
     walker::{WalkControl, walk_entries},
 };
-use crate::agent::tools::{LsToolConfig, types::AsyncToolExecutionResult};
+use crate::config::LsToolConfig;
 
 /// Directory listing tool.
 #[derive(Debug, Clone)]
@@ -72,7 +72,7 @@ impl Tool for LsTool {
                 cwd,
             );
 
-            let display_path = crate::config::paths::display_path(&path, cwd.unwrap_or("."));
+            let display_path = crate::config::display_path(&path, cwd.unwrap_or("."));
 
             let recursive = arguments
                 .get("recursive")
@@ -166,7 +166,7 @@ fn format_entry(
     Ok(format!(
         "{entry_type:<6} {:>10} {}",
         format_size(metadata.len()),
-        crate::config::paths::display_path(path, cwd),
+        crate::config::display_path(path, cwd),
     ))
 }
 

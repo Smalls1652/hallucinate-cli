@@ -9,16 +9,13 @@ use std::{
 use serde_json::json;
 
 use super::{
+    error::InternalToolError,
     limits::{MAX_REQUESTED_RESULTS, parse_bounded_usize, run_blocking},
     paths::resolve_path,
-    types::Tool,
+    types::{AsyncToolExecutionResult, Tool},
     walker::{WalkControl, walk_matching_files},
 };
-use crate::agent::tools::{
-    GrepToolConfig,
-    error::InternalToolError,
-    types::AsyncToolExecutionResult,
-};
+use crate::config::GrepToolConfig;
 
 /// Pattern-based file content search tool.
 #[derive(Debug, Clone)]
@@ -255,7 +252,7 @@ fn scan_file(
         if regex.is_match(line) {
             let matched_line = format!(
                 "{}:{line_number}: {}",
-                crate::config::paths::display_path(path, project_dir),
+                crate::config::display_path(path, project_dir),
                 line.trim(),
             );
 

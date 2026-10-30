@@ -3,16 +3,13 @@
 use serde_json::json;
 
 use super::{
+    error::InternalToolError,
     limits::{MAX_REQUESTED_RESULTS, parse_bounded_usize, run_blocking},
     paths::resolve_path,
-    types::Tool,
+    types::{AsyncToolExecutionResult, Tool},
     walker::{WalkControl, walk_matching_files},
 };
-use crate::agent::tools::{
-    FindToolConfig,
-    error::InternalToolError,
-    types::AsyncToolExecutionResult,
-};
+use crate::config::FindToolConfig;
 
 /// Glob-based file search tool.
 #[derive(Debug, Clone)]
@@ -111,7 +108,7 @@ impl Tool for FindTool {
                             return WalkControl::Stop;
                         }
 
-                        matches.push(crate::config::paths::display_path(&path, &project_dir));
+                        matches.push(crate::config::display_path(&path, &project_dir));
 
                         if matches.len() >= max_results {
                             WalkControl::Stop

@@ -3,7 +3,6 @@
 use std::{fs::OpenOptions, path::PathBuf};
 
 use anyhow::Context;
-use hallucinate_agent::config::paths;
 use tracing_subscriber::{EnvFilter, fmt};
 
 /// Initialize structured logging to the debug log file.
@@ -11,7 +10,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 /// The `RUST_LOG` environment variable controls the filter. Without it,
 /// hallucinate debug events are recorded while dependency logs are omitted.
 pub fn init_debug_logging() -> Result<Option<PathBuf>, anyhow::Error> {
-    let Some(path) = paths::debug_log_file() else {
+    let Some(path) = hallucinate_agent::config::debug_log_file() else {
         return Ok(None);
     };
 
@@ -22,7 +21,7 @@ pub fn init_debug_logging() -> Result<Option<PathBuf>, anyhow::Error> {
     std::fs::create_dir_all(parent).with_context(|| {
         format!(
             "failed to create debug log directory {}",
-            hallucinate_agent::config::paths::display_path(parent, ".")
+            hallucinate_agent::config::display_path(parent, ".")
         )
     })?;
 
@@ -33,7 +32,7 @@ pub fn init_debug_logging() -> Result<Option<PathBuf>, anyhow::Error> {
         .with_context(|| {
             format!(
                 "failed to open debug log file {}",
-                hallucinate_agent::config::paths::display_path(&path, ".")
+                hallucinate_agent::config::display_path(&path, ".")
             )
         })?;
 

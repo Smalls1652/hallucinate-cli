@@ -11,7 +11,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
 
     // Ensure directories exist
-    hallucinate_agent::config::paths::ensure_directories()?;
+    hallucinate_agent::config::ensure_directories()?;
 
     if cli.debug
         && let Some(path) = hallucinate::logging::init_debug_logging()?
@@ -19,7 +19,7 @@ async fn main() -> Result<(), anyhow::Error> {
         let project_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         eprintln!(
             "Debug logging enabled: {}",
-            hallucinate_agent::config::paths::display_path(path, &project_dir)
+            hallucinate_agent::config::display_path(path, &project_dir)
         );
     }
 

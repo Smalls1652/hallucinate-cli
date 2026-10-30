@@ -10,7 +10,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use hallucinate_agent::{ai::types::Message, config::paths};
+use hallucinate_agent::ai::types::Message;
 
 /// A line in a session JSONL file.
 #[derive(Debug, Clone)]
@@ -187,7 +187,7 @@ pub struct SessionStorage {
 impl SessionStorage {
     /// Create a new session storage for the given session ID.
     pub fn new(session_id: &str) -> Self {
-        let path = paths::session_file(session_id)
+        let path = hallucinate_agent::config::session_file(session_id)
             .unwrap_or_else(|| PathBuf::from(format!("/tmp/session-{}.jsonl", session_id)));
 
         Self { path }
@@ -385,7 +385,7 @@ impl SessionStorage {
             let line = line.map_err(|error| {
                 anyhow::anyhow!(
                     "failed reading session {} at line {}: {}",
-                    hallucinate_agent::config::paths::display_path(&self.path, "."),
+                    hallucinate_agent::config::display_path(&self.path, "."),
                     line_number,
                     error
                 )
@@ -398,7 +398,7 @@ impl SessionStorage {
             let entry = SessionEntry::from_json(&line).map_err(|error| {
                 anyhow::anyhow!(
                     "invalid session entry in {} at line {}: {}",
-                    hallucinate_agent::config::paths::display_path(&self.path, "."),
+                    hallucinate_agent::config::display_path(&self.path, "."),
                     line_number,
                     error
                 )
@@ -425,7 +425,7 @@ impl SessionStorage {
 pub fn list_sessions() -> Result<Vec<SessionInfo>, anyhow::Error> {
     let mut sessions = Vec::new();
 
-    if let Some(sessions_dir) = paths::sessions_dir() {
+    if let Some(sessions_dir) = hallucinate_agent::config::sessions_dir() {
         if !sessions_dir.exists() {
             return Ok(sessions);
         }

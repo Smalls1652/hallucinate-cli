@@ -940,7 +940,7 @@ fn streamed_tool_call_summary(
             partial_json_string_value(arguments, "path").map(|path| {
                 format!(
                     "{tool_name} {}",
-                    hallucinate_agent::config::paths::display_path(&path, cwd)
+                    hallucinate_agent::config::display_path(&path, cwd)
                 )
             })
         },

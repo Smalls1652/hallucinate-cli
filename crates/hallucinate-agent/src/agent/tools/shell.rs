@@ -5,16 +5,13 @@ use std::path::PathBuf;
 use serde_json::json;
 
 use super::{
-    limits::truncate_utf8,
-    types::{Tool, ToolOutputSink},
-};
-use crate::agent::tools::{
-    ShellToolConfig,
     ToolResult,
     error::InternalToolError,
+    limits::truncate_utf8,
     shell_exec::run_shell_command,
-    types::{AsyncToolExecutionResult, ToolExecutionResult},
+    types::{AsyncToolExecutionResult, Tool, ToolExecutionResult, ToolOutputSink},
 };
+use crate::config::ShellToolConfig;
 
 /// Shell command execution tool.
 #[derive(Debug, Clone)]

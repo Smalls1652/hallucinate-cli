@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::config::paths;
+use crate::config;
 
 /// Default system prompt template for agents with configured tools.
 const DEFAULT_SYSTEM_PROMPT: &str = r#"You are an expert assistant operating inside hallucinate, an agent harness, running on {{ operating_system }}. You help users by reading files, executing commands, editing code, and writing new files. The current date is `{{ current_date }}`.
@@ -62,9 +62,9 @@ pub struct SystemPromptFiles {
 /// Return the system-prompt files found for a project directory.
 pub fn prompt_file_paths(cwd: impl AsRef<Path>) -> SystemPromptFiles {
     SystemPromptFiles {
-        system_prompt: paths::system_prompt_file().filter(|path| path.is_file()),
+        system_prompt: config::system_prompt_file().filter(|path| path.is_file()),
         agents: {
-            let path = paths::project_agents_file(cwd);
+            let path = config::project_agents_file(cwd);
             path.is_file().then_some(path)
         },
     }
@@ -82,7 +82,7 @@ pub fn build_system_prompt(
     cwd: Option<&Path>,
     has_tools: bool,
 ) -> String {
-    let global_prompt = paths::system_prompt_file().and_then(|path| fs::read_to_string(path).ok());
+    let global_prompt = config::system_prompt_file().and_then(|path| fs::read_to_string(path).ok());
 
     let default_prompt = if has_tools {
         DEFAULT_SYSTEM_PROMPT
@@ -177,7 +177,7 @@ mod tests {
 
         // This assertion remains valid even when a user-installed SYSTEM.md
         // overrides the default prompt on the test machine.
-        if paths::system_prompt_file().is_none_or(|path| !path.is_file()) {
+        if config::system_prompt_file().is_none_or(|path| !path.is_file()) {
             let prompt = build_system_prompt(None, None, false);
             assert_eq!(prompt, LIGHTWEIGHT_DEFAULT_SYSTEM_PROMPT);
             assert!(!prompt.contains("Use `shell`"));

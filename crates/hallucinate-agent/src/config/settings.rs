@@ -13,17 +13,8 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use super::tools::ToolSettings;
 use crate::{
-    agent::tools::{
-        BuiltInTool,
-        EditToolConfig,
-        FindToolConfig,
-        GrepToolConfig,
-        LsToolConfig,
-        ReadToolConfig,
-        ShellToolConfig,
-        WriteToolConfig,
-    },
     ai::{
         auth::{
             get_stored_credential,
@@ -201,90 +192,6 @@ impl Default for SessionTitleSettings {
     }
 }
 
-/// Settings for the built-in tools.
-#[cfg_attr(
-    not(feature = "schemas"),
-    derive(Debug, Clone, Default, Serialize, Deserialize)
-)]
-#[cfg_attr(
-    feature = "schemas",
-    derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)
-)]
-#[serde(default)]
-pub struct BuiltInToolSettings {
-    /// Settings for the shell tool.
-    pub shell: ShellToolConfig,
-
-    /// Settings for the edit tool.
-    pub edit: EditToolConfig,
-
-    /// Settings for the find tool.
-    pub find: FindToolConfig,
-
-    /// Settings for the grep tool.
-    pub grep: GrepToolConfig,
-
-    /// Settings for the ls tool.
-    pub ls: LsToolConfig,
-
-    /// Settings for the read tool.
-    pub read: ReadToolConfig,
-
-    /// Settings for the write tool.
-    pub write: WriteToolConfig,
-}
-
-impl BuiltInToolSettings {
-    /// Create a [`Vec<BuiltInTool>`] for built-in tools.
-    pub fn to_tool_list(&self) -> Vec<BuiltInTool> {
-        let mut tool_list = vec![];
-
-        tool_list.push(BuiltInTool::Shell(self.shell.clone()));
-        tool_list.push(BuiltInTool::Edit(self.edit.clone()));
-        tool_list.push(BuiltInTool::Find(self.find.clone()));
-        tool_list.push(BuiltInTool::Grep(self.grep.clone()));
-        tool_list.push(BuiltInTool::Ls(self.ls.clone()));
-        tool_list.push(BuiltInTool::Read(self.read.clone()));
-        tool_list.push(BuiltInTool::Write(self.write.clone()));
-
-        tool_list
-    }
-}
-
-/// Settings for managing tools.
-#[cfg_attr(not(feature = "schemas"), derive(Debug, Clone, Serialize, Deserialize))]
-#[cfg_attr(
-    feature = "schemas",
-    derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)
-)]
-#[serde(default)]
-pub struct ToolSettings {
-    /// Enable tool use by default.
-    pub enable_tools: bool,
-
-    /// Disable tools by name.
-    pub disable_tools: Vec<String>,
-
-    /// Config settings for built-in tools.
-    pub builtin: BuiltInToolSettings,
-
-    /// MCP servers whose stdio tools are exposed to the agent. Each map key
-    /// identifies a server and becomes part of its qualified tool names.
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub mcp_servers: HashMap<String, crate::agent::tools::mcp::McpServerSettings>,
-}
-
-impl Default for ToolSettings {
-    fn default() -> Self {
-        Self {
-            enable_tools: true,
-            disable_tools: vec![],
-            builtin: BuiltInToolSettings::default(),
-            mcp_servers: HashMap::new(),
-        }
-    }
-}
-
 /// Application-wide settings.
 #[cfg_attr(not(feature = "schemas"), derive(Debug, Clone, Serialize, Deserialize))]
 #[cfg_attr(
@@ -375,100 +282,6 @@ impl Default for Settings {
             project_override_loaded: false,
         }
     }
-}
-
-/// Generate a unique temporary file suffix using PID and nanosecond timestamp.
-fn temporary_suffix() -> String {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_nanos());
-
-    format!("{}-{}", std::process::id(), timestamp)
-}
-
-/// Set file permissions to owner-only (0o600) on Unix systems.
-///
-/// On non-Unix platforms this is a no-op.
-fn set_owner_only_permissions(path: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    }
-
-    Ok(())
-}
-
-/// Return whether session-title settings are their default values.
-fn session_title_settings_is_default(settings: &SessionTitleSettings) -> bool {
-    settings.enabled == true
-        && settings.model.is_none()
-        && settings.generation_mode == SessionTitleGenerationMode::default()
-}
-
-/// Merge a settings file into an already parsed TOML table.
-fn merge_settings_file(
-    merged: &mut toml::Table,
-    path: &Path,
-) -> Result<(), ConfigError> {
-    if !path.exists() {
-        return Ok(());
-    }
-
-    let content = fs::read_to_string(path)?;
-
-    let value: toml::Value = toml::from_str(&content)
-        .map_err(|error| ConfigError::SettingsParseFailure(path.to_path_buf(), error))?;
-
-    let toml::Value::Table(table) = value else {
-        return Err(ConfigError::NoTomlTable(path.to_path_buf()));
-    };
-
-    merge_toml_tables(merged, table);
-
-    Ok(())
-}
-
-/// Recursively merge TOML tables, overlaying values from `overlay` into `base`.
-///
-/// Nested tables are merged recursively while scalar values and arrays are
-/// replaced entirely.
-fn merge_toml_tables(
-    base: &mut toml::Table,
-    overlay: toml::Table,
-) {
-    for (key, value) in overlay {
-        if let Some(toml::Value::Table(base_table)) = base.get_mut(&key)
-            && let toml::Value::Table(overlay_table) = value
-        {
-            merge_toml_tables(base_table, overlay_table);
-        } else {
-            base.insert(key, value);
-        }
-    }
-}
-
-/// Deserialize a merged TOML table into application settings.
-///
-/// An empty table returns the default settings rather than attempting
-/// deserialization.
-fn deserialize_settings(merged: toml::Table) -> Result<Settings, ConfigError> {
-    if merged.is_empty() {
-        return Ok(Settings::default());
-    }
-
-    toml::Value::Table(merged)
-        .try_into()
-        .map_err(|error| ConfigError::MergedSettingsParseFailure(error))
-}
-
-/// Initialize the process-wide platform keyring when it has not been set.
-fn initialize_platform_keyring() -> Result<(), ConfigError> {
-    if keyring_core::get_default_store().is_none() {
-        set_platform_keyring()?;
-    }
-
-    Ok(())
 }
 
 impl Settings {
@@ -816,247 +629,96 @@ impl Settings {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::agent::tools::*;
+/// Generate a unique temporary file suffix using PID and nanosecond timestamp.
+pub(super) fn temporary_suffix() -> String {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
 
-    #[test]
-    fn settings_load_from_toml() {
-        let settings: Settings = toml::from_str(
-            r#"
-            default_model = "example/model"
-            provider = "example"
-            base_url = "https://example.test/v1"
-            timeout_ms = 30_000
-            max_retries = 2
-            max_turns = 5
-            enable_tools = false
-            enable_compaction = false
-            max_concurrent_tool_calls = 2
-            show_thinking = true
-            temperature = 0.2
-            max_tokens = 256
+    format!("{}-{}", std::process::id(), timestamp)
+}
 
-            [session_title]
-            enabled = true
-            model = "example/title-model"
-            generation_mode = "before"
-
-            [provider_headers]
-            x-test = "enabled"
-            "#,
-        )
-        .unwrap();
-
-        assert_eq!(settings.default_model.as_deref(), Some("example/model"));
-        assert_eq!(
-            settings.base_url.as_deref(),
-            Some("https://example.test/v1")
-        );
-        assert!(settings.tools.mcp_servers.is_empty());
-        assert_eq!(settings.timeout_ms, 30_000);
-        assert_eq!(settings.temperature, Some(0.2));
-        assert!(settings.show_thinking);
-        assert_eq!(settings.max_concurrent_tool_calls, 2);
-        assert_eq!(settings.max_tokens, Some(256));
-        assert!(settings.session_title.enabled);
-        assert_eq!(
-            settings.session_title.model.as_deref(),
-            Some("example/title-model")
-        );
-        assert_eq!(
-            settings.session_title.generation_mode,
-            SessionTitleGenerationMode::Before
-        );
-        assert_eq!(
-            settings.provider_headers.get("x-test"),
-            Some(&"enabled".to_string())
-        );
-        assert!(settings.resolve_api_key(None).is_none());
+/// Set file permissions to owner-only (0o600) on Unix systems.
+///
+/// On non-Unix platforms this is a no-op.
+fn set_owner_only_permissions(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
 
-    #[test]
-    fn no_provider_configuration_is_rejected() {
-        let error = Settings::default()
-            .require_configured_providers()
-            .unwrap_err();
-        assert!(error.to_string().contains("No providers configured"));
+    Ok(())
+}
 
-        let mut settings = Settings::default();
-        settings
-            .providers
-            .insert("local".to_string(), Default::default());
-        assert!(settings.require_configured_providers().is_ok());
+/// Return whether session-title settings are their default values.
+fn session_title_settings_is_default(settings: &SessionTitleSettings) -> bool {
+    settings.enabled == true
+        && settings.model.is_none()
+        && settings.generation_mode == SessionTitleGenerationMode::default()
+}
+
+/// Merge a settings file into an already parsed TOML table.
+pub(super) fn merge_settings_file(
+    merged: &mut toml::Table,
+    path: &Path,
+) -> Result<(), ConfigError> {
+    if !path.exists() {
+        return Ok(());
     }
 
-    #[test]
-    fn saving_settings_does_not_serialize_credentials() {
-        let path = std::env::temp_dir().join(format!(
-            "hallucinate-settings-test-{}-{}.toml",
-            std::process::id(),
-            temporary_suffix()
-        ));
+    let content = fs::read_to_string(path)?;
 
-        Settings::default().save_to(&path).unwrap();
-        let content = fs::read_to_string(&path).unwrap();
+    let value: toml::Value = toml::from_str(&content)
+        .map_err(|error| ConfigError::SettingsParseFailure(path.to_path_buf(), error))?;
 
-        assert!(!content.contains("credential_store"));
+    let toml::Value::Table(table) = value else {
+        return Err(ConfigError::NoTomlTable(path.to_path_buf()));
+    };
 
-        let _ = fs::remove_file(path);
+    merge_toml_tables(merged, table);
+
+    Ok(())
+}
+
+/// Recursively merge TOML tables, overlaying values from `overlay` into `base`.
+///
+/// Nested tables are merged recursively while scalar values and arrays are
+/// replaced entirely.
+fn merge_toml_tables(
+    base: &mut toml::Table,
+    overlay: toml::Table,
+) {
+    for (key, value) in overlay {
+        if let Some(toml::Value::Table(base_table)) = base.get_mut(&key)
+            && let toml::Value::Table(overlay_table) = value
+        {
+            merge_toml_tables(base_table, overlay_table);
+        } else {
+            base.insert(key, value);
+        }
+    }
+}
+
+/// Deserialize a merged TOML table into application settings.
+///
+/// An empty table returns the default settings rather than attempting
+/// deserialization.
+fn deserialize_settings(merged: toml::Table) -> Result<Settings, ConfigError> {
+    if merged.is_empty() {
+        return Ok(Settings::default());
     }
 
-    #[test]
-    fn project_settings_merge_without_replacing_nested_global_settings() {
-        let directory = std::env::temp_dir().join(format!(
-            "hallucinate-settings-merge-{}-{}",
-            std::process::id(),
-            temporary_suffix()
-        ));
+    toml::Value::Table(merged)
+        .try_into()
+        .map_err(|error| ConfigError::MergedSettingsParseFailure(error))
+}
 
-        let project_directory = directory.join("project");
-        fs::create_dir_all(project_directory.join(".hallucinate")).unwrap();
-
-        let global_path = directory.join("global-settings.toml");
-        let project_path = project_directory.join(".hallucinate/settings.toml");
-        fs::write(
-            &global_path,
-            r#"
-            provider = "openai"
-            timeout_ms = 30_000
-
-            [providers.openai]
-            base_url = "https://example.test/v1"
-
-            [providers.openai.models.example]
-            context_window = 32_768
-            "#,
-        )
-        .unwrap();
-
-        fs::write(
-            &project_path,
-            r#"
-            default_model = "openai/example"
-            timeout_ms = 5_000
-
-            [providers.openai]
-            headers = { x-project = "enabled" }
-            "#,
-        )
-        .unwrap();
-
-        let mut merged = toml::Table::new();
-        merge_settings_file(&mut merged, &global_path).unwrap();
-        merge_settings_file(&mut merged, &project_path).unwrap();
-
-        let settings: Settings = toml::Value::Table(merged).try_into().unwrap();
-
-        assert_eq!(settings.default_model.as_deref(), Some("openai/example"));
-        assert_eq!(settings.timeout_ms, 5_000);
-
-        let provider = settings.providers.get("openai").unwrap();
-
-        assert_eq!(
-            provider.base_url.as_deref(),
-            Some("https://example.test/v1")
-        );
-        assert_eq!(
-            provider.headers.get("x-project"),
-            Some(&"enabled".to_string())
-        );
-        assert!(provider.models.contains_key("example"));
-
-        let _ = fs::remove_dir_all(directory);
+/// Initialize the process-wide platform keyring when it has not been set.
+fn initialize_platform_keyring() -> Result<(), ConfigError> {
+    if keyring_core::get_default_store().is_none() {
+        set_platform_keyring()?;
     }
 
-    #[test]
-    fn models_are_loaded_grouped_by_provider() {
-        let settings: Settings = toml::from_str(
-            r#"
-            default_model = "local/llama-3"
-
-            [providers.local]
-            base_url = "http://localhost:1234/v1"
-
-            [providers.local.models.llama-3]
-            name = "Llama 3"
-            api = "openai-responses"
-            reasoning = true
-            supports_reasoning_effort = true
-            input = ["text", "image"]
-            context_window = 32768
-            max_tokens = 4096
-
-            [providers.local.models.llama-3.cost]
-            input = 0.1
-            output = 0.2
-            "#,
-        )
-        .unwrap();
-
-        let model = settings.find_configured_model("local/llama-3").unwrap();
-
-        assert_eq!(model.provider, "local");
-        assert_eq!(model.base_url, "http://localhost:1234/v1");
-        assert_eq!(model.name, "Llama 3");
-        assert_eq!(model.api, Api::OpenaiResponses);
-        assert!(model.reasoning);
-        assert!(model.supports_reasoning_effort);
-        assert_eq!(model.input, vec!["text", "image"]);
-        assert_eq!(model.context_window, 32_768);
-        assert_eq!(model.max_tokens, 4096);
-        assert_eq!(model.cost.input, 0.1);
-        assert_eq!(model.cost.output, 0.2);
-    }
-
-    #[test]
-    fn model_cost_is_optional_and_omitted_when_saving() {
-        let settings: Settings = toml::from_str(
-            r#"
-            [providers.local.models.llama-3]
-            "#,
-        )
-        .unwrap();
-
-        let model = settings.find_configured_model("local/llama-3").unwrap();
-        assert_eq!(model.cost.input, 0.0);
-        assert_eq!(model.cost.output, 0.0);
-
-        let serialized = toml::to_string(&settings).unwrap();
-        assert!(!serialized.contains("cost"));
-    }
-
-    #[test]
-    fn builtin_tool_config_implies_defaults() {
-        let settings: Settings = toml::from_str(
-            r#"
-            [tools.builtin.shell]
-            timeout = 3_600
-
-            [tools.builtin.read]
-            max_text_file_bytes = 1_000
-            "#,
-        )
-        .unwrap();
-
-        assert_ne!(
-            settings.tools.builtin.shell.timeout,
-            DEFAULT_SHELL_COMMAND_TIMEOUT
-        );
-        assert_eq!(
-            settings.tools.builtin.shell.max_tool_result_bytes,
-            DEFAULT_MAX_TOOL_RESULT_BYTES
-        );
-
-        assert_eq!(settings.tools.builtin.read.auto_resize_images, true);
-        assert_ne!(
-            settings.tools.builtin.read.max_text_file_bytes,
-            DEFAULT_MAX_TEXT_FILE_BYTES
-        );
-        assert_eq!(
-            settings.tools.builtin.read.max_image_source_bytes,
-            DEFAULT_MAX_IMAGE_SOURCE_BYTES
-        );
-    }
+    Ok(())
 }

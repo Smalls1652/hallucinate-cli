@@ -2,7 +2,7 @@
 
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
-use hallucinate_agent::config::settings::Settings;
+use hallucinate_agent::config::Settings;
 
 use crate::cli::SubcommandHandler;
 

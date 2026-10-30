@@ -7,7 +7,7 @@ use std::{
 
 #[cfg(not(target_os = "macos"))]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use hallucinate_agent::{ai::types::Message, config::settings::SessionTitleGenerationMode};
+use hallucinate_agent::{ai::types::Message, config::SessionTitleGenerationMode};
 use ratatui::crossterm;
 
 use super::{AgentRunCompletion, AutocompleteItem, ChatSelection, InteractiveTui};
@@ -837,8 +837,8 @@ impl InteractiveTui {
 
 /// Resolve the model used for a session-title request.
 fn resolve_title_model(
-    title_settings: &hallucinate_agent::config::settings::SessionTitleSettings,
-    settings: &hallucinate_agent::config::settings::Settings,
+    title_settings: &hallucinate_agent::config::SessionTitleSettings,
+    settings: &hallucinate_agent::config::Settings,
     runtime_overrides: &hallucinate_agent::config::RuntimeOverrides,
     conversation_model: &hallucinate_agent::ai::types::Model,
 ) -> Result<hallucinate_agent::ai::types::Model, anyhow::Error> {

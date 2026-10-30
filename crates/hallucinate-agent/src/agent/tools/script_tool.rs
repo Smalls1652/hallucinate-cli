@@ -12,12 +12,11 @@ use serde_json::{Map, Value, json};
 use super::types::{Tool, ToolOutputSink, ToolResult};
 use crate::{
     agent::tools::{
-        DEFAULT_MAX_TOOL_RESULT_BYTES,
         error::{InternalToolError, ScriptToolDefinitionError},
         shell_exec::run_shell_command,
         types::{AsyncToolExecutionResult, ToolExecutionResult},
     },
-    config::paths,
+    config::{self, DEFAULT_MAX_TOOL_RESULT_BYTES},
 };
 
 /// A definition file which could not be loaded.
@@ -404,8 +403,8 @@ pub fn load_script_tools(
 ) -> ScriptToolLoadResult {
     let mut result = ScriptToolLoadResult::default();
 
-    let mut directories = paths::script_tools_dir().into_iter().collect::<Vec<_>>();
-    directories.push(paths::project_script_tools_dir(cwd));
+    let mut directories = config::script_tools_dir().into_iter().collect::<Vec<_>>();
+    directories.push(config::project_script_tools_dir(cwd));
 
     let mut positions = HashMap::new();
 

@@ -16,10 +16,7 @@ use hallucinate_agent::{
         runtime::Agent,
         types::{AgentCancellation, AgentEvent, AgentState},
     },
-    config::{
-        RuntimeOverrides,
-        settings::{SessionTitleSettings, Settings},
-    },
+    config::{RuntimeOverrides, SessionTitleSettings, Settings},
 };
 use hallucinate_session::manager::SessionManager;
 use ratatui::{Terminal, backend::CrosstermBackend, crossterm, layout::Rect};
@@ -569,10 +566,10 @@ impl InteractiveTui {
             let context_paths = [
                 files
                     .system_prompt
-                    .map(|path| hallucinate_agent::config::paths::display_path(path, &cwd)),
+                    .map(|path| hallucinate_agent::config::display_path(path, &cwd)),
                 files
                     .agents
-                    .map(|path| hallucinate_agent::config::paths::display_path(path, &cwd)),
+                    .map(|path| hallucinate_agent::config::display_path(path, &cwd)),
             ]
             .into_iter()
             .flatten()
