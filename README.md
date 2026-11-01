@@ -24,13 +24,25 @@ An LLM terminal agent harness. A lot like [pi](https://github.com/earendil-works
 ### From registry
 
 ```bash
-cargo install --index "sparse+https://git.smalls.online/api/packages/smalls/cargo/" hallucinate
+cargo install --locked --index "sparse+https://git.smalls.online/api/packages/smalls/cargo/" hallucinate
+```
+
+### From git
+
+```bash
+cargo install --locked --git "https://git.smalls.online/smalls/hallucinate-cli.git" hallucinate
+```
+
+Or from the GitHub mirror:
+
+```bash
+cargo install --locked --git "https://github.com/Smalls1652/hallucinate-cli.git" hallucinate
 ```
 
 ### From source
 
 ```bash
-cargo install --path ./crates/hallucinate
+cargo install --locked --path ./crates/hallucinate hallucinate
 ```
 
 ### Build manually
