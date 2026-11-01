@@ -2,11 +2,13 @@
 debug/
 target/
 artifacts/
-#Cargo.lock
 
 # macOS files
 .DS_Store
 
-run_dev.sh
-
+# Local files
+.local/
 plans/
+
+# Misc. files
+.claude/
