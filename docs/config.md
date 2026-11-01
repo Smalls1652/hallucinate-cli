@@ -1,109 +1,58 @@
 # Configuration Reference
 
-Complete reference for all configuration options in `hallucinate`.
+Complete reference for all configuration options for `hallucinate`.
 
 ## Overview
 
-`hallucinate` reads configuration from a **TOML** settings file and a set of environment variables. Provider credentials are stored in the operating system's secure credential store (keyring), not in the settings file.
+`hallucinate` reads configuration from a **TOML** settings file and a set of environment variables. Provider credentials are stored in the operating system's secure credential store (keyring).
+
+> [!NOTE]
+> Provider credentials *can* be added to the settings file; however, it is **strongly advised** to only use it as a last resort. There are some valid use-cases for setting them in the settings file, but it comes with the caveat that they are stored in plain text.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `default_model` | `string` | — | Default model selector (`provider/model`). |
-| `provider` | `string` | `"openai"` | Credential namespace for the default provider. |
-| `base_url` | `string` | — | Global API endpoint for the default provider. |
-| `timeout_ms` | `number` | `600000` | Request timeout in milliseconds. |
-| `max_retries` | `number` | `3` | Retries for transient LLM API failures. |
-| `max_turns` | `number` | `120` | Maximum conversation turns per prompt. |
-| `enable_tools` | `bool` | `true` | Enable tool use by default. |
-| `enable_compaction` | `bool` | `true` | Enable automatic context compaction. |
-| `max_concurrent_tool_calls` | `number` | `4` | Maximum independent tool calls running at once. |
-| `show_thinking` | `bool` | `false` | Show model reasoning output to the user. |
-| `temperature` | `number` | — | Default sampling temperature. |
-| `max_tokens` | `number` | — | Default maximum output tokens. |
-| `builtin_tools` | `table` | — | Per-tool configuration for built-in tools. |
-| `session_title.enabled` | `bool` | `true` | Generate a title from a session's first user message. |
-| `session_title.model` | `string` | Active model | Model selector used to generate session titles. |
-| `session_title.generation_mode` | `string` | `"parallel"` | Generate alongside (`parallel`) or before (`before`) the first response. |
-| `providers` | `table` | — | Multi-provider model definitions. |
-| `mcp_servers` | `table` | — | Local stdio or remote HTTP MCP servers whose discovered tools are added to the agent. |
-| `provider_headers` | `table` | — | Extra HTTP headers for the default provider. |
+| `base_url` | `string \| null` | — | Default base URL for the provider. |
+| `default_model` | `string \| null` | — | Default model to use. |
+| `enable_compaction` | `boolean` | `true` | Enable context compaction. |
+| `max_concurrent_tool_calls` | `integer` | `4` | Maximum number of independent tool calls to execute at once. |
+| `max_retries` | `integer` | `3` | Number of retries for transient LLM API failures. |
+| `max_tokens` | `integer \| null` | — | Default max tokens. |
+| `max_turns` | `integer` | `120` | Maximum number of turns. |
+| `provider` | `string` | `"openai"` | Credential namespace for the OpenAI-compatible provider (usually `"openai"`). |
+| `provider_headers` | `object` | — | Provider-specific headers for the default provider. |
+| `providers` | `object` | — | Providers and their models. |
+| `session_title` | `object` | — | Settings for generating a session title. |
+| `show_thinking` | `boolean` | `false` | Show model thinking/reasoning in user-facing output. |
+| `temperature` | `number \| null` | — | Default temperature. |
+| `timeout_ms` | `integer` | `600000` | Request timeout in milliseconds. |
+| `tools` | `object` | — | Settings for tools. |
 
 ## Settings File Location
 
 | Platform | Path |
 | --- | --- |
-| macOS | `~/Library/Application Support/com.hallucinate.hallucinate/settings.toml` |
+| macOS | `~/Library/Application Support/online.smalls.hallucinate/settings.toml` |
 | Linux | `~/.config/hallucinate/settings.toml` |
 | Windows | `%APPDATA%\com\hallucinate\hallucinate\settings.toml` |
 
 A **project-local override** may be placed at `.hallucinate/settings.toml` in the working directory. It is merged on top of the global file — nested tables are merged recursively, while scalar values and arrays are replaced entirely.
 
-## Provider Configuration
+## Global Settings
 
-Providers are defined under the `providers` section. Each provider groups a base URL, optional inline API key, custom headers, and a set of models.
+### `base_url`
+
+Default base URL for the provider.
 
 ```toml
-[providers.openai]
 base_url = "https://api.openai.com/v1"
-include_usage = true
-
-[providers.openai.models.gpt-4o]
-name = "GPT-4o"
-api = "openai-completions"
-reasoning = false
-supports_reasoning_effort = false
-input = ["text", "image"]
-context_window = 128000
-max_tokens = 16384
-
-[providers.openai.models.gpt-4o.cost]
-input = 2.50
-output = 10.00
 ```
-
-Cost configuration is optional. Omit the entire `cost` table for models whose pricing is unavailable; their usage cost is reported as zero.
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `base_url` | `string` | — | OpenAI-compatible endpoint for this provider. |
-| `api_key` | `string` | — | Inline API key (prefer the platform keyring or environment variables). |
-| `headers` | `table` | — | Additional HTTP headers sent with every request. |
-| `include_usage` | `bool` | — | Include `{ "stream_options": { "include_usage": value } }` in streaming requests. |
-| `models` | `table` | — | Models provided by this provider, keyed by model ID. |
-
-### Model-Level Fields
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `name` | `string` | Model ID | Human-readable model name. |
-| `api` | `string` | `"openai-completions"` | API variant: `openai-completions` or `openai-responses`. |
-| `base_url` | `string` | Provider URL | Per-model endpoint override. |
-| `reasoning` | `bool` | `false` | Whether the model supports reasoning/thinking output. |
-| `supports_reasoning_effort` | `bool` | `false` | Whether the model accepts the Responses API `reasoning.effort` option. |
-| `hidden` | `bool` | `false` | Hide the model from the interactive model picker. |
-| `input` | `array` | `["text"]` | Supported input modalities (e.g., `"text"`, `"image"`). |
-| `context_window` | `number` | `128000` | Maximum context window in tokens. |
-| `max_tokens` | `number` | `16384` | Maximum output tokens the model can produce. |
-| `cost.input` | `number` | `0` | Optional cost per million input tokens. |
-| `cost.output` | `number` | `0` | Optional cost per million output tokens. |
-| `cost.cache_read` | `number` | `0` | Optional cost per million cache read tokens. |
-| `cost.cache_write` | `number` | `0` | Optional cost per million cache write tokens. |
-
-### API Variants
-
-| Value | Description |
-| --- | --- |
-| `openai-completions` | Chat Completions wire format. |
-| `openai-responses` | Responses API wire format. |
-
-## Global Settings
 
 ### `default_model`
 
-Default model selector. Can be a bare model ID or `provider/model`.
+Default model to use. Can be a bare model ID or `provider/model`.
 
 ```toml
-default_model = "openai/gpt-4o"
+default_model = "openai/gpt-6-sol"
 ```
 
 ### `provider`
@@ -113,126 +62,6 @@ Credential namespace for the default provider. Used to resolve keys from the pla
 ```toml
 provider = "openai"
 ```
-
-### `base_url`
-
-Global API endpoint for the default provider. Provider-level `base_url` takes precedence when a model is selected from a different provider.
-
-```toml
-base_url = "https://api.openai.com/v1"
-```
-
-### `builtin_tools`
-
-Per-tool configuration for built-in tools. Each tool has an `enabled` flag and tool-specific options.
-
-```toml
-[builtin_tools]
-
-[builtin_tools.shell]
-enabled = true
-timeout = 60
-max_tool_result_bytes = 100000
-
-[builtin_tools.edit]
-enabled = true
-
-[builtin_tools.find]
-enabled = true
-max_results = 100
-max_files = 10000
-max_directory_entries = 20000
-
-[builtin_tools.grep]
-enabled = true
-max_results = 100
-max_files = 10000
-max_directory_entries = 20000
-max_file_scan_bytes = 1000000
-max_search_bytes = 20971520
-max_line_bytes = 65536
-max_tool_result_bytes = 100000
-
-[builtin_tools.ls]
-enabled = true
-max_results = 100
-max_files = 10000
-max_directory_entries = 20000
-
-[builtin_tools.read]
-enabled = true
-auto_resize_images = true
-max_text_file_bytes = 1000000
-max_image_source_bytes = 20971520
-
-[builtin_tools.write]
-enabled = true
-max_text_file_bytes = 1000000
-max_tool_result_bytes = 100000
-```
-
-#### Shell Tool
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | `bool` | `true` | Whether the tool is enabled. |
-| `shell` | `array` | `$SHELL` | Shell executable and arguments (e.g., `["/bin/bash", "-c"]`). |
-| `timeout` | `number` | `60` | Maximum execution timeout in seconds. |
-| `max_tool_result_bytes` | `number` | `100000` | Maximum bytes included in a returned tool result. |
-
-#### Edit Tool
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | `bool` | `true` | Whether the tool is enabled. |
-
-#### Find Tool
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | `bool` | `true` | Whether the tool is enabled. |
-| `max_results` | `number` | `100` | Maximum results to return. |
-| `max_files` | `number` | `10000` | Maximum files to consider. |
-| `max_directory_entries` | `number` | `20000` | Maximum directory entries to walk. |
-
-#### Grep Tool
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | `bool` | `true` | Whether the tool is enabled. |
-| `max_results` | `number` | `100` | Maximum results to return. |
-| `max_files` | `number` | `10000` | Maximum files to consider. |
-| `max_directory_entries` | `number` | `20000` | Maximum directory entries to walk. |
-| `max_file_scan_bytes` | `number` | `1000000` | Maximum bytes scanned from one grep candidate. |
-| `max_search_bytes` | `number` | `20971520` (20 MiB) | Maximum bytes scanned by one grep request. |
-| `max_line_bytes` | `number` | `65536` (64 KiB) | Maximum accepted line length while scanning grep candidates. |
-| `max_tool_result_bytes` | `number` | `100000` | Maximum bytes included in a returned tool result. |
-
-#### Ls Tool
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | `bool` | `true` | Whether the tool is enabled. |
-| `max_results` | `number` | `100` | Maximum results to return. |
-| `max_files` | `number` | `10000` | Maximum files to consider. |
-| `max_directory_entries` | `number` | `20000` | Maximum directory entries to walk. |
-
-#### Read Tool
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | `bool` | `true` | Whether the tool is enabled. |
-| `auto_resize_images` | `bool` | `true` | Automatically resize images when reading files. |
-| `max_text_file_bytes` | `number` | `1000000` (1 MiB) | Maximum number of bytes read from an ordinary text file. |
-| `max_image_source_bytes` | `number` | `20971520` (20 MiB) | Maximum source-image bytes accepted before decoding. |
-
-#### Write Tool
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | `bool` | `true` | Whether the tool is enabled. |
-| `max_text_file_bytes` | `number` | `1000000` (1 MiB) | Maximum number of bytes written to an ordinary text file. |
-| `max_tool_result_bytes` | `number` | `100000` | Maximum bytes included in a returned tool result. |
 
 ### `timeout_ms`
 
@@ -252,18 +81,10 @@ max_retries = 3
 
 ### `max_turns`
 
-Maximum number of conversation turns per prompt. The agent stops with an error when this limit is reached.
+Maximum number of consecutive agent turns in a row. The agent stops with an error when this limit is reached.
 
 ```toml
 max_turns = 120
-```
-
-### `enable_tools`
-
-Enable tool use by default. When disabled, the agent operates in text-only mode.
-
-```toml
-enable_tools = true
 ```
 
 ### `enable_compaction`
@@ -276,7 +97,7 @@ enable_compaction = true
 
 ### `max_concurrent_tool_calls`
 
-Maximum number of independent tool calls to run at once. Results remain in the model's original call order even when calls finish in a different order. Values less than one are treated as one.
+Maximum number of independent tool calls to execute at once. Values less than one are treated as one.
 
 ```toml
 max_concurrent_tool_calls = 4
@@ -284,10 +105,10 @@ max_concurrent_tool_calls = 4
 
 ### `show_thinking`
 
-Show model reasoning/thinking output in user-facing responses.
+Show model thinking/reasoning output in user-facing responses.
 
 ```toml
-show_thinking = true
+show_thinking = false
 ```
 
 ### `temperature`
@@ -306,90 +127,228 @@ Default maximum output tokens for LLM calls.
 max_tokens = 4096
 ```
 
-### `session_title`
-
-Controls automatic titles for interactive sessions. A title is generated only
-for the first user message in a session; existing titles and later messages
-are not changed. Failures leave the current title unchanged and are shown as a
-non-blocking notice.
-
-```toml
-[session_title]
-enabled = true
-model = "openai/gpt-4o-mini"
-generation_mode = "parallel" # or "before"
-```
-
-`model` defaults to the model selected for the conversation. With
-`generation_mode = "parallel"` (the default), title generation and the first
-agent response run concurrently. `"before"` saves the generated title before
-starting the first agent response.
-
-### `mcp_servers`
-
-MCP servers may be either local stdio processes (`command`) or remote streamable HTTP endpoints (`url`). Exactly one transport field is required. Hallucinate starts or connects to each configured server when an interactive or RPC agent is created, initializes it, and adds the tools returned by `tools/list`. By default, tools retain their remote names after non-alphanumeric characters are converted to `_`. If an MCP tool name collides with a built-in tool or a tool from another MCP server, startup fails; set `tool_prefix` to disambiguate the server's tools.
-
-```toml
-# Local stdio server
-[mcp_servers.filesystem]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
-env = { LOG_LEVEL = "warn" }
-tool_prefix = "fs"
-
-# Containerized local stdio server. `-i` preserves JSON-RPC stdin and
-# `--rm` removes the container when Hallucinate stops the runtime command.
-[mcp_servers.filesystem_container]
-command = "docker"
-args = [
-  "run", "-i", "--rm",
-  "--mount", "type=bind,src=/path/to/workspace,dst=/workspace",
-  "mcp/filesystem", "/workspace",
-]
-tool_prefix = "container_fs"
-
-# Remote streamable HTTP server with no authentication
-[mcp_servers.example]
-url = "https://mcp.example.com/mcp"
-auth = { type = "no-auth" }
-tool_prefix = "example"
-
-# Remote server using an Authorization: Bearer API key
-[mcp_servers.protected]
-url = "https://mcp.protected.example/mcp"
-auth = { type = "api-key", api_key = "replace-me" }
-tool_prefix = "protected"
-
-# API keys can also use a vendor-specific header and no prefix.
-[mcp_servers.vendor]
-url = "https://mcp.vendor.example/mcp"
-auth = { type = "api-key", api_key = "replace-me", header = "X-API-Key", prefix = "" }
-```
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `command` | `string` | Executable used to start a local server over stdio, including a container runtime such as `docker`, `podman`, or `nerdctl`. Mutually exclusive with `url`. |
-| `args` | `array` | Command-line arguments passed to a local server. |
-| `env` | `table` | Environment variables added to a local server process. |
-| `url` | `string` | `http` or `https` streamable HTTP endpoint for a remote server. Mutually exclusive with `command`. |
-| `tool_prefix` | `string` | Optional prefix prepended to each tool name. Set this when unprefixed names would collide. |
-| `auth.type` | `"no-auth"` or `"api-key"` | Remote authentication mode. Defaults to `"no-auth"`. |
-| `auth.api_key` | `string` | API key sent when `auth.type = "api-key"`. |
-| `auth.header` | `string` | API-key HTTP header; defaults to `Authorization`. |
-| `auth.prefix` | `string` | Text prepended to the key; defaults to `Bearer`. |
-
-MCP server processes inherit the application's current environment except for values explicitly overridden by `env`. A local command is executed directly rather than through a shell, so put every container-runtime option in `args`; shell quoting, pipes, and variable expansion are not applied. For a containerized stdio server, use the runtime's stdin/attach option (for Docker-compatible runtimes, `run -i`) and avoid allocating a TTY (`-t`), which can alter the JSON-RPC byte stream. Use the runtime's cleanup option where available (for Docker-compatible runtimes, `--rm`).
-
-The `env` table sets variables for the local command process. Container runtimes do not generally forward them to the container automatically; pass them explicitly through runtime arguments such as `-e NAME` or `--env-file` (and arrange any required host environment value). Remote servers support no authentication (the default) or API-key authentication. API-key authentication sends `Authorization: Bearer <key>` by default; configure `auth.header` and `auth.prefix` for services using a different header format. API keys are currently stored in the settings file, so protect its file permissions.
-
 ### `provider_headers`
 
-Additional HTTP headers for the default (legacy) provider.
+Additional HTTP headers for the default provider.
 
 ```toml
 [provider_headers]
 x-custom-header = "value"
 ```
+
+## Provider Configuration
+
+Providers are defined under the `providers` section. Each provider groups a base URL, optional inline API key, custom headers, and a set of models.
+
+```toml
+[providers.openai]
+base_url = "https://api.openai.com/v1"
+include_usage = true
+headers = { "X-Custom-Header" = "Value" }
+
+[providers.openai.models.gpt-6-luna]
+name = "GPT-6 Luna"
+api = "openai-responses"
+reasoning = true
+supports_reasoning_effort = true
+input = ["text", "image"]
+context_window = 128_000
+max_tokens = 16_384
+
+[providers.openai.models.gpt-6-luna.cost]
+input = 0.10
+output = 0.50
+cache_read = 0.01
+cache_write = 0.125
+
+[providers.openai.models.gpt-6-sol]
+name = "GPT-6 Sol"
+api = "openai-responses"
+reasoning = true
+supports_reasoning_effort = true
+input = [
+  "text",
+  "image",
+]
+context_window = 1_050_000
+max_tokens = 32_000
+
+[providers.openai.models.gpt-6-sol.cost]
+input = 2
+output = 10
+cache_read = 0.20
+cache_write = 2.5
+```
+
+Cost configuration is optional. Omit the entire `cost` table for models whose pricing is unavailable (For example, when using local or remote self-hosted model); their usage cost is reported as zero.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `base_url` | `string \| null` | OpenAI-compatible endpoint for this provider. |
+| `api_key` | `string \| null` | Inline API key (prefer the platform keyring or environment variables). |
+| `headers` | `object` | Additional HTTP headers sent with every request. |
+| `include_usage` | `boolean \| null` | Whether streaming requests include usage data in `stream_options`. |
+| `models` | `object` | Models provided by this provider, keyed by model ID. |
+
+### Model-Level Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `api` | `string` | API variant: `openai-completions` or `openai-responses`. |
+| `base_url` | `string \| null` | Per-model endpoint override. |
+| `context_window` | `integer` | Maximum context window size in tokens. |
+| `cost` | `object \| null` | Optional cost rates per million tokens. |
+| `hidden` | `boolean` | Hide the model from the interactive model picker. |
+| `input` | `array` | Supported input modalities (e.g., `["text"]`). |
+| `max_tokens` | `integer` | Maximum output tokens the model can produce. |
+| `name` | `string \| null` | Human-readable model name. |
+| `reasoning` | `boolean` | Whether the model supports reasoning/thinking output. |
+| `supports_reasoning_effort` | `boolean` | Whether the model accepts the Responses API `reasoning.effort` option. |
+
+#### Cost Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `input` | `number \| null` | Optional cost rate per million input tokens. |
+| `output` | `number \| null` | Optional cost rate per million output tokens. |
+| `cache_read` | `number \| null` | Optional cost rate per million cache read tokens. |
+| `cache_write` | `number \| null` | Optional cost rate per million cache write tokens. |
+
+## Tools Configuration
+
+Settings for managing tools, including built-in tools and MCP servers.
+
+```toml
+[tools]
+enable = true
+disable_tools = ["edit"]
+
+[tools.builtin.shell]
+timeout = 69
+max_tool_result_bytes = 100_000_000
+shell = ["/bin/bash", "-c"]
+
+[tools.builtin.find]
+max_results = 100
+max_files = 10_000
+max_directory_entries = 20_000
+
+[tools.builtin.grep]
+max_results = 25
+
+[tools.builtin.ls]
+max_results = 42
+max_files = 1_337
+max_directory_entries = 69_420
+
+[tools.mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+env = { LOG_LEVEL = "warn" }
+tool_prefix = "fs"
+
+[tools.mcp_servers.remote_server]
+url = "https://mcp.example.com/mcp"
+auth = { type = "api-key", api_key = "replace-me", header = "X-API-Key", prefix = "" }
+```
+
+### Built-in Tools
+
+Built-in tools can be enabled or disabled. If `enable_tools` is set, it overrides `disable_tools`.
+
+#### `shell` Fields
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `timeout` | `integer` | `60` | Maximum execution timeout in seconds. |
+| `shell` | `array \| null` | — | Executable and arguments (e.g., `["/bin/bash", "-c"]`). |
+| `max_tool_result_bytes` | `integer` | `100000` | Max bytes in a returned tool result. |
+
+#### `edit` Fields
+
+> [!NOTE]
+> No fields for this tool.
+
+#### `find` Fields
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `max_directory_entries` | `integer` | `20000` | Max directory entries to walk. |
+| `max_files` | `integer` | `10000` | Max files to consider. |
+| `max_results` | `integer` | `100` | Max results to return. |
+
+#### `grep` Fields
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `max_directory_entries` | `integer` | `20000` | Max directory entries to walk. |
+| `max_file_scan_bytes` | `integer` | `1000000` | Max bytes scanned per candidate. |
+| `max_files` | `integer` | `10000` | Max files to consider. |
+| `max_line_bytes` | `integer` | `65536` | Max accepted line length. |
+| `max_results` | `integer` | `100` | Max results to return. |
+| `max_search_bytes` | `integer` | `20971520` | Max bytes scanned per request. |
+| `max_tool_result_bytes` | `integer` | `100000` | Max bytes in a returned tool result. |
+
+#### `ls` Fields
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `max_directory_entries` | `integer` | `20000` | Max directory entries to walk. |
+| `max_files` | `integer` | `10000` | Max files to consider. |
+| `max_results` | `integer` | `100` | Max results to return. |
+
+#### `read` Fields
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `auto_resize_images` | `boolean` | `true` | Auto-resize images when reading. |
+| `max_image_source_bytes` | `integer` | `20971520` | Max image source bytes. |
+| `max_text_file_bytes` | `integer` | `1000000` | Max bytes for text files. |
+
+#### `write` Fields
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `max_text_file_bytes` | `integer` | `1000000` | Max bytes written to text files. |
+| `max_tool_result_bytes` | `integer` | `100000` | Max bytes in a returned tool result. |
+
+### MCP Servers
+
+MCP servers can be local stdio processes (`command`) or remote HTTP endpoints (`url`). Exactly one of `command` or `url` is required.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `command` | `string \| null` | Executable for a local stdio server. Mutually exclusive with `url`. |
+| `args` | `array` | Arguments passed to `command`. |
+| `env` | `object` | Environment variables for the local server. |
+| `url` | `string \| null` | HTTP endpoint for a remote server. Mutually exclusive with `command`. |
+| `tool_prefix` | `string \| null` | Optional prefix for discovered tools. |
+| `auth` | `object` | Authentication for a remote MCP server. |
+
+**Auth Modes:**
+
+- `type = "no-auth"`: No authentication.
+- `type = "api-key"`: Sends an API key. Requires `api_key`.
+  - **Optional properties:**
+    - `header` (default `Authorization`)
+    - `prefix` (default `Bearer`)
+
+### Session Title Configuration
+
+Controls automatic titles for interactive sessions.
+
+```toml
+[session_title]
+enabled = true
+model = "openai/gpt-6-luna"
+generation_mode = "parallel"
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | `true` | Whether new sessions receive an LLM-generated title. |
+| `generation_mode` | `string` | `"parallel"` | `parallel` (runs alongside first response) or `before` (before first response). |
+| `model` | `string \| null` | — | Model used for title generation. If omitted, the active model is used. |
 
 ## Environment Variables
 
@@ -398,9 +357,9 @@ x-custom-header = "value"
 | `HALLUCINATE_API_KEY` | API key fallback (overridden by `--api-key`). |
 | `OPENAI_API_KEY` | Fallback when the default provider is `"openai"`. |
 | `HALLUCINATE_<PROVIDER>_API_KEY` | Provider-specific key (e.g., `HALLUCINATE_OPENROUTER_API_KEY`). |
-| `SHELL` | Shell executable for the shell tool (overridden by `builtin_tools.shell.shell`). |
+| `SHELL` | Shell executable for the shell tool (overridden by `tools.builtin.shell.shell`). |
 
-Key resolution order: `--api-key` flag → `HALLUCINATE_API_KEY` → `OPENAI_API_KEY` (for default provider) → `HALLUCINATE_<PROVIDER>_API_KEY` → inline `api_key` in provider settings → stored credential in the platform keyring.
+Key resolution order: `--api-key` flag $\rightarrow$ `HALLUCINATE_API_KEY` $\rightarrow$ `OPENAI_API_KEY` (for default provider) $\rightarrow$ `HALLUCINATE_<PROVIDER>_API_KEY` $\rightarrow$ inline `api_key` in provider settings $\rightarrow$ stored credential in the platform keyring.
 
 ## System Prompt
 
@@ -418,30 +377,26 @@ Place a file at `SYSTEM.md` in the configuration directory to replace the built-
 
 Place an `AGENTS.md` file at the project root. Its contents are appended under a `## Project Instructions` heading to every system prompt.
 
-```text
-<cwd>/AGENTS.md
-```
-
 ## Skills
 
-Skills are Markdown files with YAML frontmatter. They are discovered from multiple locations — the first match wins for duplicate names.
+Skills are Markdown files with YAML frontmatter. They are discovered from multiple locations.
 
-### Discovery Locations
+### Skills Discovery Locations
 
 | Priority | Location | Description |
-| --- | --- | --- |
+| --- | --- |
 | 1 | `~/.hallucinate/skills` | User config directory |
 | 2 | `<cwd>/.hallucinate/skills` | Project-local skills |
 | 3 | `~/.agents/skills` | Shared `.agents` protocol |
-| 4 | `<cwd>/.agents/skills` (and ancestors to git root) | Shared `.agents` protocol per-project |
+| 4 | `<cwd>/.agents/skills` | Shared `.agents` protocol per-project |
 
-### Command-Line Override
+### CLI Skills Override
 
 ```bash
 hallucinate --skill path/to/skill.md --skill another-skill/
 ```
 
-### Disable Auto-Discovery
+### Disable Skills Auto-Discovery
 
 ```bash
 hallucinate --no-skills
@@ -462,31 +417,32 @@ disable-model-invocation: false
 | `name` | Machine-readable skill name (lowercase, numbers, hyphens). |
 | `description` | Brief explanation of when to use the skill (required). |
 | `disable-model-invocation` | When `true`, the skill is only invocable via `/skill:<name>`. |
+| `---` | — |
 
 ## Prompt Templates
 
 Prompt templates are Markdown files with YAML frontmatter that expand slash commands with argument substitution.
 
-### Discovery Locations
+### Prompt Templates Discovery Locations
 
 | Priority | Location | Description |
-| --- | --- | --- |
+| --- | --- |
 | 1 | `~/.hallucinate/prompts` | User config directory |
 | 2 | `<cwd>/.hallucinate/prompts` | Project-local templates |
 
-### Command-Line Override
+### CLI Prompt Templates Override
 
 ```bash
 hallucinate --prompt-template path/to/template.md
 ```
 
-### Disable Auto-Discovery
+### Disable Prompt Templates Auto-Discovery
 
 ```bash
 hallucinate --no-prompt-templates
 ```
 
-### Template Frontmatter
+### Prompt Template Frontmatter
 
 ```yaml
 ---
@@ -500,157 +456,68 @@ argument-hint: <path>
 | `description` | Short description shown in `/templates`. |
 | `argument-hint` | Usage hint for the user (e.g., `<path>`). |
 
-### Argument Substitution
-
-Templates support shell-like argument syntax:
-
-| Syntax | Description |
-| --- | --- |
-| `$1`, `$2`, `@N` | Positional argument (1-indexed). |
-| `$@`, `@`, `$ARGUMENTS` | All arguments joined. |
-| `${N:-default}` | Positional argument with fallback default. |
-| `${@:N}` | Slice from index N to end. |
-| `${@:N:M}` | Slice of M arguments starting at N. |
-
-## CLI Flags
-
-The CLI uses a **subcommand-based** architecture. Global options apply to all subcommands; some subcommands accept additional options.
-
-### Global Options
-
-| Flag | Description |
-| --- | --- |
-| `-m, --model <selector>` | Model to use (`provider/model` or bare ID). |
-| `--api-key <key>` | API key override. |
-| `--base-url <url>` | API endpoint override. |
-| `--shell <path>` | Shell executable override (overrides `builtin_tools.shell.shell`). |
-| `--session <id>` | Resume a persisted session in interactive mode. |
-| `--max-tokens <n>` | Response max tokens override. |
-| `--thinking` | Show model thinking output. |
-| `--reasoning-effort <none\|low\|medium\|high\|xhigh\|max>` | Set reasoning effort for a supported model. |
-| `--temperature <n>` | Sampling temperature override. |
-| `--system-prompt <text>` | Custom system prompt. |
-| `--image <path>` | Attach an image (repeatable). |
-| `--skill <path>` | Load a skill file or directory (repeatable). |
-| `--no-skills` | Disable automatic skill discovery. |
-| `--prompt-template <path>` | Load a prompt template file or directory (repeatable). |
-| `--no-prompt-templates` | Disable automatic template discovery. |
-| `--debug` | Write diagnostic logs to the cache directory. |
-
-### Subcommands
-
-| Subcommand | Description |
-| --- | --- |
-| `hallucinate` | Run in interactive TUI mode (default, no subcommand required). |
-| `hallucinate print <prompt>` | Print mode: send prompt, print response, exit. |
-| `hallucinate rpc` | Run in RPC mode (JSON-RPC over stdin/stdout). |
-| `hallucinate auth` | Manage stored provider API keys (`set`, `remove`, `list`). |
-
-## Auth Subcommand
-
-Manage stored provider API keys in the platform keyring.
-
-```bash
-hallucinate auth set <provider> [--api-key <key>]
-hallucinate auth remove <provider>
-hallucinate auth list
-```
-
-`auth set` accepts an optional `--api-key` flag; when omitted, the command falls back to the `HALLUCINATE_<PROVIDER>_API_KEY` environment variable. If no environment variable is set, the command prompts for a masked key. Keys are stored in the platform-native keyring (macOS keychain, Linux keyutils, Windows keyring) and are never written to the settings file.
-
-## Interactive Slash Commands
-
-| Command | Usage | Description |
-| --- | --- | --- |
-| `/help` | — | Show available commands. |
-| `/auth` | `<list\|set\|remove> [provider] [key]` | Manage API keys. |
-| `/new` | `[title]` | Create a new session. |
-| `/sessions` | — | List saved sessions. |
-| `/resume` | `<id>` | Resume a session. |
-| `/fork` | — | Fork the current session. |
-| `/delete` | `[id]` | Delete a session. |
-| `/name` | `[name]` | Set or clear the session name. |
-| `/session` | — | Show current session info. |
-| `/prompts` | — | List prompt templates. |
-| `/skills` | — | List loaded skills. |
-| `/model` | `[provider/model]` | Open model picker or switch. |
-| `/thinking` | `[on\|off]` | Toggle thinking output. |
-| `/reasoning-effort` | `<none\|low\|medium\|high\|xhigh\|max>` | Set model reasoning effort. |
-| `/skill:<name>` | `[arguments]` | Invoke a loaded skill. |
-| `/compact` | — | Compact the current context. |
-| `/stop` | — | Cancel the running response. |
-| `/quit` | — | Exit the interactive session. |
-
 ## Complete Example
 
 ```toml
 default_model = "openai/gpt-5.6-luna"
 provider = "openai"
 base_url = "https://api.openai.com/v1"
-timeout_ms = 60000
+timeout_ms = 60_000
 max_retries = 3
 max_turns = 120
-enable_tools = true
 enable_compaction = true
-show_thinking = false
-
-[builtin_tools.shell]
-timeout = 60
-
-[builtin_tools.read]
-auto_resize_images = true
-
+max_concurrent_tool_calls = 4
 show_thinking = false
 temperature = 0.7
 max_tokens = 32_768
 
 [session_title]
 enabled = true
-model = "openai/gpt-4o"
+model = "openai/gpt-6-luna"
 generation_mode = "parallel"
 
-[provider_headers]
-x-request-source = "hallucinate"
-
-[providers.openai]
-base_url = "https://api.openai.com/v1"
-include_usage = true
-
-[providers.openai.models."gpt-5.6-luna"]
-name = "GPT-5.6 Luna"
+[providers.openai.models.gpt-6-luna]
+name = "GPT-6 Luna"
 api = "openai-responses"
 reasoning = true
-input = ["text", "image"]
-context_window = 272_000
-max_tokens = 128_000
-
-[providers.openai.models."gpt-5.6-luna".cost]
-input = 0.2
-output = 1.2
-cache_read = 0.02
-cache_write = 0.25
-
-[providers.openai.models.gpt-4o]
-name = "GPT-4o"
-api = "openai-completions"
-reasoning = true
+supports_reasoning_effort = true
 input = ["text", "image"]
 context_window = 128_000
 max_tokens = 16_384
 
-[providers.openai.models.gpt-4o.cost]
-input = 2.50
-output = 10.00
+[providers.openai.models.gpt-6-luna.cost]
+input = 0.10
+output = 0.50
+cache_read = 0.01
+cache_write = 0.125
+
+[providers.openai.models.gpt-6-sol]
+name = "GPT-6 Sol"
+api = "openai-responses"
+reasoning = true
+supports_reasoning_effort = true
+input = [
+  "text",
+  "image",
+]
+context_window = 1_050_000
+max_tokens = 32_000
+
+[providers.openai.models.gpt-6-sol.cost]
+input = 2
+output = 10
+cache_read = 0.20
+cache_write = 2.5
 
 [providers.local]
 base_url = "http://localhost:1234/v1"
 
-[providers.local.models.llama-3]
-name = "Llama 3"
+[providers.local.models.gemma4]
+name = "Gemma 4"
 api = "openai-completions"
-reasoning = false
+reasoning = true
 supports_reasoning_effort = false
-input = ["text"]
-context_window = 32_768
-max_tokens = 4_096
+input = ["text", "image"]
+context_window = 128_000
+max_tokens = 16_000
 ```
