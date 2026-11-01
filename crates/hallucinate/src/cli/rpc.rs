@@ -436,9 +436,7 @@ async fn chat(
         }
     }
 
-    if let Err(error) = agent.disable_tools() {
-        return RpcResponse::error(-32603, "Failed to disable tools", id, error.to_string());
-    }
+    agent.disable_tools();
 
     if let Some(system_prompt) = &args.system_prompt {
         agent = agent.with_system_prompt(system_prompt.clone());

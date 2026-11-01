@@ -154,7 +154,8 @@ pub fn agent_config(
         max_turns: settings.max_turns,
         max_context_tokens: model.context_window,
         enable_compaction: settings.enable_compaction,
-        enable_tools: settings.tools.enable_tools,
+        enable_tools: settings.tools.enable,
+        enabled_tools: settings.tools.enable_tools.clone(),
         disabled_tools: settings.tools.disable_tools.clone(),
         temperature: overrides.temperature.or(settings.temperature),
         reasoning_effort: model.supports_reasoning_effort.then(|| {
@@ -543,5 +544,19 @@ mod tests {
             settings.tools.builtin.read.max_image_source_bytes,
             DEFAULT_MAX_IMAGE_SOURCE_BYTES
         );
+    }
+
+    #[test]
+    fn both_enable_and_disable_tools_is_error() {
+        let settings: Settings = toml::from_str(
+            r#"
+            [tools]
+            enable_tools = ["shell"]
+            disable_tools = ["read"]
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(validate_enable_and_disable_tools(&settings).is_err(), true);
     }
 }

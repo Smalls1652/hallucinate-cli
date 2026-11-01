@@ -136,7 +136,8 @@
           }
         },
         "disable_tools": [],
-        "enable_tools": true
+        "enable": true,
+        "enable_tools": []
       }
     }
   },
@@ -711,17 +712,25 @@
           }
         },
         "disable_tools": {
-          "description": "Disable tools by name.",
+          "description": "Disable tools by name. (Cannot be used in combination with\n`enable_tools`)",
           "type": "array",
           "default": [],
           "items": {
             "type": "string"
           }
         },
-        "enable_tools": {
-          "description": "Enable tool use by default.",
+        "enable": {
+          "description": "Enable tool use.",
           "type": "boolean",
           "default": true
+        },
+        "enable_tools": {
+          "description": "Enable tools by name. (Cannot be used in combination with\n`disable_tools`)",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
         },
         "mcp_servers": {
           "description": "MCP servers whose stdio tools are exposed to the agent. Each map key\nidentifies a server and becomes part of its qualified tool names.",

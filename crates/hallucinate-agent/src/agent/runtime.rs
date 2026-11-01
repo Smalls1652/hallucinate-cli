@@ -319,12 +319,42 @@ impl Agent {
         Ok(())
     }
 
-    pub fn disable_tools(&mut self) -> Result<(), AgentError> {
+    /// Remove any tools that were explicitly enabled/disabled.
+    pub fn disable_tools(&mut self) {
+        if self.config.enabled_tools.len() > 0 {
+            self.remove_not_enabled_tools();
+        }
+
+        if self.config.disabled_tools.len() > 0 {
+            self.remove_disabled_tools();
+        }
+    }
+
+    /// Remove tools that have been explicitly disabled.
+    fn remove_disabled_tools(&mut self) {
         for tool_name in &self.config.disabled_tools {
             self.tool_registry.remove_tool(&tool_name);
         }
+    }
 
-        Ok(())
+    /// Remove any tools not enabled.
+    fn remove_not_enabled_tools(&mut self) {
+        let tools_to_remove: Vec<String> = self
+            .tool_registry
+            .list_tools()
+            .iter()
+            .filter_map(|item| {
+                if !self.config.enabled_tools.contains(item) {
+                    Some(item.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for tool_name in tools_to_remove {
+            self.tool_registry.remove_tool(&tool_name);
+        }
     }
 
     /// Update the working directory when resuming a session.
@@ -1989,5 +2019,45 @@ mod tests {
 
         assert!(prompt.contains("<name>release-helper</name>"));
         assert!(prompt.contains("/tmp/release/SKILL.md"));
+    }
+
+    #[test]
+    fn agent_only_has_enabled_tools() {
+        let tools = vec!["shell".to_string(), "read".to_string()];
+
+        let mut agent = Agent::new(
+            Box::new(FauxProvider::new()),
+            test_model(),
+            AgentConfig {
+                enabled_tools: tools.clone(),
+                ..Default::default()
+            },
+        );
+        agent.add_builtin_tools(all_built_in_tools_with_defaults());
+        agent.disable_tools();
+
+        assert_eq!(agent.tool_registry.list_tools(), tools);
+    }
+
+    #[test]
+    fn agent_does_not_have_disabled_tools() {
+        let mut agent = Agent::new(
+            Box::new(FauxProvider::new()),
+            test_model(),
+            AgentConfig {
+                disabled_tools: vec!["shell".to_string()],
+                ..Default::default()
+            },
+        );
+        agent.add_builtin_tools(all_built_in_tools_with_defaults());
+        agent.disable_tools();
+
+        assert_ne!(
+            agent
+                .tool_registry
+                .list_tools()
+                .contains(&"shell".to_string()),
+            true
+        );
     }
 }

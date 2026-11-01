@@ -60,6 +60,10 @@ pub enum ConfigError {
         "No API key configured for provider '{0}'. Set HALLUCINATE_API_KEY, HALLUCINATE_{1}_API_KEY, configure a credential, or use --api-key"
     )]
     NoApiKeySetForProvider(String, String),
+
+    /// Enable and disable tools properties were both set.
+    #[error("enable_tools and disable_tools cannot be used together.")]
+    EnableDisableToolsBothSet,
 }
 
 #[derive(Debug)]

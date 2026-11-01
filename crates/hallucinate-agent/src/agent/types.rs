@@ -324,6 +324,9 @@ pub struct AgentConfig {
     /// Whether to enable tool use.
     pub enable_tools: bool,
 
+    /// Tools that are enabled.
+    pub enabled_tools: Vec<String>,
+
     /// Tools that are disabled.
     pub disabled_tools: Vec<String>,
 
@@ -353,6 +356,7 @@ impl Default for AgentConfig {
             max_context_tokens: 128_000,
             enable_compaction: true,
             enable_tools: true,
+            enabled_tools: vec![],
             disabled_tools: vec![],
             temperature: None,
             max_tokens: None,

@@ -75,7 +75,7 @@ fn parse_reasoning_effort(value: &str) -> Result<ReasoningEffort, String> {
 /// Run print mode with the given CLI arguments and settings.
 pub async fn print_command(args: &PrintArgs) -> Result<()> {
     let mut settings = Settings::load()?;
-    settings.tools.enable_tools = false;
+    settings.tools.enable = false;
 
     // Resolve model
     let model = hallucinate_agent::config::resolve_model(

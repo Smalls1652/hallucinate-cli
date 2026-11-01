@@ -337,6 +337,9 @@ impl Settings {
         let mut settings = deserialize_settings(merged)?;
         settings.project_override_loaded = project_path.exists();
 
+        // Perform some validations on the loaded settings.
+        validate_enable_and_disable_tools(&settings)?;
+
         Ok(settings)
     }
 
@@ -627,6 +630,16 @@ impl Settings {
 
         matches.next().is_none().then_some(first)
     }
+}
+
+/// Check to make sure `enable_tools` and `disable_tools` weren't both
+/// set.
+pub(super) fn validate_enable_and_disable_tools(settings: &Settings) -> Result<(), ConfigError> {
+    if settings.tools.enable_tools.len() > 0 && settings.tools.disable_tools.len() > 0 {
+        return Err(ConfigError::EnableDisableToolsBothSet);
+    }
+
+    Ok(())
 }
 
 /// Generate a unique temporary file suffix using PID and nanosecond timestamp.

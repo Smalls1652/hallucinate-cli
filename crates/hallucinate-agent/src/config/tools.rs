@@ -291,10 +291,15 @@ impl BuiltInToolSettings {
 )]
 #[serde(default)]
 pub struct ToolSettings {
-    /// Enable tool use by default.
-    pub enable_tools: bool,
+    /// Enable tool use.
+    pub enable: bool,
 
-    /// Disable tools by name.
+    /// Enable tools by name. (Cannot be used in combination with
+    /// `disable_tools`)
+    pub enable_tools: Vec<String>,
+
+    /// Disable tools by name. (Cannot be used in combination with
+    /// `enable_tools`)
     pub disable_tools: Vec<String>,
 
     /// Config settings for built-in tools.
@@ -309,7 +314,8 @@ pub struct ToolSettings {
 impl Default for ToolSettings {
     fn default() -> Self {
         Self {
-            enable_tools: true,
+            enable: true,
+            enable_tools: vec![],
             disable_tools: vec![],
             builtin: BuiltInToolSettings::default(),
             mcp_servers: HashMap::new(),

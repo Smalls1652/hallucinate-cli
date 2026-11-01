@@ -110,7 +110,7 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
         }
     }
 
-    agent.disable_tools()?;
+    agent.disable_tools();
 
     let loaded_tools = agent.list_tools();
 
