@@ -74,7 +74,7 @@ shellexpand = "3.1.2"
 # Logging
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-toml = "1.1.6"
+toml = "1.1.8"
 
 # Testing
 mockito = "1.7.2"
