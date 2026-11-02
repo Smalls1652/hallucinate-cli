@@ -273,7 +273,8 @@ impl ScriptTool {
             }
         }
 
-        Ok(minijinja::Environment::new().render_str(&self.command.trim(), arguments)?)
+        Ok(minijinja::Environment::new()
+            .render_str(&self.command.trim(), minijinja::value::Serde(arguments))?)
     }
 
     /// Execute the script tool with the given arguments.
