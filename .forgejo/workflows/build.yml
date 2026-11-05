@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow
-name: Build
+name: Build and test
 on:
   push:
     tags-ignore: [ 'v*.*.*', 'v*.*.*-*' ]
@@ -19,7 +19,7 @@ on:
 
 jobs:
   build:
-    name: Build project
+    name: Build
     runs-on: ubuntu-latest
 
     env:
@@ -49,6 +49,33 @@ jobs:
         shell: bash
         run: |
           make build
+  
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    env:
+      CARGO_TERM_COLOR: always
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: https://git.smalls.online/smallsonline-actions/setup-rs@v1
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
 
       - name: Test project
         shell: bash
