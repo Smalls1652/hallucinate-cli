@@ -8,9 +8,9 @@ use hallucinate_agent::{
 };
 use hallucinate_tui::components::markdown_to_ansi;
 
-/// Arguments for print mode.
+/// Arguments for prompt mode.
 #[derive(Args, Debug, Clone)]
-pub struct PrintArgs {
+pub struct PromptArgs {
     /// Model to use as a configured model ID or "provider/model" pair.
     #[arg(short = 'm', long = "model")]
     pub model: Option<String>,
@@ -52,8 +52,8 @@ pub struct PrintArgs {
     pub prompt: String,
 }
 
-impl From<&PrintArgs> for hallucinate_agent::config::RuntimeOverrides {
-    fn from(args: &PrintArgs) -> Self {
+impl From<&PromptArgs> for hallucinate_agent::config::RuntimeOverrides {
+    fn from(args: &PromptArgs) -> Self {
         Self {
             model: args.model.clone(),
             api_key: args.api_key.clone(),
@@ -72,8 +72,8 @@ fn parse_reasoning_effort(value: &str) -> Result<ReasoningEffort, String> {
     value.parse()
 }
 
-/// Run print mode with the given CLI arguments and settings.
-pub async fn print_command(args: &PrintArgs) -> Result<()> {
+/// Run prompt mode with the given CLI arguments and settings.
+pub async fn prompt_command(args: &PromptArgs) -> Result<()> {
     let mut settings = Settings::load()?;
     settings.tools.enable = false;
 

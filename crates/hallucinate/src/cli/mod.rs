@@ -3,7 +3,7 @@
 mod auth;
 mod completions;
 mod interactive;
-mod print;
+mod prompt;
 mod rpc;
 
 use anyhow::Result;
@@ -14,7 +14,7 @@ pub use self::{
     auth::AuthCommand,
     completions::{CompletionsArgs, completions_command},
     interactive::interactive_command,
-    print::{PrintArgs, print_command},
+    prompt::{PromptArgs, prompt_command},
     rpc::{RpcArgs, rpc_command},
 };
 
@@ -134,7 +134,7 @@ impl Cli {
             Some(subcommand) => match subcommand {
                 CliCommands::Auth { command } => command.handle_subcommand(),
 
-                CliCommands::Print(args) => print_command(args).await,
+                CliCommands::Prompt(args) => prompt_command(args).await,
 
                 CliCommands::Rpc(args) => rpc_command(args).await,
 
@@ -156,7 +156,7 @@ pub enum CliCommands {
     },
 
     /// Send prompt and print the response, then exit.
-    Print(PrintArgs),
+    Prompt(PromptArgs),
 
     /// Run in RPC mode (JSON-RPC over stdin/stdout).
     Rpc(RpcArgs),
@@ -179,7 +179,7 @@ mod tests {
     fn test_cli_parse() {
         let cli = Cli::try_parse_from([
             "hallucinate",
-            "print",
+            "prompt",
             "--model",
             "gpt-4o",
             "--image",
@@ -192,7 +192,7 @@ mod tests {
             Err(error) => panic!("Failed to parse CLI: {}", error),
         };
 
-        if let Some(CliCommands::Print(args)) = &cli.command {
+        if let Some(CliCommands::Prompt(args)) = &cli.command {
             assert_eq!(args.model, Some("gpt-4o".to_string()));
             assert_eq!(args.images, vec![std::path::PathBuf::from("diagram.png")]);
             assert_eq!(args.prompt, "hello".to_string())
