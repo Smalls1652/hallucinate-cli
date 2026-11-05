@@ -81,5 +81,5 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: "full"
-        run: cargo test --workspace --all-targets --jobs 1
+        run: cargo test --workspace --all-targets -- --test-threads=1
   
