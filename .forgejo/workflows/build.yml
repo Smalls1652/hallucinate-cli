@@ -79,5 +79,7 @@ jobs:
 
       - name: Test project
         shell: bash
-        run: cargo test --workspace --all-targets
+        env:
+          RUST_BACKTRACE: "full"
+        run: cargo test --workspace --all-targets --jobs 1
   

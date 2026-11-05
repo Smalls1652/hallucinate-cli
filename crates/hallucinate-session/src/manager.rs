@@ -529,12 +529,11 @@ mod tests {
     #[test]
     fn listing_sessions_for_directory_excludes_other_directories() {
         let current_directory = std::env::current_dir().unwrap();
-        let other_directory =
-            std::env::temp_dir().join(format!("other-session-{}", Uuid::new_v4()));
+        let other_directory = std::env::temp_dir().join("other-directory");
         fs::create_dir(&other_directory).unwrap();
 
-        let current_session_id = format!("current-directory-{}", Uuid::new_v4());
-        let other_session_id = format!("other-directory-{}", Uuid::new_v4());
+        let current_session_id = Uuid::new_v4().to_string();
+        let other_session_id = Uuid::new_v4().to_string();
 
         SessionStorage::new(&current_session_id)
             .save_metadata(None, None, current_directory.to_string_lossy().into_owned())
