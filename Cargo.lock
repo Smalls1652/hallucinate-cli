@@ -1490,6 +1490,17 @@ dependencies = [
 [[package]]
 name = "hallucinate-ai-providers"
 version = "0.7.0"
+dependencies = [
+ "futures",
+ "mockito",
+ "reqwest",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "hallucinate-session"

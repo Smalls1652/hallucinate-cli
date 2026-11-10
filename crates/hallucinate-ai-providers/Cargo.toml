@@ -9,4 +9,17 @@ repository.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+schemas = ["dep:schemars"]
+
 [dependencies]
+futures.workspace = true
+mockito.workspace = true
+reqwest.workspace = true
+schemars = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt", "sync", "time"] }
+tracing.workspace = true
