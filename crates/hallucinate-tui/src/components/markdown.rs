@@ -451,7 +451,14 @@ impl Renderer<'_> {
 
         let border_style = Style::default().fg(Color::DarkGray);
 
-        for (header, cells) in rows {
+        for (row_index, (_, cells)) in rows.into_iter().enumerate() {
+            if row_index > 0 {
+                self.lines.push(vec![Span::styled(
+                    table_divider(indent, &widths),
+                    border_style,
+                )]);
+            }
+
             let cells = cells
                 .into_iter()
                 .enumerate()
@@ -509,13 +516,6 @@ impl Renderer<'_> {
                 }
 
                 self.lines.push(line);
-            }
-
-            if header {
-                self.lines.push(vec![Span::styled(
-                    table_divider(indent, &widths),
-                    border_style,
-                )]);
             }
         }
     }
@@ -995,6 +995,54 @@ mod tests {
             let text = String::from(line.clone());
             text.starts_with('│') && text.ends_with('│')
         }));
+    }
+
+    #[test]
+    fn separates_each_logical_row_without_splitting_wrapped_cells() {
+        let lines = markdown_to_lines_with_width(
+            "| Name | Description |\n| --- | --- |\n| A | A long description that wraps |\n| B | Another long description that wraps |",
+            24,
+        );
+        let text = plain(lines.clone());
+        let rows = text.lines().collect::<Vec<_>>();
+        let dividers = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.starts_with('├'))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+
+        assert_eq!(dividers.len(), 2);
+        assert_eq!(dividers[0], 1);
+        assert!(dividers[1] > dividers[0] + 2);
+        assert!(rows[dividers[0] + 1].contains("A"));
+        assert!(rows[dividers[1] + 1].contains("B"));
+        assert!(rows.last().unwrap().ends_with('│'));
+        assert!(lines.iter().all(|line| line.width() <= 24));
+        assert!(
+            dividers
+                .iter()
+                .all(|&index| { lines[index].spans[0].style.fg == Some(Color::DarkGray) })
+        );
+    }
+
+    #[test]
+    fn separates_body_rows_with_aligned_dividers() {
+        let output = plain(markdown_to_lines(
+            "| Name | Age | City |\n| :--- | ---: | :---: |\n| A | 2 | X |\n| B | 30 | Y |",
+        ));
+
+        assert_eq!(
+            output,
+            "│ Name │ Age │ City │\n├──────┼─────┼──────┤\n│ A    │   2 │  X   │\n├──────┼─────┼──────┤\n│ B    │  30 │  Y   │"
+        );
+    }
+
+    #[test]
+    fn header_only_table_has_no_trailing_divider() {
+        let output = plain(markdown_to_lines("| Name | Value |\n| --- | --- |"));
+
+        assert_eq!(output, "│ Name │ Value │");
     }
 
     #[test]
