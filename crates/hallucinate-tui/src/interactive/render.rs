@@ -1,9 +1,9 @@
 //! Ratatui rendering for the interactive transcript and overlays.
 
-use std::path::Path;
+use std::{num::NonZeroU16, path::Path};
 
 use ratatui::{
-    buffer::Buffer,
+    buffer::{Buffer, CellDiffOption},
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -313,6 +313,8 @@ impl InteractiveTui {
             render_transcript_message_picker(frame, self.transcript_message_picker.as_ref());
 
             render_clear_sessions_confirmation(frame, self.clear_sessions_confirmation.as_ref());
+
+            fix_emoji_diff_widths(frame.buffer_mut());
         })?;
 
         self.transcript_area = rendered_transcript_area;
@@ -324,6 +326,29 @@ impl InteractiveTui {
         }
 
         Ok(())
+    }
+}
+
+/// Prevent Ratatui from emitting a trailing-cell update over a wide emoji.
+///
+/// Ratatui 0.30.2 may emit an update for the second cell of a VS16 emoji
+/// after emitting the emoji itself. The crossterm backend assumes adjacent
+/// updates advance by one column, so that update is printed *after* the emoji
+/// and can overwrite a neighboring cell that the buffer considers unchanged.
+/// ForcedWidth retains normal wide-cell diffing without that extra update.
+fn fix_emoji_diff_widths(buffer: &mut Buffer) {
+    for cell in &mut buffer.content {
+        if cell.diff_option != CellDiffOption::None || !cell.symbol().contains('\u{fe0f}') {
+            continue;
+        }
+
+        let width = cell.symbol().width();
+        if width > 1
+            && let Ok(width) = u16::try_from(width)
+            && let Some(width) = NonZeroU16::new(width)
+        {
+            cell.set_diff_option(CellDiffOption::ForcedWidth(width));
+        }
     }
 }
 
@@ -1396,6 +1421,82 @@ mod tests {
 
         assert_eq!(truncated, "first line …");
         assert!(!truncated.contains('\n'));
+    }
+
+    #[test]
+    fn emoji_redraw_does_not_emit_an_update_over_the_following_cell() {
+        let area = Rect::new(0, 0, 5, 1);
+        let mut previous = Buffer::empty(area);
+        previous.set_string(0, 0, "abXYZ", Style::default());
+
+        let mut next = Buffer::empty(area);
+        next.set_string(0, 0, "⌨️XYZ", Style::default());
+
+        // Without the workaround Ratatui emits the emoji and its trailing
+        // cell; the backend then prints that trailing space over the X.
+        let uncorrected = previous.diff(&next);
+        assert!(uncorrected.iter().any(|(x, _, _)| *x == 1));
+
+        fix_emoji_diff_widths(&mut next);
+
+        let updates = previous.diff(&next);
+        assert_eq!(updates.len(), 1);
+        assert_eq!(
+            (updates[0].0, updates[0].1, updates[0].2.symbol()),
+            (0, 0, "⌨️")
+        );
+    }
+
+    #[test]
+    fn emoji_redraw_updates_changed_neighbors_and_skips_wide_trailing_cells() {
+        let area = Rect::new(0, 0, 7, 1);
+        let mut previous = Buffer::empty(area);
+        previous.set_string(0, 0, "abc1234", Style::default());
+        fix_emoji_diff_widths(&mut previous);
+
+        let mut next = Buffer::empty(area);
+        next.set_string(0, 0, "⚒️XYZ12", Style::default());
+        fix_emoji_diff_widths(&mut next);
+
+        let updates = previous.diff(&next);
+        assert_eq!(updates[0].2.symbol(), "⚒️");
+        assert!(!updates.iter().any(|(x, _, _)| *x == 1));
+        assert!(
+            updates
+                .iter()
+                .any(|(x, _, cell)| *x == 2 && cell.symbol() == "X")
+        );
+
+        // An unchanged frame should not be needlessly redrawn.
+        assert!(next.diff(&next).is_empty());
+    }
+
+    #[test]
+    fn emoji_width_workaround_preserves_other_diff_options_and_updates() {
+        let area = Rect::new(0, 0, 8, 1);
+        let mut previous = Buffer::empty(area);
+        previous.set_string(0, 0, "⌨️ old", Style::default());
+        fix_emoji_diff_widths(&mut previous);
+
+        let mut next = Buffer::empty(area);
+        next.set_string(0, 0, "plain", Style::default());
+        next.cell_mut((7, 0))
+            .unwrap()
+            .set_diff_option(CellDiffOption::Skip);
+        fix_emoji_diff_widths(&mut next);
+
+        let updates = previous.diff(&next);
+        assert!(
+            updates
+                .iter()
+                .any(|(x, _, cell)| *x == 0 && cell.symbol() == "p")
+        );
+        assert!(
+            updates
+                .iter()
+                .any(|(x, _, cell)| *x == 1 && cell.symbol() == "l")
+        );
+        assert_eq!(next.cell((7, 0)).unwrap().diff_option, CellDiffOption::Skip);
     }
 
     #[test]
