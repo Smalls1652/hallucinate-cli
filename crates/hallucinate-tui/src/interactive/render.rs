@@ -1,10 +1,17 @@
 //! Ratatui rendering for the interactive transcript and overlays.
 
-use std::{num::NonZeroU16, path::Path};
+use std::{io, io::Write, num::NonZeroU16, path::Path};
 
 use ratatui::{
+    Frame,
+    Terminal,
+    backend::Backend,
     buffer::{Buffer, CellDiffOption},
-    layout::{Constraint, Layout, Rect},
+    crossterm::{
+        self,
+        terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate},
+    },
+    layout::{Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Padding, Paragraph, Widget},
@@ -197,7 +204,7 @@ impl InteractiveTui {
         let mut rendered_transcript_area = Rect::default();
         let mut rendered_selection_text = String::new();
 
-        self.terminal.draw(|frame| {
+        draw_without_cursor_flicker(&mut self.terminal, |frame| {
             let autocomplete_height = if self.autocomplete_items.is_empty() {
                 0
             } else {
@@ -302,7 +309,9 @@ impl InteractiveTui {
             }
 
             // Editor
-            self.editor.render(frame, chunks[editor_chunk]);
+            let editor_cursor = self
+                .editor
+                .render_with_cursor_position(frame, chunks[editor_chunk]);
 
             render_model_picker(frame, self.model_picker.as_ref(), &self.models);
 
@@ -315,6 +324,7 @@ impl InteractiveTui {
             render_clear_sessions_confirmation(frame, self.clear_sessions_confirmation.as_ref());
 
             fix_emoji_diff_widths(frame.buffer_mut());
+            editor_cursor
         })?;
 
         self.transcript_area = rendered_transcript_area;
@@ -327,6 +337,33 @@ impl InteractiveTui {
 
         Ok(())
     }
+}
+
+/// Present a redraw atomically on terminals supporting synchronized updates.
+/// Elsewhere, hiding the cursor while painting still prevents it from appearing
+/// at intermediate positions. Always end synchronization, even after a draw
+/// error, so a failed frame cannot leave the terminal stuck in update mode.
+fn draw_without_cursor_flicker<B: Backend<Error = io::Error> + Write>(
+    terminal: &mut Terminal<B>,
+    render: impl FnOnce(&mut Frame) -> Option<Position>,
+) -> io::Result<()> {
+    let result = (|| {
+        crossterm::queue!(terminal.backend_mut(), BeginSynchronizedUpdate)?;
+        terminal.hide_cursor()?;
+        let mut cursor_position = None;
+        terminal.draw(|frame| cursor_position = render(frame))?;
+
+        if let Some(position) = cursor_position {
+            terminal.set_cursor_position(position)?;
+            terminal.show_cursor()?;
+            Backend::flush(terminal.backend_mut())?;
+        }
+
+        Ok(())
+    })();
+
+    let end_result = crossterm::execute!(terminal.backend_mut(), EndSynchronizedUpdate);
+    result.and(end_result)
 }
 
 /// Prevent Ratatui from emitting a trailing-cell update over a wide emoji.
@@ -1165,8 +1202,166 @@ fn prefix_message_line(
 
 #[cfg(test)]
 mod tests {
+    use ratatui::{
+        backend::{Backend, ClearType, TestBackend, WindowSize},
+        buffer::Cell,
+        layout::Size,
+    };
+
     use super::*;
     use crate::alt_screen::Message;
+
+    #[derive(Debug)]
+    struct CursorTrackingBackend {
+        inner: TestBackend,
+        visible_during_draw: Vec<bool>,
+        visible_during_moves: Vec<bool>,
+        output: Vec<u8>,
+        fail_draw: bool,
+    }
+
+    impl Write for CursorTrackingBackend {
+        fn write(
+            &mut self,
+            bytes: &[u8],
+        ) -> io::Result<usize> {
+            self.output.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Backend for CursorTrackingBackend {
+        type Error = io::Error;
+
+        fn draw<'a, I>(
+            &mut self,
+            content: I,
+        ) -> Result<(), Self::Error>
+        where
+            I: Iterator<Item = (u16, u16, &'a Cell)>,
+        {
+            self.visible_during_draw.push(self.inner.cursor_visible());
+            if self.fail_draw {
+                return Err(io::Error::other("draw failed"));
+            }
+            self.inner.draw(content).map_err(|error| match error {})
+        }
+
+        fn hide_cursor(&mut self) -> Result<(), Self::Error> {
+            self.inner.hide_cursor().map_err(|error| match error {})
+        }
+
+        fn show_cursor(&mut self) -> Result<(), Self::Error> {
+            self.inner.show_cursor().map_err(|error| match error {})
+        }
+
+        fn get_cursor_position(&mut self) -> Result<Position, Self::Error> {
+            self.inner
+                .get_cursor_position()
+                .map_err(|error| match error {})
+        }
+
+        fn set_cursor_position<P: Into<Position>>(
+            &mut self,
+            position: P,
+        ) -> Result<(), Self::Error> {
+            self.visible_during_moves.push(self.inner.cursor_visible());
+            self.inner
+                .set_cursor_position(position)
+                .map_err(|error| match error {})
+        }
+
+        fn clear(&mut self) -> Result<(), Self::Error> {
+            self.inner.clear().map_err(|error| match error {})
+        }
+
+        fn clear_region(
+            &mut self,
+            clear_type: ClearType,
+        ) -> Result<(), Self::Error> {
+            self.inner
+                .clear_region(clear_type)
+                .map_err(|error| match error {})
+        }
+
+        fn size(&self) -> Result<Size, Self::Error> {
+            self.inner.size().map_err(|error| match error {})
+        }
+
+        fn window_size(&mut self) -> Result<WindowSize, Self::Error> {
+            self.inner.window_size().map_err(|error| match error {})
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            self.inner.flush().map_err(|error| match error {})
+        }
+    }
+
+    #[test]
+    fn redraw_hides_terminal_cursor_until_editor_position_is_restored() {
+        let backend = CursorTrackingBackend {
+            inner: TestBackend::new(20, 5),
+            visible_during_draw: Vec::new(),
+            visible_during_moves: Vec::new(),
+            output: Vec::new(),
+            fail_draw: false,
+        };
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut editor = crate::components::Editor::new("");
+
+        for text in ["first", "second"] {
+            editor.set_content(text);
+            draw_without_cursor_flicker(&mut terminal, |frame| {
+                frame.render_widget(text, Rect::new(0, 0, 20, 1));
+                editor.render_with_cursor_position(frame, Rect::new(0, 2, 20, 3))
+            })
+            .unwrap();
+
+            assert!(terminal.backend().inner.cursor_visible());
+            assert_eq!(
+                terminal.backend().inner.cursor_position(),
+                Position::new(1 + text.len() as u16, 3)
+            );
+        }
+
+        assert_eq!(terminal.backend().visible_during_draw, vec![false, false]);
+        assert_eq!(terminal.backend().visible_during_moves, vec![false, false]);
+
+        draw_without_cursor_flicker(&mut terminal, |frame| {
+            editor.render_with_cursor_position(frame, Rect::new(0, 0, 2, 2))
+        })
+        .unwrap();
+        assert!(!terminal.backend().inner.cursor_visible());
+        assert_eq!(
+            terminal.backend().output,
+            b"\x1b[?2026h\x1b[?2026l".repeat(3)
+        );
+    }
+
+    #[test]
+    fn synchronized_update_ends_when_drawing_fails() {
+        let backend = CursorTrackingBackend {
+            inner: TestBackend::new(20, 5),
+            visible_during_draw: Vec::new(),
+            visible_during_moves: Vec::new(),
+            output: Vec::new(),
+            fail_draw: true,
+        };
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let error = draw_without_cursor_flicker(&mut terminal, |frame| {
+            frame.render_widget("text", Rect::new(0, 0, 20, 1));
+            Some(Position::new(1, 3))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "draw failed");
+        assert_eq!(terminal.backend().output, b"\x1b[?2026h\x1b[?2026l");
+    }
 
     #[test]
     fn link_hit_testing_respects_wrapping_padding_and_scroll() {

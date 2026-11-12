@@ -3,7 +3,7 @@
 use ratatui::Frame;
 use ratatui::{
     crossterm::event::KeyCode,
-    layout::Rect,
+    layout::{Position, Rect},
     style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
@@ -698,6 +698,17 @@ impl Editor {
         f: &mut Frame,
         area: Rect,
     ) {
+        if let Some(position) = self.render_with_cursor_position(f, area) {
+            f.set_cursor_position(position);
+        }
+    }
+
+    /// Render the editor and return its cursor position without showing it.
+    pub(crate) fn render_with_cursor_position(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+    ) -> Option<Position> {
         let inner_width = usize::from(area.width.saturating_sub(2));
         self.visual_width = inner_width;
 
@@ -744,10 +755,12 @@ impl Editor {
             let x = area.x + 1 + cursor_column.min(inner_width) as u16;
             let y = area.y + 1 + cursor_y as u16;
 
-            f.set_cursor_position((
+            Some(Position::new(
                 x.min(area.x + area.width - 2),
                 y.min(area.y + area.height - 2),
-            ));
+            ))
+        } else {
+            None
         }
     }
 }
