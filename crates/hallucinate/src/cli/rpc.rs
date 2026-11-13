@@ -411,10 +411,8 @@ async fn chat(
     }
 
     // Load in any script tools the user has defined.
-    let script_tools = hallucinate_agent::agent::tools::script_tool::load_script_tools(
-        &session.cwd,
-        hallucinate_agent::config::resolve_shell_timeout(settings, None),
-    );
+    let script_tools =
+        hallucinate_agent::agent::tools::script_tool::load_script_tools(&session.cwd);
 
     if let Some(diagnostic) = script_tools.diagnostics.first() {
         return RpcResponse::error(

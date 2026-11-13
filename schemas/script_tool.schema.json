@@ -12,6 +12,13 @@
       "description": "Human-readable description of what the tool does.",
       "type": "string"
     },
+    "max_result_bytes": {
+      "description": "Maximum bytes included in a returned tool result.",
+      "type": "integer",
+      "format": "uint",
+      "default": 100000,
+      "minimum": 0
+    },
     "parameters": {
       "description": "Named parameters accepted by the tool.",
       "type": "object",
@@ -32,12 +39,9 @@
     },
     "timeout": {
       "description": "Maximum execution time in seconds. Defaults to the configured shell\ntimeout.",
-      "type": [
-        "integer",
-        "null"
-      ],
+      "type": "integer",
       "format": "uint64",
-      "default": null,
+      "default": 60,
       "minimum": 0
     }
   },

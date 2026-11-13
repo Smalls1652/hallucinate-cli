@@ -89,10 +89,7 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
     agent.add_mcp_servers(&settings.tools.mcp_servers).await?;
 
     // Load in any script tools the user has defined.
-    let script_tools = hallucinate_agent::agent::tools::script_tool::load_script_tools(
-        &cwd,
-        hallucinate_agent::config::resolve_shell_timeout(settings, None),
-    );
+    let script_tools = hallucinate_agent::agent::tools::script_tool::load_script_tools(&cwd);
 
     for diagnostic in script_tools.diagnostics {
         eprintln!(

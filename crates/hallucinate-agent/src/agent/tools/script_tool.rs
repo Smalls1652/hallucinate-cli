@@ -16,7 +16,7 @@ use crate::{
         shell_exec::run_shell_command,
         types::{AsyncToolExecutionResult, ToolExecutionResult},
     },
-    config::{self, DEFAULT_MAX_TOOL_RESULT_BYTES},
+    config::{self, DEFAULT_MAX_TOOL_RESULT_BYTES, DEFAULT_SHELL_COMMAND_TIMEOUT},
 };
 
 /// A definition file which could not be loaded.
@@ -55,12 +55,24 @@ pub struct ScriptToolDefinition {
 
     /// Maximum execution time in seconds. Defaults to the configured shell
     /// timeout.
-    #[serde(default)]
-    timeout: Option<u64>,
+    #[serde(default = "default_timout")]
+    timeout: u64,
+
+    /// Maximum bytes included in a returned tool result.
+    #[serde(default = "default_result_bytes")]
+    max_result_bytes: usize,
 
     /// Named parameters accepted by the tool.
     #[serde(default)]
     parameters: BTreeMap<String, ScriptToolParameter>,
+}
+
+fn default_timout() -> u64 {
+    DEFAULT_SHELL_COMMAND_TIMEOUT
+}
+
+fn default_result_bytes() -> usize {
+    DEFAULT_MAX_TOOL_RESULT_BYTES
 }
 
 #[cfg_attr(not(feature = "schemas"), derive(Debug, Deserialize))]
@@ -181,6 +193,9 @@ pub struct ScriptTool {
 
     /// Maximum execution time in seconds.
     timeout: u64,
+
+    /// Maximum bytes included in a returned tool result.
+    max_result_bytes: usize,
 }
 
 impl ScriptTool {
@@ -189,7 +204,6 @@ impl ScriptTool {
         name: String,
         definition: ScriptToolDefinition,
         _definition_path: &Path,
-        timeout: u64,
     ) -> Result<Self, ScriptToolDefinitionError> {
         if !valid_name(&name, true) {
             return Err(ScriptToolDefinitionError::InvalidToolName);
@@ -203,16 +217,16 @@ impl ScriptTool {
             return Err(ScriptToolDefinitionError::EmptyDescription);
         }
 
+        if definition.timeout == 0 {
+            return Err(ScriptToolDefinitionError::InvalidTimeout);
+        }
+
         if definition
             .shell
             .as_ref()
             .is_some_and(|shell| shell.first().is_none_or(|value| value.trim().is_empty()))
         {
             return Err(ScriptToolDefinitionError::EmptyShell);
-        }
-
-        if definition.timeout.is_some_and(|timeout| timeout == 0) {
-            return Err(ScriptToolDefinitionError::InvalidTimeout);
         }
 
         for (name, parameter) in &definition.parameters {
@@ -237,7 +251,8 @@ impl ScriptTool {
             command: definition.command,
             shell: definition.shell,
             parameters: definition.parameters,
-            timeout: definition.timeout.unwrap_or(timeout),
+            timeout: definition.timeout,
+            max_result_bytes: definition.max_result_bytes,
         })
     }
 
@@ -301,7 +316,7 @@ impl ScriptTool {
             &command,
             &execution_directory,
             self.timeout,
-            DEFAULT_MAX_TOOL_RESULT_BYTES,
+            self.max_result_bytes,
             output,
         )
         .await
@@ -398,10 +413,7 @@ impl Tool for ScriptTool {
 
 /// Load global tools first and project-local tools second. Project definitions
 /// replace global definitions with the same ID.
-pub fn load_script_tools(
-    cwd: impl AsRef<Path>,
-    timeout: u64,
-) -> ScriptToolLoadResult {
+pub fn load_script_tools(cwd: impl AsRef<Path>) -> ScriptToolLoadResult {
     let mut result = ScriptToolLoadResult::default();
 
     let mut directories = config::script_tools_dir().into_iter().collect::<Vec<_>>();
@@ -444,7 +456,7 @@ pub fn load_script_tools(
                     toml::from_str(&content).map_err(ScriptToolDefinitionError::from)
                 })
                 .and_then(|definition| {
-                    ScriptTool::from_definition(name.clone(), definition, &path, timeout)
+                    ScriptTool::from_definition(name.clone(), definition, &path)
                 });
 
             match loaded {
@@ -613,7 +625,6 @@ mod tests {
             "example".to_string(),
             definition,
             Path::new("/tmp/example.toml"),
-            60,
         )
         .unwrap();
 
@@ -648,7 +659,6 @@ mod tests {
             "example".to_string(),
             definition,
             Path::new("/tmp/example.toml"),
-            60,
         )
         .unwrap();
 
@@ -698,7 +708,6 @@ mod tests {
             "example".to_string(),
             definition,
             Path::new("/tmp/example.toml"),
-            60,
         )
         .unwrap_err();
 
@@ -714,7 +723,6 @@ mod tests {
             "example".to_string(),
             definition,
             Path::new("/tmp/example.toml"),
-            60,
         )
         .unwrap_err();
 
@@ -738,7 +746,6 @@ mod tests {
             "stream-stdout".to_string(),
             definition,
             Path::new("/tmp/script-tools/stream-stdout.toml"),
-            60,
         )
         .unwrap();
 
@@ -788,7 +795,6 @@ mod tests {
             "timeout-test".to_string(),
             definition,
             Path::new("/tmp/timeout-test.toml"),
-            60,
         )
         .unwrap();
 
@@ -815,7 +821,6 @@ mod tests {
             "cancel-test".to_string(),
             definition,
             Path::new("/tmp/cancel-test.toml"),
-            60,
         )
         .unwrap();
 
@@ -846,7 +851,6 @@ mod tests {
             "print-directory".to_string(),
             definition,
             Path::new("/tmp/script-tools/print-directory.toml"),
-            60,
         )
         .unwrap();
 
