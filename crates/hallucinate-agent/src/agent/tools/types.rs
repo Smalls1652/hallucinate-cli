@@ -7,10 +7,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::{
-    agent::tools::{
-        error::InternalToolError,
-        limits::{ToolLimits, truncate_utf8},
-    },
+    agent::tools::error::InternalToolError,
     ai::types::{ImageContent, Tool as AiTool},
 };
 
@@ -140,11 +137,7 @@ impl ToolResult {
         Self {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
-            content: truncate_utf8(
-                &content.into(),
-                ToolLimits::default().max_tool_result_bytes,
-                "Tool result",
-            ),
+            content: content.into(),
             images: Vec::new(),
             is_error: false,
         }
@@ -159,11 +152,7 @@ impl ToolResult {
         Self {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
-            content: truncate_utf8(
-                &error.into(),
-                ToolLimits::default().max_tool_result_bytes,
-                "Tool result",
-            ),
+            content: error.into(),
             images: Vec::new(),
             is_error: true,
         }
