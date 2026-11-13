@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**hallucinate** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (shell, file operations, search, user-defined script tools), session management, skills, prompt templates, and multiple run modes (interactive, print, RPC).
+**hallucinate** is a re-implementation of the Pi Agent Harness — an AI coding agent tool for terminal-based interactive development — into Rust. It provides a terminal UI for interacting with LLMs (via OpenAI API-compatible endpoints), with built-in tool use (shell, file operations, search, user-defined script tools), session management, skills, prompt templates, and multiple run modes (interactive, prompt, RPC).
 
 This is a **Cargo workspace** with five crates:
 
@@ -22,7 +22,7 @@ Key features:
 - **Agent Runtime**: Single `Agent` struct in `hallucinate-agent::agent::runtime` owns the production turn-loop, builds context, executes tool calls, and emits lifecycle events
 - **Context Compaction**: Context-history selection at turn boundaries with serialization for LLM-backed summarization; preserves complete user turns
 - **Terminal UI**: Built on `ratatui` with alternate screen, multi-line editor with keyboard enhancements, undo support, model picker overlay, markdown rendering, thinking/reasoning display, tool result rendering, and status bar
-- **Multiple Modes**: Interactive (TUI), print (`-p "prompt"`), and RPC (newline-delimited JSON-RPC 2.0 over stdin/stdout)
+- **Multiple Modes**: Interactive (TUI), prompt (`--prompt "prompt"` or `prompt` subcommand), and RPC (newline-delimited JSON-RPC 2.0 over stdin/stdout)
 - **Session Management**: CLI-oriented JSONL persistence with CRUD operations and lifecycle archival (via `hallucinate-session`)
 
 - **Skills System**: Load and execute skills from user config, project `.hallucinate`, shared `.agents` protocol directories, and `--skill` paths
@@ -30,7 +30,7 @@ Key features:
 - **Image Support**: Base64 image content and auto-resize via `image` crate
 - **Auth CLI**: `auth set/remove/list` subcommands for provider API key management; keys are stored in the platform-native keyring (macOS keychain, Linux keyutils, Windows keyring), not in the settings file
 - **Configurable Shell**: Shell tool supports explicit shell executable and full shell syntax (pipes, redirects, `&&`, `||`)
-- **Script Tools**: User-defined tools backed by shell commands — define TOML files in `script_tools/` directories to expose any executable as an LLM-invocable tool with typed parameters and `{{parameter}}` template substitution. Loaded from user config and project-local `.hallucinate/script_tools` (project overrides user by tool ID). See `docs/script_tools.md` for the full reference.
+- **Script Tools**: User-defined tools backed by shell commands — define TOML files in `script_tools/` directories to expose any executable as an LLM-invocable tool with typed parameters and `{{parameter}}` template substitution. Loaded from user config and project-local `.hallucinate/script_tools` (project overrides user by tool ID). Per-tool `timeout` (defaults to configured shell timeout) and `max_result_bytes` fields. See `docs/script_tools.md` for the full reference.
 - **MCP (Model Context Protocol)**: MCP client support via the `rmcp` crate, enabling the agent to interact with MCP servers for extended tool capabilities.
 - **System Prompt Override**: Place a `SYSTEM.md` in the config directory to replace the built-in system prompt; `AGENTS.md` at project root is appended under `## Project Instructions`
 - **API Variants**: Both `openai-completions` (Chat Completions wire format) and `openai-responses` (Responses API wire format) are supported
@@ -50,9 +50,10 @@ Key features:
 | HTTP Client | `reqwest` (json, stream features) |
 | Serialization | `serde` + `serde_json` + `serde_yaml` + `toml` |
 | Error Handling | `anyhow` (app-level) + `thiserror` (domain) |
-| Markdown | `comrak` 0.55 |
+| Markdown | `comrak` 0.59 |
 | Images | `image` 0.25 |
-| MCP | `rmcp` 3.4 (client with reqwest transport) |
+| MCP | `rmcp` 3.9 (client with reqwest transport) |
+| Template Engine | `minijinja` 3.1 (with serde feature) |
 | Schema Gen | `schemars` 1.2 |
 | Logging | `tracing` + `tracing-subscriber` (env-filter) |
 | Paths | `directories` + `path-absolutize` + `shellexpand` |
@@ -79,6 +80,10 @@ cargo run --release
 # Cross-compile (Makefile detects platform automatically)
 make build
 
+# Run prompt mode (renamed from print)
+cargo run -- --prompt "hello"
+cargo run -- prompt --model gpt-4o "hello"
+
 # Run checks without building
 make check
 ```
@@ -100,7 +105,7 @@ crates/
 │   │   │   ├── auth.rs      # Auth CLI subcommand handler
 │   │   │   ├── completions.rs  # Shell completions generation
 │   │   │   ├── interactive.rs # Interactive TUI startup
-│   │   │   ├── print.rs     # Print mode (-p "prompt")
+│   │   │   ├── prompt.rs    # Prompt mode (--prompt "prompt")
 │   │   │   └── rpc.rs       # RPC mode (JSON-RPC)
 │   │   └── logging.rs       # Tracing/logging setup
 │   └── tests/
@@ -142,7 +147,7 @@ crates/
 │   │   │       ├── walker.rs    # Filesystem traversal
 │   │   │       ├── read.rs      # File read
 │   │   │       ├── write.rs     # File write
-│   │   │       └── script_tool.rs # User-defined script tools (TOML-backed shell commands)
+│   │   │       └── script_tool.rs # User-defined script tools (TOML-backed shell commands, per-tool timeout + max_result_bytes)
 │   │   └── config/          # Settings and paths
 │   │       ├── mod.rs
 │   │       ├── paths.rs     # Config directory paths (.agents protocol support)
@@ -173,8 +178,8 @@ crates/
     │   ├── alt_screen.rs    # Alternate screen renderer
     │   ├── components/      # UI components
     │   │   ├── mod.rs
-    │   │   ├── editor.rs    # Multi-line editor with cursor, undo, keyboard enhancements
-    │   │   ├── markdown.rs  # Markdown rendering
+    │   │   ├── editor.rs    # Multi-line editor with cursor, undo, keyboard enhancements, render_with_cursor_position
+    │   │   ├── markdown.rs  # Markdown rendering (table dividers between all rows)
     │   │   ├── picker_overlays.rs  # Model picker and other overlay widgets
     │   │   ├── status_bar.rs   # Status bar rendering
     │   │   ├── thinking.rs     # Thinking/reasoning display
@@ -232,6 +237,7 @@ cargo +nightly fmt -- --emit files
 - **Test utilities**: `tokio-test` for async stream testing
 - **Shell tool tests**: Verify shell syntax support (pipes, redirects, `&&`, `||`) and configurable shell execution
 - **Editor tests**: Multi-line input, Shift+Enter/Ctrl+J for newlines, vertical cursor movement, bracketed paste normalization
+- **Render tests**: Cursor position tracking, synchronized update (cursor flicker prevention), emoji diff width workaround, markdown table rendering
 
 ### Running Tests
 
@@ -335,7 +341,7 @@ Regenerate with `make generate-schemas`.
 - **Title format**: `[component] Brief description` (e.g., `[agent] Add tool execution loop`)
 - **Branch workflow**: Uses Git Town (configured in `.git-branches.toml`)
 - **Merge strategy**: Feature branches use merge strategy (`sync.feature-strategy = "merge"`)
-- **CI**: Forgejo CI workflow runs build, check, and test on PRs and pushes to `main`
+- **CI**: Forgejo CI workflow (`forgejo/workflows/build.yml`) runs build + test jobs; test job uses `--test-threads=1` and `RUST_BACKTRACE=full`
 - **PR template**: Defined in `.forgejo/pull_request_template.md`
 
 ## Debugging and Troubleshooting
