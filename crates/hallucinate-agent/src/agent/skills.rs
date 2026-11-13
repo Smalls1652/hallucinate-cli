@@ -69,6 +69,9 @@ pub struct SkillLoadOptions {
     /// Whether to load the standard user and project skill directories,
     /// including the shared `.agents` locations.
     pub include_defaults: bool,
+
+    /// A list of skill IDs to only enable.
+    pub skill_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,11 +98,18 @@ pub fn load_skills(options: &SkillLoadOptions) -> SkillLoadResult {
         // traditional first-loaded-skill-wins merge behavior when a skill is
         // present in more than one location.
         if let Some(directory) = config::skills_dir() {
-            load_skills_from_dir(&directory, &mut result, &mut seen_paths, &mut seen_names);
+            load_skills_from_dir(
+                &directory,
+                &options.skill_ids,
+                &mut result,
+                &mut seen_paths,
+                &mut seen_names,
+            );
         }
 
         load_skills_from_dir(
             &config::project_skills_dir(&options.cwd),
+            &options.skill_ids,
             &mut result,
             &mut seen_paths,
             &mut seen_names,
@@ -113,6 +123,7 @@ pub fn load_skills(options: &SkillLoadOptions) -> SkillLoadResult {
             load_skills_from_dir_with_root_files(
                 &directory,
                 false,
+                &options.skill_ids,
                 &mut result,
                 &mut seen_paths,
                 &mut seen_names,
@@ -123,6 +134,7 @@ pub fn load_skills(options: &SkillLoadOptions) -> SkillLoadResult {
             load_skills_from_dir_with_root_files(
                 &directory,
                 false,
+                &options.skill_ids,
                 &mut result,
                 &mut seen_paths,
                 &mut seen_names,
@@ -134,9 +146,21 @@ pub fn load_skills(options: &SkillLoadOptions) -> SkillLoadResult {
         let path = expand_path(path, &options.cwd);
 
         if path.is_dir() {
-            load_skills_from_dir(&path, &mut result, &mut seen_paths, &mut seen_names);
+            load_skills_from_dir(
+                &path,
+                &options.skill_ids,
+                &mut result,
+                &mut seen_paths,
+                &mut seen_names,
+            );
         } else if path.is_file() && is_markdown_file(&path) {
-            load_skill_file(&path, &mut result, &mut seen_paths, &mut seen_names);
+            load_skill_file(
+                &path,
+                &options.skill_ids,
+                &mut result,
+                &mut seen_paths,
+                &mut seen_names,
+            );
         } else {
             result.diagnostics.push(SkillDiagnostic {
                 message: if path.exists() {
@@ -235,17 +259,21 @@ When a skill file references a relative path, resolve it against the skill direc
 /// Recursively load skills from a directory, treating root files as skills.
 fn load_skills_from_dir(
     directory: &Path,
+    skill_ids: &[String],
     result: &mut SkillLoadResult,
     seen_paths: &mut HashSet<PathBuf>,
     seen_names: &mut HashSet<String>,
 ) {
-    load_skills_from_dir_with_root_files(directory, true, result, seen_paths, seen_names);
+    load_skills_from_dir_with_root_files(
+        directory, true, skill_ids, result, seen_paths, seen_names,
+    );
 }
 
 /// Recursively load skills from a directory, with optional root file handling.
 fn load_skills_from_dir_with_root_files(
     directory: &Path,
     include_root_files: bool,
+    skill_ids: &[String],
     result: &mut SkillLoadResult,
     seen_paths: &mut HashSet<PathBuf>,
     seen_names: &mut HashSet<String>,
@@ -257,7 +285,7 @@ fn load_skills_from_dir_with_root_files(
     // A directory containing SKILL.md is itself a skill and is not a container.
     let root_skill = directory.join("SKILL.md");
     if root_skill.is_file() {
-        load_skill_file(&root_skill, result, seen_paths, seen_names);
+        load_skill_file(&root_skill, skill_ids, result, seen_paths, seen_names);
         return;
     }
 
@@ -285,9 +313,11 @@ fn load_skills_from_dir_with_root_files(
             // Root files are special only for the directory supplied by the
             // caller. Markdown files inside grouping directories are valid
             // `.agents` skills.
-            load_skills_from_dir_with_root_files(&path, true, result, seen_paths, seen_names);
+            load_skills_from_dir_with_root_files(
+                &path, true, skill_ids, result, seen_paths, seen_names,
+            );
         } else if include_root_files && is_markdown_file(&path) {
-            load_skill_file(&path, result, seen_paths, seen_names);
+            load_skill_file(&path, skill_ids, result, seen_paths, seen_names);
         }
     }
 }
@@ -295,6 +325,7 @@ fn load_skills_from_dir_with_root_files(
 /// Load a single skill Markdown file and add it to the result.
 fn load_skill_file(
     path: &Path,
+    skill_ids: &[String],
     result: &mut SkillLoadResult,
     seen_paths: &mut HashSet<PathBuf>,
     seen_names: &mut HashSet<String>,
@@ -350,6 +381,10 @@ fn load_skill_file(
         .to_string();
 
     let name = frontmatter.name.unwrap_or(fallback_name);
+
+    if skill_ids.len() > 0 && !skill_ids.contains(&name) {
+        return;
+    }
 
     for message in validate_skill(&name, &description) {
         result.diagnostics.push(SkillDiagnostic {
@@ -569,6 +604,7 @@ mod tests {
             cwd: directory.clone(),
             skill_paths: vec![directory.clone()],
             include_defaults: false,
+            skill_ids: Vec::new(),
         });
 
         assert_eq!(result.skills.len(), 1);
@@ -596,6 +632,7 @@ mod tests {
             cwd: directory.clone(),
             skill_paths: vec![directory.clone()],
             include_defaults: false,
+            skill_ids: Vec::new(),
         });
 
         assert_eq!(result.skills.len(), 1);
@@ -611,6 +648,7 @@ mod tests {
     #[test]
     fn loads_agents_skills_and_ignores_root_markdown() {
         let directory = temp_dir("agents");
+        let available_skill_ids: Vec<String> = Vec::new();
 
         write_skill(
             &directory.join("root-file.md"),
@@ -634,6 +672,7 @@ mod tests {
         load_skills_from_dir_with_root_files(
             &directory,
             false,
+            &available_skill_ids,
             &mut result,
             &mut seen_paths,
             &mut seen_names,
@@ -655,6 +694,7 @@ mod tests {
     fn loads_project_agents_directories_from_cwd_to_repo_root() {
         let directory = temp_dir("agents-ancestors");
         let cwd = directory.join("packages").join("feature");
+        let available_skill_ids: Vec<String> = Vec::new();
 
         fs::create_dir_all(&cwd).unwrap();
 
@@ -684,6 +724,7 @@ mod tests {
             load_skills_from_dir_with_root_files(
                 &skill_directory,
                 false,
+                &available_skill_ids,
                 &mut result,
                 &mut seen_paths,
                 &mut seen_names,
@@ -707,6 +748,7 @@ mod tests {
             cwd: directory.clone(),
             skill_paths: vec![directory.clone()],
             include_defaults: false,
+            skill_ids: Vec::new(),
         });
 
         assert!(result.skills.is_empty());
@@ -734,6 +776,7 @@ mod tests {
             cwd: directory.clone(),
             skill_paths: vec![first.clone(), second],
             include_defaults: false,
+            skill_ids: Vec::new(),
         });
 
         assert_eq!(result.skills.len(), 1);
@@ -762,6 +805,7 @@ mod tests {
             cwd: directory.clone(),
             skill_paths: vec![directory.clone()],
             include_defaults: false,
+            skill_ids: Vec::new(),
         });
 
         let expanded = expand_skill_command("/skill:review be strict", &result.skills).unwrap();

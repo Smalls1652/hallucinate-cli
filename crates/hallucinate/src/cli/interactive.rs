@@ -46,6 +46,7 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
             cwd: cwd.clone(),
             skill_paths: cli.skills.clone(),
             include_defaults: !cli.no_skills,
+            skill_ids: settings.skills.available_skills.clone(),
         },
     );
 

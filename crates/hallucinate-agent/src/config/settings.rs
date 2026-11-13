@@ -192,6 +192,26 @@ impl Default for SessionTitleSettings {
     }
 }
 
+/// Settings related to skills.
+#[cfg_attr(not(feature = "schemas"), derive(Debug, Clone, Serialize, Deserialize))]
+#[cfg_attr(
+    feature = "schemas",
+    derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)
+)]
+#[serde(default)]
+pub struct SkillsSettings {
+    /// A list of skill IDs that should be available to use.
+    pub available_skills: Vec<String>,
+}
+
+impl Default for SkillsSettings {
+    fn default() -> Self {
+        Self {
+            available_skills: Vec::new(),
+        }
+    }
+}
+
 /// Application-wide settings.
 #[cfg_attr(not(feature = "schemas"), derive(Debug, Clone, Serialize, Deserialize))]
 #[cfg_attr(
@@ -223,6 +243,9 @@ pub struct Settings {
 
     /// Settings for tools.
     pub tools: ToolSettings,
+
+    /// Settings for skills.
+    pub skills: SkillsSettings,
 
     /// Request timeout in milliseconds.
     pub timeout_ms: u64,
@@ -270,6 +293,7 @@ impl Default for Settings {
             provider_headers: HashMap::new(),
             providers: HashMap::new(),
             tools: ToolSettings::default(),
+            skills: SkillsSettings::default(),
             timeout_ms: 600_000,
             max_retries: 3,
             max_turns: 120,

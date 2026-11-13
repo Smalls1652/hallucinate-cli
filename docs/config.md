@@ -23,6 +23,7 @@ Complete reference for all configuration options for `hallucinate`.
 | `providers` | `object` | — | Providers and their models. |
 | `session_title` | `object` | — | Settings for generating a session title. |
 | `show_thinking` | `boolean` | `false` | Show model thinking/reasoning in user-facing output. |
+| `skills` | `object` | — | Settings for skills. |
 | `temperature` | `number \| null` | — | Default temperature. |
 | `timeout_ms` | `integer` | `600000` | Request timeout in milliseconds. |
 | `tools` | `object` | — | Settings for tools. |
@@ -350,6 +351,19 @@ generation_mode = "parallel"
 | `generation_mode` | `string` | `"parallel"` | `parallel` (runs alongside first response) or `before` (before first response). |
 | `model` | `string \| null` | — | Model used for title generation. If omitted, the active model is used. |
 
+## Skills Configuration
+
+Restrict which skills are loaded by specifying a list of allowed skill IDs. When the list is non-empty, only skills whose IDs appear in the list are loaded; all others are silently skipped.
+
+```toml
+[skills]
+available_skills = ["git-helper", "code-review"]
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `available_skills` | `array` | `[]` | List of skill IDs to enable. When empty, all discovered skills are loaded. |
+
 ## Environment Variables
 
 | Variable | Description |
@@ -470,6 +484,9 @@ max_concurrent_tool_calls = 4
 show_thinking = false
 temperature = 0.7
 max_tokens = 32_768
+
+[skills]
+available_skills = []
 
 [session_title]
 enabled = true

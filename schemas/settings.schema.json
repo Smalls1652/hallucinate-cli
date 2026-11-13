@@ -81,6 +81,13 @@
       "type": "boolean",
       "default": false
     },
+    "skills": {
+      "description": "Settings for skills.",
+      "$ref": "#/$defs/SkillsSettings",
+      "default": {
+        "available_skills": []
+      }
+    },
     "temperature": {
       "description": "Default temperature.",
       "type": [
@@ -665,6 +672,20 @@
           "format": "uint64",
           "default": 60,
           "minimum": 0
+        }
+      }
+    },
+    "SkillsSettings": {
+      "description": "Settings related to skills.",
+      "type": "object",
+      "properties": {
+        "available_skills": {
+          "description": "A list of skill IDs that should be available to use.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
