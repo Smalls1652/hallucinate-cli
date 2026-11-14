@@ -200,6 +200,9 @@ impl Default for SessionTitleSettings {
 )]
 #[serde(default)]
 pub struct SkillsSettings {
+    /// Enable the loading of skills.
+    pub enable: bool,
+
     /// A list of skill IDs that should be available to use.
     pub available_skills: Vec<String>,
 }
@@ -207,6 +210,7 @@ pub struct SkillsSettings {
 impl Default for SkillsSettings {
     fn default() -> Self {
         Self {
+            enable: true,
             available_skills: Vec::new(),
         }
     }

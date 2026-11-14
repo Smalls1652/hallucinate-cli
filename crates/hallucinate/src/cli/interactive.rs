@@ -5,7 +5,10 @@
 //! terminal setup.
 
 use anyhow::{Context, Result};
-use hallucinate_agent::{agent::runtime::Agent, config::Settings};
+use hallucinate_agent::{
+    agent::runtime::Agent,
+    config::{Settings, resolve_enable_skills},
+};
 use hallucinate_session::SessionManager;
 use hallucinate_tui::interactive::InteractiveTui;
 
@@ -45,7 +48,7 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
         &hallucinate_agent::agent::skills::SkillLoadOptions {
             cwd: cwd.clone(),
             skill_paths: cli.skills.clone(),
-            include_defaults: !cli.no_skills,
+            include_defaults: resolve_enable_skills(settings, cli.no_skills),
             skill_ids: settings.skills.available_skills.clone(),
         },
     );
@@ -57,6 +60,8 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
             diagnostic.message
         );
     }
+
+    let loaded_skills = skills.skills;
 
     let prompt_template_options =
         hallucinate_agent::agent::prompt_templates::PromptTemplateLoadOptions {
@@ -75,9 +80,6 @@ pub async fn interactive_command(cli: &Cli) -> Result<()> {
             diagnostic.message
         );
     }
-
-    // Create agent with all built-in tools.
-    let loaded_skills = skills.skills;
 
     let mut agent = Agent::new(provider, model.clone(), agent_config)
         .with_cwd(cwd.to_string_lossy().into_owned())

@@ -85,7 +85,8 @@
       "description": "Settings for skills.",
       "$ref": "#/$defs/SkillsSettings",
       "default": {
-        "available_skills": []
+        "available_skills": [],
+        "enable": true
       }
     },
     "temperature": {
@@ -686,6 +687,11 @@
           "items": {
             "type": "string"
           }
+        },
+        "enable": {
+          "description": "Enable the loading of skills.",
+          "type": "boolean",
+          "default": true
         }
       }
     },

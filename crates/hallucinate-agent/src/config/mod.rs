@@ -143,6 +143,15 @@ pub fn resolve_shell_timeout(
     cli_timeout.unwrap_or(settings.tools.builtin.shell.timeout)
 }
 
+/// Resolve whether skills are enabled or disabled. The `--no-skills` CLI option
+/// will take precedence over the global and project configs.
+pub fn resolve_enable_skills(
+    settings: &self::settings::Settings,
+    cli_no_skills: bool,
+) -> bool {
+    !cli_no_skills && settings.skills.enable
+}
+
 /// Derive agent request configuration from persisted settings, a selected
 /// model, and explicit runtime overrides.
 pub fn agent_config(
@@ -558,5 +567,32 @@ mod tests {
         .unwrap();
 
         assert_eq!(validate_enable_and_disable_tools(&settings).is_err(), true);
+    }
+
+    #[test]
+    fn skills_are_enabled_by_default() {
+        let settings = Settings::default();
+
+        assert_eq!(resolve_enable_skills(&settings, false), true);
+    }
+
+    #[test]
+    fn skills_are_enabled_by_config_but_disabled_by_cli() {
+        let settings = Settings::default();
+
+        assert_eq!(resolve_enable_skills(&settings, true), false);
+    }
+
+    #[test]
+    fn skills_are_disabled_by_config_and_disabled_by_cli() {
+        let settings: Settings = toml::from_str(
+            r#"
+            [skills]
+            enable = false
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(resolve_enable_skills(&settings, false), false);
     }
 }

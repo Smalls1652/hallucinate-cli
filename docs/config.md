@@ -357,11 +357,13 @@ Restrict which skills are loaded by specifying a list of allowed skill IDs. When
 
 ```toml
 [skills]
+enable = true
 available_skills = ["git-helper", "code-review"]
 ```
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
+| `enable` | `boolean` | `true` | Whether skills are loaded at startup. |
 | `available_skills` | `array` | `[]` | List of skill IDs to enable. When empty, all discovered skills are loaded. |
 
 ## Environment Variables
@@ -486,6 +488,7 @@ temperature = 0.7
 max_tokens = 32_768
 
 [skills]
+enable = true
 available_skills = []
 
 [session_title]
