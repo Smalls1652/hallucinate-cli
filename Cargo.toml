@@ -52,7 +52,6 @@ tokio = { version = "1.54.1", default-features = false }
 
 # AI package
 futures = "0.3.34"
-tokio-stream = "0.1.19"
 
 # TUI
 unicode-width = "0.2.3"
@@ -65,9 +64,7 @@ uuid = { version = "1.29.2", features = ["v4", "serde"] }
 # Agent core
 regex = "1.13.1"
 glob = "0.3.4"
-which = "8.0.6"
 chrono = { version = "0.4.45", features = ["serde"] }
-path-absolutize = "4.0.1"
 shellexpand = "3.1.2"
 
 # Logging
@@ -77,7 +74,6 @@ toml = "1.2.1"
 
 # Testing
 mockito = "1.7.2"
-tokio-test = "0.4.5"
 
 # Keyrings
 apple-native-keyring-store = "1.0.2"
