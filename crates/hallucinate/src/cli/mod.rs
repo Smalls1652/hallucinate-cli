@@ -5,6 +5,7 @@ mod completions;
 mod interactive;
 mod prompt;
 mod rpc;
+mod stream_output;
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};

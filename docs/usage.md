@@ -8,18 +8,18 @@ Practical guide to using the `hallucinate` CLI across all run modes.
 
 ```bash
 hallucinate              # Interactive TUI (default)
-hallucinate print <msg>  # Print mode — one-shot prompt
+hallucinate prompt <msg> # One-shot prompt
 hallucinate rpc          # RPC mode — JSON-RPC over stdin/stdout
 hallucinate auth         # Auth management subcommand
 ```
 
-Global options are available on every invocation and subcommand.
+Options are specified on the relevant command. See `hallucinate prompt --help` or `hallucinate rpc --help` for subcommand options.
 
 ---
 
 ## Global Options
 
-These flags work with any subcommand (including the default interactive mode).
+These flags configure the default interactive mode; some also have counterparts on subcommands.
 
 | Flag | Description |
 | --- | --- |
@@ -154,24 +154,23 @@ While any picker (model, session, or prompt) is open, you can start typing to fi
 
 ---
 
-## Print Mode
+## Prompt Mode
 
-Print mode sends a prompt and prints the full response to stdout, then exits. Ideal for scripting and CI pipelines.
-
-```bash
-hallucinate print "What files are in the current directory?"
-```
-
-### Additional Print Options
+Prompt mode sends a one-shot prompt and prints the response to stdout without saving a session. By default it waits for the complete response and does not use tools or skills.
 
 ```bash
-hallucinate print -m openai/gpt-4o "Summarize the key points"
-hallucinate print --max-tokens 1024 --temperature 0.3 "Write a commit message"
-hallucinate print --image screenshot.png "What do you see in this image?"
-hallucinate print --skill ./skills/git/SKILL.md "Review this diff"
+hallucinate prompt "Explain Rust ownership"
+hallucinate prompt -m openai/gpt-4o --image screenshot.png "What is in this image?"
+hallucinate prompt --pretty "Summarize the key points"
 ```
 
-The `--skill` and `--no-skills` flags work in print mode to load skills for the duration of the prompt.
+Use `--stream` to run the full agent loop, including the system prompt, project instructions, and configured built-in, script, and MCP tools. Skills are discovered according to the settings; use `--skill` to add paths or `--no-skills` to disable automatic discovery. Tool enable/disable settings are respected. Tool names, inputs, and success or failure are shown together on stderr after each call completes, with color when stderr is a supported terminal (`NO_COLOR` disables it); tool output and reasoning are not displayed. Tool inputs can contain sensitive information. Assistant text is written to stdout, with Markdown rendered in terminals as complete blocks arrive. When stdout is redirected, raw Markdown is streamed immediately without ANSI codes. No session is saved. `--pretty` cannot be combined with `--stream`.
+
+```bash
+hallucinate prompt --stream "What files are in the current directory?"
+hallucinate prompt --stream --skill ./skills/git/SKILL.md "Review this diff"
+hallucinate prompt --stream --no-skills "Inspect this project"
+```
 
 ---
 
@@ -391,35 +390,30 @@ The same operations are available via the `/auth` slash command:
 Images are automatically resized when `auto_resize_images` is enabled. Supported formats: bmp, gif, jpeg, png, webp.
 
 ```bash
-hallucinate print --image photo1.jpg --image photo2.png "Compare these two images"
+hallucinate prompt --image photo1.jpg --image photo2.png "Compare these two images"
 ```
 
-### Skills in Print/RPC Mode
+### Skills in Streaming Prompt Mode
 
-Skills are auto-discovered from user and project directories by default. Override with:
+Skills are auto-discovered from user and project directories by default when enabled. Override with:
 
 ```bash
-hallucinate print --skill ./skills/git/SKILL.md "Review this PR"
-hallucinate print --no-skills "Plain prompt without skills"
+hallucinate prompt --stream --skill ./skills/git/SKILL.md "Review this PR"
+hallucinate prompt --stream --no-skills "Inspect this project"
 ```
 
 ### Prompt Templates
 
-Similarly, templates are auto-discovered. Load specific ones:
-
-```bash
-hallucinate print --prompt-template ./prompts/review.md "src/main.rs"
-hallucinate print --no-prompt-templates "No templates"
-```
+Prompt templates are available in interactive mode. Load additional templates with `--prompt-template` or disable automatic discovery with `--no-prompt-templates`.
 
 ### Debugging
 
 Enable verbose logging:
 
 ```bash
-RUST_LOG=debug hallucinate print "Hello"
+RUST_LOG=debug hallucinate prompt "Hello"
 # or use the --debug flag to write logs to the cache directory
-hallucinate --debug print "Hello"
+hallucinate --debug prompt "Hello"
 ```
 
 ### Shell Configuration
@@ -427,5 +421,5 @@ hallucinate --debug print "Hello"
 Override the shell used by the shell tool:
 
 ```bash
-hallucinate print --shell /bin/zsh "What shell am I using?"
+hallucinate prompt --stream --shell /bin/zsh "What shell am I using?"
 ```
