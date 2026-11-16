@@ -258,6 +258,7 @@ impl InteractiveTui {
                 &mut self.transcript_layout_cache,
                 &self.transcript,
                 self.show_full_tool_output,
+                self.settings.tools.label_tool_calls,
                 self.show_thinking,
                 self.streaming_message_index,
                 &self.project_cwd,
@@ -401,6 +402,7 @@ fn render_transcript(
     transcript_layout_cache: &mut TranscriptLayoutCache,
     transcript: &TranscriptRenderer,
     show_full_tool_output: bool,
+    label_tool_calls: bool,
     show_thinking: bool,
     streaming_message_index: Option<usize>,
     project_cwd: &Path,
@@ -580,7 +582,11 @@ fn render_transcript(
                     }
 
                     let previous_len = lines.len();
-                    let readable = streamed_tool_call_summary(tool_call, project_cwd);
+                    let readable = if label_tool_calls && tool_call.name != "compact" {
+                        labeled_tool_call_summary(tool_call)
+                    } else {
+                        streamed_tool_call_summary(tool_call, project_cwd)
+                    };
 
                     append_prefixed_lines(
                         &mut lines,
@@ -598,7 +604,14 @@ fn render_transcript(
                         let previous_len = lines.len();
                         let is_error = result.starts_with("❌");
 
-                        let result = tool_result_for_display(result, show_full_tool_output);
+                        // The write tool echoes its content argument as output;
+                        // avoid exposing that argument through the result
+                        // surface.
+                        let result = if label_tool_calls && tool_call.name == "write" && !is_error {
+                            "File content hidden".into()
+                        } else {
+                            tool_result_for_display(result, show_full_tool_output)
+                        };
                         let result = tool_result_content(&result);
 
                         let is_running = transcript.is_tool_call_running(&tool_call.id);
@@ -627,7 +640,8 @@ fn render_transcript(
                         line_starts.push(None);
                         message_indices.push(None);
 
-                        if tool_call.name == "write"
+                        if !label_tool_calls
+                            && tool_call.name == "write"
                             && let Some(content) = streamed_json_string_prefix(
                                 tool_call.arguments.as_str().unwrap_or_default(),
                                 "content",
@@ -970,6 +984,49 @@ fn render_clear_sessions_confirmation(
     );
 }
 
+/// Show the tool name and model's description and, for shell, the command.
+/// Incomplete or missing labels never fall back to displaying other arguments.
+fn labeled_tool_call_summary(tool_call: &ToolCall) -> String {
+    let name = if tool_call.name.is_empty() {
+        "tool call"
+    } else {
+        &tool_call.name
+    };
+
+    let (label, command) = if let Some(raw) = tool_call.arguments.as_str() {
+        (
+            streamed_json_string_prefix(raw, hallucinate_agent::ai::types::TOOL_CALL_LABEL),
+            partial_json_string_value(raw, "command"),
+        )
+    } else {
+        (
+            tool_call
+                .arguments
+                .get(hallucinate_agent::ai::types::TOOL_CALL_LABEL)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            tool_call
+                .arguments
+                .get("command")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+        )
+    };
+
+    let summary = match label.filter(|label| !label.trim().is_empty()) {
+        Some(label) => format!("{name} · {}", label.replace(['\r', '\n'], " ")),
+        None => format!("{name} …"),
+    };
+
+    if name == "shell" {
+        if let Some(command) = command {
+            return format!("{summary}\n\n{command}");
+        }
+    }
+
+    summary
+}
+
 /// Return a concise tool-call summary while the provider streams raw JSON.
 ///
 /// Write and edit payloads commonly contain an entire file, so displaying the
@@ -1028,11 +1085,7 @@ fn partial_json_string_value(
     arguments: &str,
     field: &str,
 ) -> Option<String> {
-    let field_key = format!(r#""{field}""#);
-    let field_start = arguments.find(&field_key)? + field_key.len();
-
-    let value = arguments[field_start..].trim_start();
-    let value = value.strip_prefix(':')?.trim_start();
+    let value = partial_json_field_value(arguments, field)?;
     if !value.starts_with('"') {
         return None;
     }
@@ -1064,11 +1117,7 @@ fn streamed_json_string_prefix(
     arguments: &str,
     field: &str,
 ) -> Option<String> {
-    let field_key = format!(r#""{field}""#);
-
-    let value_start = arguments.find(&field_key)? + field_key.len();
-    let value = arguments[value_start..].trim_start();
-    let value = value.strip_prefix(':')?.trim_start();
+    let value = partial_json_field_value(arguments, field)?;
     let encoded_value = value.strip_prefix('"')?;
 
     let mut escaped = false;
@@ -1092,6 +1141,76 @@ fn streamed_json_string_prefix(
     serde_json::from_str(&format!(r#""{encoded_value}""#))
         .ok()
         .or_else(|| Some(encoded_value.to_string()))
+}
+
+/// Find a top-level field without mistaking text inside a streamed string or
+/// nested object for a parameter name.
+fn partial_json_field_value<'a>(
+    arguments: &'a str,
+    field: &str,
+) -> Option<&'a str> {
+    let bytes = arguments.as_bytes();
+    let mut depth: usize = 0;
+
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'{' | b'[' => {
+                depth += 1;
+                index += 1;
+            },
+
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                index += 1;
+            },
+
+            b'"' => {
+                let start = index;
+                index += 1;
+
+                let mut escaped = false;
+                let mut closed = false;
+
+                while index < bytes.len() {
+                    let byte = bytes[index];
+                    index += 1;
+
+                    if byte == b'"' && !escaped {
+                        closed = true;
+                        break;
+                    }
+
+                    if byte == b'\\' && !escaped {
+                        escaped = true;
+                    } else {
+                        escaped = false;
+                    }
+                }
+
+                if !closed {
+                    return None;
+                }
+
+                if depth == 1
+                    && serde_json::from_str::<String>(&arguments[start..index])
+                        .ok()
+                        .as_deref()
+                        == Some(field)
+                {
+                    let tail = arguments[index..].trim_start();
+
+                    if let Some(value) = tail.strip_prefix(':') {
+                        return Some(value.trim_start());
+                    }
+                }
+            },
+
+            _ => index += 1,
+        }
+    }
+
+    None
 }
 
 /// Return whether `role` begins a new visual transcript card.
@@ -1482,6 +1601,63 @@ mod tests {
         let mask = selection_mask_line(&line, None);
 
         assert_eq!(mask.spans[0].style.fg, Some(NON_SELECTION_MARKER));
+    }
+
+    #[test]
+    fn labeled_calls_hide_arguments_during_and_after_streaming() {
+        let mut call = ToolCall {
+            id: "id".into(),
+            name: "write".into(),
+            arguments: serde_json::json!({"__hallucinate_tool_call_label": "Save notes", "content": "secret"}),
+            result: None,
+        };
+        assert_eq!(labeled_tool_call_summary(&call), "write · Save notes");
+
+        call.arguments = serde_json::Value::String(
+            r#"{"content":"secret","__hallucinate_tool_call_label":"Save no"#.into(),
+        );
+        assert_eq!(labeled_tool_call_summary(&call), "write · Save no");
+
+        call.arguments = serde_json::Value::String(r#"{"content":"secret"#.into());
+        assert_eq!(labeled_tool_call_summary(&call), "write …");
+
+        call.arguments = serde_json::Value::String(
+            r#"{"nested":{"__hallucinate_tool_call_label":"secret"},"content":"private"#.into(),
+        );
+        assert_eq!(labeled_tool_call_summary(&call), "write …");
+
+        call.name = "shell".into();
+        call.arguments = serde_json::json!({"__hallucinate_tool_call_label": "Run tests", "command": "cargo test", "timeout": 10});
+        assert_eq!(
+            labeled_tool_call_summary(&call),
+            "shell · Run tests\n\ncargo test"
+        );
+    }
+
+    #[test]
+    fn labeled_tool_header_stays_on_one_line_when_label_contains_newlines() {
+        let call = ToolCall {
+            id: "id".into(),
+            name: "mcp_search".into(),
+            arguments: serde_json::json!({"__hallucinate_tool_call_label": "Search\nissues\rnow"}),
+            result: None,
+        };
+        let mut lines = Vec::new();
+        append_prefixed_lines(
+            &mut lines,
+            &labeled_tool_call_summary(&call),
+            "├─ ⚙ ",
+            "│  ",
+            Style::default(),
+            Style::default(),
+            80,
+        );
+
+        assert_eq!(lines.len(), 1);
+        assert_eq!(
+            String::from(lines.remove(0)),
+            "├─ ⚙ mcp_search · Search issues now"
+        );
     }
 
     #[test]

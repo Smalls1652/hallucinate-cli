@@ -164,6 +164,7 @@ pub fn agent_config(
         max_context_tokens: model.context_window,
         enable_compaction: settings.enable_compaction,
         enable_tools: settings.tools.enable,
+        label_tool_calls: settings.tools.label_tool_calls,
         enabled_tools: settings.tools.enable_tools.clone(),
         disabled_tools: settings.tools.disable_tools.clone(),
         temperature: overrides.temperature.or(settings.temperature),
@@ -520,6 +521,31 @@ mod tests {
 
         let serialized = toml::to_string(&settings).unwrap();
         assert!(!serialized.contains("cost"));
+    }
+
+    #[test]
+    fn tool_call_labels_default_to_enabled_and_can_be_disabled() {
+        assert!(
+            toml::from_str::<Settings>("")
+                .unwrap()
+                .tools
+                .label_tool_calls
+        );
+
+        let settings: Settings = toml::from_str("[tools]\nlabel_tool_calls = false").unwrap();
+
+        let model = Model::new(
+            "test",
+            "Test",
+            Api::OpenaiCompletions,
+            "test",
+            "",
+            false,
+            100,
+            10,
+        );
+
+        assert!(!agent_config(&settings, &model, &RuntimeOverrides::default()).label_tool_calls);
     }
 
     #[test]

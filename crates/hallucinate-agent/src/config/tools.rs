@@ -294,6 +294,9 @@ pub struct ToolSettings {
     /// Enable tool use.
     pub enable: bool,
 
+    /// Ask the model for a human-readable label for each tool call.
+    pub label_tool_calls: bool,
+
     /// Enable tools by name. (Cannot be used in combination with
     /// `disable_tools`)
     pub enable_tools: Vec<String>,
@@ -315,6 +318,7 @@ impl Default for ToolSettings {
     fn default() -> Self {
         Self {
             enable: true,
+            label_tool_calls: true,
             enable_tools: vec![],
             disable_tools: vec![],
             builtin: BuiltInToolSettings::default(),

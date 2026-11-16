@@ -317,6 +317,7 @@ async fn stream_prompt(
         diagnostics,
         render_markdown,
         color_tools,
+        settings.tools.label_tool_calls,
     )
     .await
 }
@@ -327,8 +328,15 @@ async fn stream_agent(
     diagnostics: &mut impl Write,
     render_markdown: bool,
     color_tools: bool,
+    label_tool_calls: bool,
 ) -> Result<()> {
-    let mut presentation = StreamOutput::new(output, diagnostics, render_markdown, color_tools);
+    let mut presentation = StreamOutput::new(
+        output,
+        diagnostics,
+        render_markdown,
+        color_tools,
+        label_tool_calls,
+    );
     let mut events = agent.subscribe();
 
     let run = agent.run();
@@ -464,7 +472,7 @@ mod tests {
 
         let first_body = format!(
             "data: {}\n\ndata: [DONE]\n",
-            json!({"choices":[{"delta":{"reasoning_content":"secret-thinking", "tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"shell","arguments":"{\"command\":\"printf '%s%s' tool- secret\"}"}}]},"finish_reason":"tool_calls"}]})
+            json!({"choices":[{"delta":{"reasoning_content":"secret-thinking", "tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"shell","arguments":"{\"__hallucinate_tool_call_label\":\"Run command\",\"command\":\"printf '%s%s' tool- secret\"}"}}]},"finish_reason":"tool_calls"}]})
         );
         let second_body = format!(
             "data: {}\n\ndata: [DONE]\n",
@@ -537,9 +545,10 @@ mod tests {
         assert_eq!(output, b"answer");
 
         let diagnostics = String::from_utf8(diagnostics).unwrap();
-        assert!(diagnostics.contains("[shell]\n"));
-        assert!(diagnostics.contains("  Tool result: ✅"));
-        assert!(diagnostics.contains("printf '%s%s' tool- secret"));
+        assert_eq!(
+            diagnostics,
+            "[shell] Run command\n  printf '%s%s' tool- secret\n  Tool result: ✅\n\n"
+        );
         assert!(!diagnostics.contains("tool-secret"));
         assert!(!diagnostics.contains("secret-thinking"));
 

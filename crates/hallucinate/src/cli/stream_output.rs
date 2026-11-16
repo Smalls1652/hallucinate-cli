@@ -13,6 +13,7 @@ pub(super) struct StreamOutput<'a, O: Write, D: Write> {
     diagnostics: &'a mut D,
     render_markdown: bool,
     color_tools: bool,
+    label_tool_calls: bool,
     pending_markdown: String,
     tool_arguments: HashMap<String, Value>,
 }
@@ -23,12 +24,14 @@ impl<'a, O: Write, D: Write> StreamOutput<'a, O, D> {
         diagnostics: &'a mut D,
         render_markdown: bool,
         color_tools: bool,
+        label_tool_calls: bool,
     ) -> Self {
         Self {
             output,
             diagnostics,
             render_markdown,
             color_tools,
+            label_tool_calls,
             pending_markdown: String::new(),
             tool_arguments: HashMap::new(),
         }
@@ -97,14 +100,44 @@ impl<'a, O: Write, D: Write> StreamOutput<'a, O, D> {
         let arguments = self.tool_arguments.remove(tool_call_id);
         let name = safe_label(tool_name);
 
+        let label = arguments
+            .as_ref()
+            .filter(|_| self.label_tool_calls)
+            .map(|arguments| {
+                arguments
+                    .get(hallucinate_agent::ai::types::TOOL_CALL_LABEL)
+                    .and_then(Value::as_str)
+                    .filter(|label| !label.trim().is_empty())
+                    .unwrap_or("Tool call")
+            });
+
         if self.color_tools {
-            writeln!(self.diagnostics, "\x1b[1;36m[{name}]\x1b[0m")?;
+            write!(self.diagnostics, "\x1b[1;36m[{name}]\x1b[0m")?;
         } else {
-            writeln!(self.diagnostics, "[{name}]")?;
+            write!(self.diagnostics, "[{name}]")?;
         }
 
+        if let Some(label) = label {
+            write!(self.diagnostics, " {}", safe_input(label))?;
+        }
+
+        writeln!(self.diagnostics)?;
+
         if let Some(arguments) = arguments {
-            let input = tool_input(tool_name, &arguments);
+            let input = if self.label_tool_calls {
+                if tool_name == "shell" {
+                    arguments
+                        .get("command")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string()
+                } else {
+                    String::new()
+                }
+            } else {
+                tool_input(tool_name, &arguments)
+            };
+
             for line in input.lines() {
                 if self.color_tools {
                     writeln!(self.diagnostics, "  \x1b[2m{}\x1b[0m", safe_input(line))?;
@@ -117,6 +150,7 @@ impl<'a, O: Write, D: Write> StreamOutput<'a, O, D> {
         let result = if succeeded { "✅" } else { "❌" };
         if self.color_tools {
             let color = if succeeded { "32" } else { "31" };
+
             writeln!(
                 self.diagnostics,
                 "  \x1b[1mTool result:\x1b[0m \x1b[{color}m{result}\x1b[0m\n"
@@ -263,7 +297,7 @@ mod tests {
     fn displays_concurrent_tool_calls_without_outputs_or_reasoning() {
         let mut output = Vec::new();
         let mut diagnostics = Vec::new();
-        let mut display = StreamOutput::new(&mut output, &mut diagnostics, false, false);
+        let mut display = StreamOutput::new(&mut output, &mut diagnostics, false, false, false);
 
         for (id, command) in [("a", "first"), ("b", "second")] {
             display
@@ -335,10 +369,85 @@ mod tests {
     }
 
     #[test]
+    fn labeled_tool_calls_hide_arguments_except_shell_command() {
+        let mut output = Vec::new();
+        let mut diagnostics = Vec::new();
+        let mut display = StreamOutput::new(&mut output, &mut diagnostics, false, false, true);
+
+        for (id, name, args) in [
+            (
+                "1",
+                "mcp_search",
+                json!({"__hallucinate_tool_call_label": "Search issues", "query": "secret"}),
+            ),
+            (
+                "2",
+                "shell",
+                json!({"__hallucinate_tool_call_label": "Run tests", "command": "cargo test", "timeout": 123}),
+            ),
+            ("3", "read", json!({"path": "private"})),
+        ] {
+            display
+                .handle(AgentEvent::ToolCallDetected {
+                    tool_call_id: id.into(),
+                    tool_name: name.into(),
+                    arguments: args,
+                })
+                .unwrap();
+
+            display
+                .handle(AgentEvent::ToolExecutionCompleted {
+                    tool_call_id: id.into(),
+                    tool_name: name.into(),
+                    result: String::new(),
+                    is_error: false,
+                })
+                .unwrap();
+        }
+
+        let diagnostics = String::from_utf8(diagnostics).unwrap();
+        assert!(diagnostics.contains("[mcp_search] Search issues\n  Tool result: ✅\n\n"));
+        assert!(diagnostics.contains("[shell] Run tests\n  cargo test\n  Tool result: ✅\n\n"));
+        assert!(diagnostics.contains("[read] Tool call\n  Tool result: ✅\n\n"));
+        assert!(!diagnostics.contains("secret"));
+        assert!(!diagnostics.contains("123"));
+        assert!(!diagnostics.contains("private"));
+    }
+
+    #[test]
+    fn colored_labels_escape_control_characters_on_the_header_line() {
+        let mut output = Vec::new();
+        let mut diagnostics = Vec::new();
+        let mut display = StreamOutput::new(&mut output, &mut diagnostics, false, true, true);
+
+        display
+            .handle(AgentEvent::ToolCallDetected {
+                tool_call_id: "one".into(),
+                tool_name: "shell".into(),
+                arguments: json!({"__hallucinate_tool_call_label": "Echo\n\u{1b}[31mhello", "command": "echo hello"}),
+            })
+            .unwrap();
+
+        display
+            .handle(AgentEvent::ToolExecutionCompleted {
+                tool_call_id: "one".into(),
+                tool_name: "shell".into(),
+                result: String::new(),
+                is_error: false,
+            })
+            .unwrap();
+
+        let diagnostics = String::from_utf8(diagnostics).unwrap();
+        assert!(diagnostics.starts_with(
+            "\x1b[1;36m[shell]\x1b[0m Echo\\n\\u{1b}[31mhello\n  \x1b[2mecho hello\x1b[0m\n"
+        ));
+    }
+
+    #[test]
     fn tool_inputs_are_readable_and_color_is_optional() {
         let mut output = Vec::new();
         let mut diagnostics = Vec::new();
-        let mut display = StreamOutput::new(&mut output, &mut diagnostics, false, true);
+        let mut display = StreamOutput::new(&mut output, &mut diagnostics, false, true, false);
 
         display
             .handle(AgentEvent::ToolCallDetected {
@@ -409,7 +518,7 @@ mod tests {
 
         let mut output = SharedOutput(shared.clone());
         let mut diagnostics = SharedOutput(shared.clone());
-        let mut display = StreamOutput::new(&mut output, &mut diagnostics, true, false);
+        let mut display = StreamOutput::new(&mut output, &mut diagnostics, true, false, false);
 
         display
             .handle(AgentEvent::AssistantTextDelta {
@@ -466,7 +575,7 @@ mod tests {
     fn renders_split_markdown_blocks_and_flushes_partial_response() {
         let mut output = Vec::new();
         let mut diagnostics = Vec::new();
-        let mut display = StreamOutput::new(&mut output, &mut diagnostics, true, false);
+        let mut display = StreamOutput::new(&mut output, &mut diagnostics, true, false, false);
 
         display
             .handle(AgentEvent::AssistantTextDelta {
@@ -505,7 +614,7 @@ mod tests {
     fn redirected_output_is_immediate_and_preserves_markdown() {
         let mut output = Vec::new();
         let mut diagnostics = Vec::new();
-        let mut display = StreamOutput::new(&mut output, &mut diagnostics, false, false);
+        let mut display = StreamOutput::new(&mut output, &mut diagnostics, false, false, false);
 
         display
             .handle(AgentEvent::AssistantTextDelta {

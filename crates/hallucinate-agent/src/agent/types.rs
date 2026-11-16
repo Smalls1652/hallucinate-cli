@@ -324,6 +324,9 @@ pub struct AgentConfig {
     /// Whether to enable tool use.
     pub enable_tools: bool,
 
+    /// Ask the model for a human-readable label for each tool call.
+    pub label_tool_calls: bool,
+
     /// Tools that are enabled.
     pub enabled_tools: Vec<String>,
 
@@ -356,6 +359,7 @@ impl Default for AgentConfig {
             max_context_tokens: 128_000,
             enable_compaction: true,
             enable_tools: true,
+            label_tool_calls: true,
             enabled_tools: vec![],
             disabled_tools: vec![],
             temperature: None,

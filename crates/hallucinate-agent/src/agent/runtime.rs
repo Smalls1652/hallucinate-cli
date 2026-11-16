@@ -53,6 +53,10 @@ pub enum AgentError {
     #[error("tool name conflicts with an existing tool: {0}")]
     ToolNameConflict(String),
 
+    /// A tool uses the argument reserved for tool-call labels.
+    #[error("tool '{0}' defines the reserved argument __hallucinate_tool_call_label")]
+    ToolLabelConflict(String),
+
     /// The agent attempted to execute a tool that is not registered.
     #[error("unknown tool: {0}")]
     UnknownTool(String),
@@ -289,7 +293,9 @@ impl Agent {
             return Err(AgentError::ToolNameConflict(tool.name().to_string()));
         }
 
+        self.check_tool_label_conflict(tool.as_ref())?;
         self.tool_registry.add_external_tool(tool);
+        self.invalidate_context_base();
 
         Ok(())
     }
@@ -311,11 +317,30 @@ impl Agent {
                 return Err(AgentError::McpToolNameConflict(tool.name().to_string()));
             }
 
+            self.check_tool_label_conflict(tool.as_ref())?;
             self.tool_registry.add_external_tool(tool);
         }
 
         self.invalidate_context_base();
 
+        Ok(())
+    }
+
+    fn check_tool_label_conflict(
+        &self,
+        tool: &dyn AgentTool,
+    ) -> Result<(), AgentError> {
+        if self.config.label_tool_calls
+            && tool
+                .parameters()
+                .get("properties")
+                .and_then(serde_json::Value::as_object)
+                .is_some_and(|properties| {
+                    properties.contains_key(crate::ai::types::TOOL_CALL_LABEL)
+                })
+        {
+            return Err(AgentError::ToolLabelConflict(tool.name().to_string()));
+        }
         Ok(())
     }
 
@@ -599,7 +624,15 @@ impl Agent {
         let tools = (self.config.enable_tools
             && self.config.include_tool_definitions
             && !self.tool_registry.is_empty())
-        .then(|| self.tool_registry.to_ai_tools());
+        .then(|| {
+            let mut tools = self.tool_registry.to_ai_tools();
+            if self.config.label_tool_calls {
+                for tool in &mut tools {
+                    add_tool_call_label(&mut tool.parameters);
+                }
+            }
+            tools
+        });
 
         tracing::debug!(
             elapsed_ms = started_at.elapsed().as_millis(),
@@ -886,6 +919,7 @@ impl Agent {
 
         let concurrency_limit = self.config.max_concurrent_tool_calls.max(1);
         let cwd = self.cwd.clone();
+        let label_tool_calls = self.config.label_tool_calls;
 
         tracing::info!(
             tool_call_count = tool_calls.len(),
@@ -916,9 +950,15 @@ impl Agent {
 
             tool_jobs.push(async move {
                 let started_at = Instant::now();
+                let mut arguments = call.arguments.clone();
+                if label_tool_calls {
+                    if let Some(object) = arguments.as_object_mut() {
+                        object.remove(crate::ai::types::TOOL_CALL_LABEL);
+                    }
+                }
                 let result = match tool {
                     Some(tool) => tool
-                        .execute_with_output(&call.arguments, cwd.as_deref(), Some(output))
+                        .execute_with_output(&arguments, cwd.as_deref(), Some(output))
                         .await
                         .map_err(|error| AgentError::ToolFailure(error)),
                     None => Err(AgentError::UnknownTool(call.tool_name.clone())),
@@ -1290,6 +1330,30 @@ impl Agent {
         }
 
         Err(AgentError::SummarizationStreamEnded)
+    }
+}
+
+/// Add the model-facing label without changing a tool's execution schema.
+fn add_tool_call_label(schema: &mut serde_json::Value) {
+    let Some(object) = schema.as_object_mut() else {
+        return;
+    };
+
+    let properties = object
+        .entry("properties")
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(properties) = properties.as_object_mut() {
+        properties.insert(crate::ai::types::TOOL_CALL_LABEL.to_string(), serde_json::json!({
+            "type": "string",
+            "description": "A short human-readable description of what this tool call is doing, shown to the user."
+        }));
+    }
+
+    let required = object
+        .entry("required")
+        .or_insert_with(|| serde_json::json!([]));
+    if let Some(required) = required.as_array_mut() {
+        required.push(serde_json::json!(crate::ai::types::TOOL_CALL_LABEL));
     }
 }
 
@@ -1983,6 +2047,100 @@ mod tests {
         assert_eq!(
             summaries,
             vec!["[Context Summary]\n## Goal\nUpdated checkpoint."]
+        );
+    }
+
+    #[test]
+    fn labels_are_added_to_all_tool_schemas_only_when_enabled() {
+        for enabled in [true, false] {
+            let config = AgentConfig {
+                label_tool_calls: enabled,
+                ..Default::default()
+            };
+
+            let mut agent = Agent::new(Box::new(FauxProvider::new()), test_model(), config);
+            agent.add_builtin_tools(all_built_in_tools_with_defaults());
+            agent
+                .add_tool_checked(Arc::new(DelayedTool {
+                    barrier: Arc::new(Barrier::new(1)),
+                    active_calls: Arc::new(AtomicUsize::new(0)),
+                    peak_calls: Arc::new(AtomicUsize::new(0)),
+                }))
+                .unwrap();
+
+            let context = agent.build_context();
+
+            for tool in context.tools.unwrap().iter() {
+                assert_eq!(
+                    tool.parameters["properties"]
+                        .get(crate::ai::types::TOOL_CALL_LABEL)
+                        .is_some(),
+                    enabled,
+                    "{}",
+                    tool.name
+                );
+
+                if enabled {
+                    assert!(
+                        tool.parameters["required"]
+                            .as_array()
+                            .unwrap()
+                            .contains(&serde_json::json!(crate::ai::types::TOOL_CALL_LABEL))
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn label_is_retained_in_history_but_not_forwarded_to_tools() {
+        #[derive(Debug)]
+        struct RecordingTool(Arc<std::sync::Mutex<Vec<serde_json::Value>>>);
+        impl Tool for RecordingTool {
+            fn name(&self) -> &str {
+                "record"
+            }
+
+            fn description(&self) -> &str {
+                "Record arguments"
+            }
+
+            fn parameters(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object", "properties": {"value": {"type": "string"}}, "additionalProperties": false})
+            }
+
+            fn execute<'a>(
+                &'a self,
+                arguments: &'a serde_json::Value,
+                _: Option<&'a str>,
+            ) -> AsyncToolExecutionResult<'a> {
+                self.0.lock().unwrap().push(arguments.clone());
+
+                Box::pin(async { Ok(ToolResult::success("", "", "ok")) })
+            }
+        }
+
+        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let provider = FauxProvider::new();
+        provider.set_responses(vec![
+            FauxResponse::Text("done".into(), StopReason::Stop),
+            FauxResponse::ToolCall("id".into(), "record".into(), serde_json::json!({"value": "data", "__hallucinate_tool_call_label": "Record data"}), StopReason::ToolUse),
+        ]);
+
+        let mut agent = Agent::new(Box::new(provider), test_model(), AgentConfig::default());
+        agent
+            .add_tool_checked(Arc::new(RecordingTool(received.clone())))
+            .unwrap();
+        agent.add_user_message("go");
+        agent.run().await.unwrap();
+
+        assert_eq!(
+            *received.lock().unwrap(),
+            vec![serde_json::json!({"value": "data"})]
+        );
+        assert!(
+            matches!(&agent.messages()[1], Message::Assistant(message) if matches!(&message.content[0], AssistantContent::ToolCall(call) if call.arguments["__hallucinate_tool_call_label"] == "Record data"))
         );
     }
 

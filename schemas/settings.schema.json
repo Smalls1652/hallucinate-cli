@@ -145,7 +145,8 @@
         },
         "disable_tools": [],
         "enable": true,
-        "enable_tools": []
+        "enable_tools": [],
+        "label_tool_calls": true
       }
     }
   },
@@ -758,6 +759,11 @@
           "items": {
             "type": "string"
           }
+        },
+        "label_tool_calls": {
+          "description": "Ask the model for a human-readable label for each tool call.",
+          "type": "boolean",
+          "default": true
         },
         "mcp_servers": {
           "description": "MCP servers whose stdio tools are exposed to the agent. Each map key\nidentifies a server and becomes part of its qualified tool names.",

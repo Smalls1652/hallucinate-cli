@@ -222,6 +222,7 @@ Settings for managing tools, including built-in tools and MCP servers.
 ```toml
 [tools]
 enable = true
+label_tool_calls = true
 disable_tools = ["edit"]
 
 [tools.builtin.shell]
@@ -252,6 +253,8 @@ tool_prefix = "fs"
 url = "https://mcp.example.com/mcp"
 auth = { type = "api-key", api_key = "replace-me", header = "X-API-Key", prefix = "" }
 ```
+
+`tools.label_tool_calls` defaults to `true`. The model supplies a short description for every tool call, displayed instead of its arguments; shell calls also show the command on the following line. Set it to `false` to restore argument-based display. The reserved model-only argument `__hallucinate_tool_call_label` is removed before execution and must not be declared by a tool. Labels and original arguments remain in session history and RPC events.
 
 ### Built-in Tools
 

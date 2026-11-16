@@ -141,6 +141,9 @@ impl ImageContent {
     }
 }
 
+/// Reserved model-only argument used to describe a tool call to the user.
+pub const TOOL_CALL_LABEL: &str = "__hallucinate_tool_call_label";
+
 /// Tool call from an assistant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCall {
