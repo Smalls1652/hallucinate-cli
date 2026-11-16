@@ -8,7 +8,6 @@ publish.workspace = true
 license-file.workspace = true
 readme.workspace = true
 
-homepage.workspace = true
 repository.workspace = true
 
 default-run = "hallucinate"
