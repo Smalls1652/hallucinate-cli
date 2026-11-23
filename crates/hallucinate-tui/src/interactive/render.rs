@@ -604,14 +604,7 @@ fn render_transcript(
                         let previous_len = lines.len();
                         let is_error = result.starts_with("❌");
 
-                        // The write tool echoes its content argument as output;
-                        // avoid exposing that argument through the result
-                        // surface.
-                        let result = if label_tool_calls && tool_call.name == "write" && !is_error {
-                            "File content hidden".into()
-                        } else {
-                            tool_result_for_display(result, show_full_tool_output)
-                        };
+                        let result = tool_result_for_display(result, show_full_tool_output);
                         let result = tool_result_content(&result);
 
                         let is_running = transcript.is_tool_call_running(&tool_call.id);
@@ -640,8 +633,7 @@ fn render_transcript(
                         line_starts.push(None);
                         message_indices.push(None);
 
-                        if !label_tool_calls
-                            && tool_call.name == "write"
+                        if tool_call.name == "write"
                             && let Some(content) = streamed_json_string_prefix(
                                 tool_call.arguments.as_str().unwrap_or_default(),
                                 "content",
