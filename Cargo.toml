@@ -55,7 +55,7 @@ futures = "0.3.34"
 
 # TUI
 unicode-width = "0.2.3"
-comrak = "0.59.0"
+comrak = "1.0.0"
 
 # Config / paths
 directories = "6.0.0"
