@@ -249,7 +249,7 @@ impl Renderer<'_> {
                 self.separator();
             },
 
-            NodeValue::ThematicBreak => {
+            NodeValue::ThematicBreak(_) => {
                 self.lines.push(vec![Span::styled(
                     format!("{}────────────────", " ".repeat(indent)),
                     Style::default().fg(Color::DarkGray),
@@ -403,7 +403,7 @@ impl Renderer<'_> {
         let rows = node
             .children()
             .map(|row| {
-                let header = matches!(row.data().value, NodeValue::TableRow(true));
+                let header = matches!(row.data().value, NodeValue::TableRow(ref row_item) if row_item.header);
 
                 let style = if header {
                     Style::default().add_modifier(Modifier::BOLD)
@@ -577,15 +577,15 @@ fn inline_node<'a>(
                 .add_modifier(Modifier::BOLD),
         ),
 
-        NodeValue::Emph => {
+        NodeValue::Emph(_) => {
             children_inline(node, style.add_modifier(Modifier::ITALIC), lines, links)
         },
 
-        NodeValue::Strong => {
+        NodeValue::Strong(_) => {
             children_inline(node, style.add_modifier(Modifier::BOLD), lines, links)
         },
 
-        NodeValue::Strikethrough => children_inline(
+        NodeValue::Strikethrough(_) => children_inline(
             node,
             style.add_modifier(Modifier::CROSSED_OUT),
             lines,
