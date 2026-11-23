@@ -54,7 +54,7 @@ pub enum AgentError {
     ToolNameConflict(String),
 
     /// A tool uses the argument reserved for tool-call labels.
-    #[error("tool '{0}' defines the reserved argument __hallucinate_tool_call_label")]
+    #[error("tool '{0}' defines the reserved argument __tool_call_label")]
     ToolLabelConflict(String),
 
     /// The agent attempted to execute a tool that is not registered.
@@ -1345,7 +1345,7 @@ fn add_tool_call_label(schema: &mut serde_json::Value) {
     if let Some(properties) = properties.as_object_mut() {
         properties.insert(crate::ai::types::TOOL_CALL_LABEL.to_string(), serde_json::json!({
             "type": "string",
-            "description": "A short human-readable description of what this tool call is doing, shown to the user."
+            "description": "A short human-readable description of what this tool call is doing that is shown to the user. Always fill this property out first before other properties."
         }));
     }
 
@@ -1353,7 +1353,7 @@ fn add_tool_call_label(schema: &mut serde_json::Value) {
         .entry("required")
         .or_insert_with(|| serde_json::json!([]));
     if let Some(required) = required.as_array_mut() {
-        required.push(serde_json::json!(crate::ai::types::TOOL_CALL_LABEL));
+        required.insert(0, serde_json::json!(crate::ai::types::TOOL_CALL_LABEL));
     }
 }
 
@@ -2125,7 +2125,12 @@ mod tests {
         let provider = FauxProvider::new();
         provider.set_responses(vec![
             FauxResponse::Text("done".into(), StopReason::Stop),
-            FauxResponse::ToolCall("id".into(), "record".into(), serde_json::json!({"value": "data", "__hallucinate_tool_call_label": "Record data"}), StopReason::ToolUse),
+            FauxResponse::ToolCall(
+                "id".into(),
+                "record".into(),
+                serde_json::json!({"value": "data", "__tool_call_label": "Record data"}),
+                StopReason::ToolUse,
+            ),
         ]);
 
         let mut agent = Agent::new(Box::new(provider), test_model(), AgentConfig::default());
@@ -2140,7 +2145,7 @@ mod tests {
             vec![serde_json::json!({"value": "data"})]
         );
         assert!(
-            matches!(&agent.messages()[1], Message::Assistant(message) if matches!(&message.content[0], AssistantContent::ToolCall(call) if call.arguments["__hallucinate_tool_call_label"] == "Record data"))
+            matches!(&agent.messages()[1], Message::Assistant(message) if matches!(&message.content[0], AssistantContent::ToolCall(call) if call.arguments["__tool_call_label"] == "Record data"))
         );
     }
 

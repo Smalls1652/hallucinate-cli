@@ -378,12 +378,12 @@ mod tests {
             (
                 "1",
                 "mcp_search",
-                json!({"__hallucinate_tool_call_label": "Search issues", "query": "secret"}),
+                json!({"__tool_call_label": "Search issues", "query": "secret"}),
             ),
             (
                 "2",
                 "shell",
-                json!({"__hallucinate_tool_call_label": "Run tests", "command": "cargo test", "timeout": 123}),
+                json!({"__tool_call_label": "Run tests", "command": "cargo test", "timeout": 123}),
             ),
             ("3", "read", json!({"path": "private"})),
         ] {
@@ -424,7 +424,7 @@ mod tests {
             .handle(AgentEvent::ToolCallDetected {
                 tool_call_id: "one".into(),
                 tool_name: "shell".into(),
-                arguments: json!({"__hallucinate_tool_call_label": "Echo\n\u{1b}[31mhello", "command": "echo hello"}),
+                arguments: json!({"__tool_call_label": "Echo\n\u{1b}[31mhello", "command": "echo hello"}),
             })
             .unwrap();
 

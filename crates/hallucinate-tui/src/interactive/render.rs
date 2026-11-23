@@ -1600,26 +1600,25 @@ mod tests {
         let mut call = ToolCall {
             id: "id".into(),
             name: "write".into(),
-            arguments: serde_json::json!({"__hallucinate_tool_call_label": "Save notes", "content": "secret"}),
+            arguments: serde_json::json!({"__tool_call_label": "Save notes", "content": "secret"}),
             result: None,
         };
         assert_eq!(labeled_tool_call_summary(&call), "write · Save notes");
 
-        call.arguments = serde_json::Value::String(
-            r#"{"content":"secret","__hallucinate_tool_call_label":"Save no"#.into(),
-        );
+        call.arguments =
+            serde_json::Value::String(r#"{"content":"secret","__tool_call_label":"Save no"#.into());
         assert_eq!(labeled_tool_call_summary(&call), "write · Save no");
 
         call.arguments = serde_json::Value::String(r#"{"content":"secret"#.into());
         assert_eq!(labeled_tool_call_summary(&call), "write …");
 
         call.arguments = serde_json::Value::String(
-            r#"{"nested":{"__hallucinate_tool_call_label":"secret"},"content":"private"#.into(),
+            r#"{"nested":{"__tool_call_label":"secret"},"content":"private"#.into(),
         );
         assert_eq!(labeled_tool_call_summary(&call), "write …");
 
         call.name = "shell".into();
-        call.arguments = serde_json::json!({"__hallucinate_tool_call_label": "Run tests", "command": "cargo test", "timeout": 10});
+        call.arguments = serde_json::json!({"__tool_call_label": "Run tests", "command": "cargo test", "timeout": 10});
         assert_eq!(
             labeled_tool_call_summary(&call),
             "shell · Run tests\n\ncargo test"
@@ -1631,7 +1630,7 @@ mod tests {
         let call = ToolCall {
             id: "id".into(),
             name: "mcp_search".into(),
-            arguments: serde_json::json!({"__hallucinate_tool_call_label": "Search\nissues\rnow"}),
+            arguments: serde_json::json!({"__tool_call_label": "Search\nissues\rnow"}),
             result: None,
         };
         let mut lines = Vec::new();

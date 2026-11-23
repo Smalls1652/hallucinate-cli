@@ -472,7 +472,7 @@ mod tests {
 
         let first_body = format!(
             "data: {}\n\ndata: [DONE]\n",
-            json!({"choices":[{"delta":{"reasoning_content":"secret-thinking", "tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"shell","arguments":"{\"__hallucinate_tool_call_label\":\"Run command\",\"command\":\"printf '%s%s' tool- secret\"}"}}]},"finish_reason":"tool_calls"}]})
+            json!({"choices":[{"delta":{"reasoning_content":"secret-thinking", "tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"shell","arguments":"{\"__tool_call_label\":\"Run command\",\"command\":\"printf '%s%s' tool- secret\"}"}}]},"finish_reason":"tool_calls"}]})
         );
         let second_body = format!(
             "data: {}\n\ndata: [DONE]\n",
