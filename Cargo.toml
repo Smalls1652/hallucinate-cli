@@ -31,15 +31,15 @@ hallucinate-session = {
     registry = "smalls-personal"
 }
 
-anyhow = "1.0.104"
-clap = { version = "4.6.7", features = ["derive", "env", "string"] }
-clap_complete = "4.6.11"
-keyring-core   = "1.0.0"
+anyhow = "1.0.105"
+clap = { version = "4.6.9", features = ["derive", "env", "string"] }
+clap_complete = "4.6.12"
+keyring-core   = "1.1.0"
 nix = { version = "0.32.0", default-features = false, features = ["signal"] }
 minijinja = { version = "3.1.0", features = ["serde"] }
 ratatui = { version = "0.30.2", features = ["unstable-rendered-line-info"] }
 reqwest = { version = "0.13.5", features = ["json", "stream"] }
-rmcp = { version   = "3.9.0", features = ["client", "reqwest", "transport-child-process", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"], default-features = false }
+rmcp = { version   = "3.11.0", features = ["client", "reqwest", "transport-child-process", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"], default-features = false }
 rpassword = "7.5.5"
 schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive", "rc"] }
@@ -59,10 +59,10 @@ comrak = "1.0.0"
 
 # Config / paths
 directories = "6.0.0"
-uuid = { version = "1.29.2", features = ["v4", "serde"] }
+uuid = { version = "1.29.3", features = ["v4", "serde"] }
 
 # Agent core
-regex = "1.13.1"
+regex = "1.13.2"
 glob = "0.3.4"
 chrono = { version = "0.4.45", features = ["serde"] }
 shellexpand = "3.1.2"
@@ -70,12 +70,12 @@ shellexpand = "3.1.2"
 # Logging
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-toml = "1.2.1"
+toml = "1.2.2"
 
 # Testing
 mockito = "1.7.2"
 
 # Keyrings
-apple-native-keyring-store = "1.0.2"
+apple-native-keyring-store = "1.0.3"
 zbus-secret-service-keyring-store = "1.0.1"
 windows-native-keyring-store = "1.1.0"
